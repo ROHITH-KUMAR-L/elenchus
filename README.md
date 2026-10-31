@@ -1,3 +1,5 @@
+Design stage. See docs/architecture.md for the current design.
+
 # SAST and DAST Correlation
 
 CyberForge hackathon entry. Spec: [docs/prd.md](docs/prd.md). Agent rules: [AGENTS.md](AGENTS.md). Build order: [docs/implementation-plan.md](docs/implementation-plan.md). Who owns what: [docs/repo-structure.md](docs/repo-structure.md), [CONTRIBUTING.md](CONTRIBUTING.md).

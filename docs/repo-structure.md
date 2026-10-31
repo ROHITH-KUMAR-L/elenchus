@@ -1,3 +1,5 @@
+STALE: superseded by docs/architecture.md. Update after the code runs.
+
 # Repo structure and ownership
 
 The authoritative ownership map. Check here when unsure who owns what. Rules for working within it: [CONTRIBUTING.md](../CONTRIBUTING.md).

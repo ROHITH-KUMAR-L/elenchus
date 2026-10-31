@@ -1,3 +1,5 @@
+STALE: superseded by docs/architecture.md. Update after the code runs.
+
 # Decisions
 
 ADR-style. Status: proposed unless marked otherwise. Nothing here is validated by a run.
