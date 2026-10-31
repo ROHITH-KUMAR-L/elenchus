@@ -2,8 +2,10 @@
 
 Rules for AI coding agents working in this repo.
 
-- Ownership: the split in [docs/implementation-plan.md](docs/implementation-plan.md). Person A owns stages 1, 2 and 3, the back-guided search, the flow engine and the fixtures. Person B owns stages 0, 4, 5, 6 and 7, the `expected_pairs` file, the judging profile and fixture review. `common/` and `infra/` are joint. Directory ownership map: [docs/repo-structure.md](docs/repo-structure.md). Respect directory ownership.
-- Never edit the schema in `common/` without flagging it as a joint change.
+- Order of work: the build stages in [docs/implementation-plan.md](docs/implementation-plan.md#build-stages), `BS0` onward. There is no per-person split. Do not start a build stage until the one before has passed its exit test and the output is in `docs/STATE.md`.
+- "Stage" alone means a pipeline stage, 0 to 7. Build stages are always written `BS<n>`.
+- Module boundary: [docs/repo-structure.md](docs/repo-structure.md). Static code and probe or engine code meet only through `common/` and `cli/`.
+- Never edit the schema in `common/` without flagging it as a contract change.
 
 ## Languages
 
@@ -18,26 +20,33 @@ Static-guided dynamic testing. Static analysis produces hypotheses. OWASP ZAP pe
 ## Linking rules
 
 - A directed hit is linked by hypothesis lineage. The `hypothesis_id` travels through the probe into the evidence. Do not link by matching afterwards.
+- One ZAP job covers one `(route, method)`, unless `BS0` chose a fallback. The `ProbeJob` record, with its `hypothesis_ids`, is written before the scan starts.
+- Attribute from the request, not the alert. The param comes from a diff against the seed request, the CWE from the rule ID. Alerts are hints only. If the diff does not show exactly one param, the hit stays unlinked. Never manufacture lineage.
+- Every candidate hit is replayed by the coordinator. The oracle on the replay is the verdict. A candidate not replayed is not confirmed.
 - Never write "true by construction" or "toward zero" about wrong links.
 - A firing probe proves that route, param and CWE are exploitable. It does not prove which sink on that route is the cause.
 - Several hypotheses in one `(route, param, CWE)` group means `link_status: ambiguous`. Lower the confidence. Attach every candidate sink as an alternative. Pick one primary by the stated rule.
 - Wrong links come from same-route sink ambiguity. Report how often it happens. Do not hide it.
 - `TRACE` evidence needs the optional log tail. It is not available in judging mode. Do not rely on it.
+- `RESPONSE_TRACE` evidence comes from a stack trace in a replay response. It can make an ambiguous link `unique` only when the deepest project frame is in the enclosing method of exactly one candidate. A frame in a method with no known sink lowers confidence and is logged as a catalogue gap. Frame parsing stays behind the adapter.
 - A third sink that was never found can still produce a misleading link. Say so where it matters.
 - `link_status` (`unique` or `ambiguous`) and `link_origin` (`directed`, `sweep` or `back_guided`) are both required once a link exists. They are orthogonal. `link_origin` alone would hide ambiguity on sweep links.
 - Confidence is a float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Bands and scoring weights live in config. Cut points are tuned on `expected_pairs` runs.
-- `confidence_reasons` is a list of `{factor, delta}`. The engine (Person B) writes it. Producers never set it. It is a contract field added before the freeze.
+- `confidence_reasons` is a list of `{factor, delta}`. The engine writes it. Producers never set it. It is a contract field added before the freeze.
 - Back-guided confidence starts at `backguided.start_confidence` and loses `backguided.hop_penalty` per unresolved hop. Below `backguided.min_confidence_to_confirm` the finding stays Runtime-only. A conflict case usually falls below it and exports as Runtime-only with `conflict: true`.
 - Header counting follows config `header.count_mode` `[TODO: confirm at kickoff against the answer key]`.
-- Back-guided search (Should, owner Person A) is for runtime-only hits with no hypothesis. It runs in relaxed mode only: call name alone when the receiver type is unresolved, up to `backguided.max_unresolved_hops` unresolved hops, with `unresolved_hops` and `match_mode: relaxed` recorded. Strict mode is the default `match_mode`. It matches only when the receiver type resolves, and the stage 2 hypotheses already cover it.
+- Back-guided search (Should) is for runtime-only hits with no hypothesis. It runs in relaxed mode only: call name alone when the receiver type is unresolved, up to `backguided.max_unresolved_hops` unresolved hops, with `unresolved_hops` and `match_mode: relaxed` recorded. Strict mode is the default `match_mode`. It matches only when the receiver type resolves, and the stage 2 hypotheses already cover it.
 - One candidate sink gives `link_origin: back_guided`, `link_status: unique`, low confidence. Label it Confirmed only at or above `backguided.min_confidence_to_confirm`. Several candidates stay Runtime-only, `ambiguous`, with `candidate_sinks` as hints. Export no Confirmed link for them.
 - `backguided.enabled` stays off until measured. Measure with it on and off against `expected_pairs`. If it adds no correct links, or adds any wrong link, leave it off.
-- Conflict rule: an `ORACLE` hit on a `(route, param, CWE)` that matches a `tested_negative` sink is replayed up to `replay.count` times. At least `replay.min_hits` firing: un-suppress, clear `tested_negative`, set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`, record the reason "directed probes negative, positive hit on replay", lower the confidence, move it to the primary report. At or above `backguided.min_confidence_to_confirm`: label Confirmed. Below it: label Runtime-only, keep `conflict: true` and `link_status: ambiguous`, list the sink in `candidate_sinks` as a hint, export no Confirmed link. Not reproduced: keep `tested_negative`, set `oracle_flaky: true` on the evidence entry, make no link, leave the hit Runtime-only.
+- Conflict rule: an `ORACLE` hit on a `(route, param, CWE)` that matches a `tested_negative` sink or a `sanitised` `safe_pattern` sink is replayed up to `replay.count` times. A hit on a `constant` sink never links to it: the sink stays `safe_pattern`, and the hit stays Runtime-only with `conflict: true` and the sink in `candidate_sinks`. At least `replay.min_hits` firing: un-suppress, clear the status, set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`, record the reason "directed probes negative, positive hit on replay", lower the confidence, move it to the primary report. At or above `backguided.min_confidence_to_confirm`: label Confirmed. Below it: label Runtime-only, keep `conflict: true` and `link_status: ambiguous`, list the sink in `candidate_sinks` as a hint, export no Confirmed link. Not reproduced: keep the status, set `oracle_flaky: true` on the evidence entry, make no link, leave the hit Runtime-only.
 - Never run back-guided search on, or force-link, header, cookie or info-leak findings.
 
 ## Static stage rules
 
 - The own sink finder (tree-sitter plus a per-CWE YAML catalogue) finds sinks. The own secrets and crypto pass finds hard-coded secrets and weak crypto. Rules live in YAML. The call graph gives the route and the call path.
+- Catalogue entries have a `kind`: `call`, `return_value`, `annotation`, `template` or `xml`. Anchor entries on low-level APIs. Each entry names the API it came from.
+- `arg_shape` is a syntax check, not dataflow: `constant`, `sanitised` or `dynamic`. Anything the check cannot read is `dynamic`. Never widen `constant` or `sanitised` past the rules in [docs/architecture.md](docs/architecture.md).
+- Recall comes from catalogue growth and measurement. M1 and M2 recall does not depend on the flow engine. The PRD's detection figures are targets. Never state them as results.
 - No pipeline stage may import or require Semgrep. Semgrep is an optional adapter, off by default, enabled by `semgrep.enabled`. The pipeline and its tests must pass with Semgrep not installed.
 - Semgrep is allowed as a fallback sink source for a non-Java target, as a cross-check that marks corroborated sinks, and as an offline benchmark yardstick.
 - The static stage does not say which param reaches the sink. Never fill `param` from static output. Fill `candidate_params` with all params of the route. The oracle resolves `param`.
@@ -66,10 +75,13 @@ AI measurement: run VulnerableApp with and without AI. Report the recall and lin
 
 ## Suppressed export rule
 
-- A finding with `status: tested_negative` is suppressed. Keep it in Postgres.
+- A finding with `status: tested_negative` or `safe_pattern` is suppressed if its CWE is in `export.suppress_cwes`. Keep it in Postgres.
 - Exclude suppressed findings from the primary report and the graded export. Write them to the separate suppressed file.
-- Status is assigned in this order: oracle fired (linked); no route reaches the sink (`no_http_path`); any candidate param `blocked_by_validation` with no oracle fired (`blocked`); every param probed, baseline valid, all payload families tried within budget (`tested_negative`); otherwise `untested`.
-- Config flags: `export.include_suppressed` and `export.suppress_no_http_path`. Values: [Config reference in docs/architecture.md](docs/architecture.md#config-reference).
+- Status is assigned in this order: oracle fired (linked); `arg_shape` is `constant` or `sanitised` (`safe_pattern`); no route reaches the sink (`no_http_path`); any candidate param `blocked_by_validation` with no oracle fired (`blocked`); the adequacy test passes (`tested_negative`); otherwise `untested`.
+- The adequacy test must prove the probe reached the code. Definition: [docs/architecture.md](docs/architecture.md#adequacy-test). Budget spent, params incomplete or a job after drift can only give `untested`.
+- Blocked or untested never means safe. Never write it as safe in any report.
+- If `wrong_suppression_count` is above zero for a CWE, remove that CWE from `export.suppress_cwes`.
+- Config flags: `export.include_suppressed`, `export.suppress_cwes` and `export.suppress_no_http_path`. Values: [Config reference in docs/architecture.md](docs/architecture.md#config-reference).
 - `no_http_path` has a reason code: `no_callers` or `walk_unresolved`. Only `no_callers` findings in injection CWEs are ever eligible for suppression. Never suppress `walk_unresolved` or secrets/crypto findings.
 - The SAST grader payload includes primary and alternative sinks (`export.include_alternatives`). In the primary report, alternatives are attributes of the primary issue, not separate issues.
 - Secrets and crypto findings (CWE-798 and similar) are Code-only by nature. Never label them `no_http_path`.
@@ -86,6 +98,24 @@ The organisers run the target. In judging mode:
 - ZAP active scanning on, with a bounded stage budget. ZAP is the probe engine, not an optional judging-mode adapter.
 - Semgrep off.
 - `judging.profile` forces `semgrep.enabled`, `logtail.enabled` and `ai.enabled` to false, requires ZAP active scanning, and allows no target restarts.
+- State guard: jobs run in risk order (GET, POST, PUT and PATCH, DELETE; routes with destructive SQL literals last). After each state-changing job, re-check GET routes. On drift, stop state-changing jobs, mark the rest `untested` and report it. It limits damage. Never claim it prevents it.
+- Budget is a deadline. Directed jobs run first, sweep with the time left, and verification replay has a reserved budget. Work not reached is reported as `untested`.
+
+## Measurement
+
+Definitions: [docs/architecture.md](docs/architecture.md#measurement).
+
+- Report recall per CWE, with each miss listed and tagged.
+- Always print the supported-CWE score beside the raw score. Never show the supported score alone.
+- `attribution_rate` and `attribution_accuracy` are both required. Do not claim lineage works without them.
+- The decoy plan in [docs/implementation-plan.md](docs/implementation-plan.md#decoy-test-plan) must pass, including every vulnerable twin.
+
+## Generality
+
+- Never put a VulnerableApp route, module or class name in tool code or the catalogue. A CI test enforces this.
+- Record any catalogue change made after the freeze. A change based on the test app's results is recorded as fitted.
+- A VulnerableApp score does not show the unseen-app target. Do not imply it.
+- A hold-out repo may be used for static stages only.
 
 ## Schema first
 
@@ -108,8 +138,12 @@ The organisers run the target. In judging mode:
 ## Safety
 
 - DAST targets `localhost` only. Never point the probe engine, ZAP or any scanner at another host. That is disqualification.
-- Scan only the organisers' app or VulnerableApp, run locally from their Docker Compose.
-- Probe only routes in the route table. Ensure `X-Elenchus-Probe` and a canary id are attached to each ZAP-generated probe request; verify header/canary propagation rather than assuming it. Keep a replay log with the originating ZAP scan job and hypothesis id.
+- Scan only the organisers' app or VulnerableApp, run locally from their Docker Compose. Scanning any other app dynamically is not allowed, including a hold-out repo.
+- Probe only routes in the route table. Build the ZAP context from exact route patterns, not the whole base path.
+- The scan policy is an allow-list of rule IDs from `zap.rule_map.<cwe>`. Out-of-band and SSRF rules stay off.
+- Replays never follow redirects. At run end, check ZAP's history for any host that is not loopback, and fail loudly if one appears.
+- Ensure `X-Elenchus-Probe` and a canary id are attached to each ZAP-generated probe request; verify header/canary propagation rather than assuming it. A message without them is not evidence. Keep a replay log with the originating ZAP scan job and hypothesis id.
+- ZAP's API names and behaviours are unverified until `BS0` has run against the pinned version.
 - Probes are safe test requests, as the PRD says for B-1.
 
 ## Our infrastructure
@@ -122,7 +156,7 @@ The organisers run the target. In judging mode:
 
 ## Scope
 
-- Time is not a constraint. Order work by dependency, not by clock. Milestones M1 to M3 replace hour gates.
+- Time is not a constraint. Order work by dependency, not by clock. Build stages set the order. Milestones M1 to M3 are gates over them.
 - CLI only. Do not build a UI, API, server, login or cloud deployment.
 - No automatic code fixes.
 - One target framework per run.
@@ -156,7 +190,8 @@ Context handoff. Before the context window runs out, write the current system st
 | [docs/prd.md](docs/prd.md) | Organisers' spec. Do not edit. |
 | [docs/architecture.md](docs/architecture.md) | Pipeline, judging mode, ambiguity, export, residual flaws, topology |
 | [docs/finding-schema.md](docs/finding-schema.md) | Internal finding record, hypothesis shape, SARIF mapping |
-| [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones M1 to M3, tiers, split, fixtures |
+| [docs/implementation-plan.md](docs/implementation-plan.md) | Build stages, milestones, fixtures, decoy plan |
+| [docs/repo-structure.md](docs/repo-structure.md) | What lives where, module boundary |
 | [docs/STATE.md](docs/STATE.md) | Current system state. Read at session start. Overwritten at each save. |
 | [docs/decisions.md](docs/decisions.md) | Decisions. Stale until the code runs. |
 

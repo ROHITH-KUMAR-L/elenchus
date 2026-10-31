@@ -2,6 +2,8 @@
 
 Status: target-state description. The stages below are a plan. Nothing here is claimed as built, tested or measured by this revision. How the code in the repo relates to this design: [implementation-plan.md](implementation-plan.md).
 
+"Stage" in this doc means a pipeline stage, 0 to 7: what the tool does at run time. Build stages, `BS0` onward, are the order we build it in. They live in [implementation-plan.md](implementation-plan.md#build-stages).
+
 ## Core idea
 
 Static-guided dynamic testing. Static analysis produces hypotheses. Dynamic testing probes them.
@@ -19,7 +21,7 @@ What this does and does not buy:
 - The target app runs from its own Docker Compose on our machine: the organisers' app at judging, OWASP VulnerableApp for practice.
 - Our tool is a Python CLI. It reads the target's source folder and scans the target on `localhost`.
 - DAST targets `localhost` only. Any other host is disqualification.
-- ZAP performs active scans against the already-running target. Use an isolated, disposable test instance; active requests may change application state.
+- ZAP performs active scans against the already-running target. Use an isolated, disposable test instance; active requests may change application state. Localhost-only is a scope limit, not a sandbox. See [State guard](#state-guard).
 - The ZAP API is bound to host loopback and is controlled locally by the CLI coordinator.
 - One target framework per run.
 - Our own stack (CLI + Postgres) runs separately from the target. See [Topology](#topology).
@@ -35,9 +37,9 @@ flowchart TD
     sta["2 Static: own sink finder, secrets/crypto pass, call graph walked backward to routes"]
     semgrep["Semgrep adapter (optional, off by default)"]
     hyp["3 Hypotheses: directed and sweep"]
-    probe["4 ZAP active probe engine + project coordinator: baseline gate, differential oracles, canary, replay log"]
+    probe["4 ZAP active probe engine + project coordinator: scheduler, baseline gate, request attribution, verification replay, differential oracles, replay log"]
     corr["5 Correlation: evidence, link_status, link_origin, dedupe"]
-    ver["6 Verify: status for findings with no oracle hit (tested_negative, blocked, untested, no_http_path)"]
+    ver["6 Verify: status for findings with no oracle hit (safe_pattern, no_http_path, blocked, tested_negative, untested)"]
     out["7 Output: labels, scoring, Postgres, CLI, SARIF"]
     src --> idx
     idx -- route table --> pre
@@ -76,10 +78,11 @@ Stage numbers are labels, not run order. The route table (stage 1, static, no ne
 |---|---|---|
 | Detect the context path | Must | See below. Never guessed silently. |
 | One baseline request per mapped route | Must | Record 404, 401, 403, 400 and other statuses |
-| Coverage report | Must | Routes mapped, reached, blocked. The context path result. The count of call sites that matched a catalogue name with an unresolved receiver. |
+| Loopback check | Must | Stop if `target.base_url` does not resolve to loopback. |
+| Coverage report | Must | Started here, finished after stage 6. See [Coverage report](#coverage-report). |
 | Source-revision check | Best-effort | Works only if the app exposes git info, e.g. `/actuator/info` |
-| `/actuator/mappings`, `/v3/api-docs` route discovery | Best-effort | Often not exposed |
-| Auth and CSRF detection | Best-effort | |
+| `/actuator/mappings`, `/v3/api-docs` route discovery | Best-effort | Often not exposed. New routes enter the route table with `route_origin: discovered`. They have no handler, so they are sweep-only and can only produce Runtime-only hits. |
+| Auth and CSRF detection | Best-effort | Records 401 and 403 routes. Sends credentials only if `target.auth.*` is set. |
 
 None of the best-effort items is part of the spine.
 
@@ -95,19 +98,48 @@ Inputs and detection:
 
 Own code, tree-sitter-java.
 
-- Route table: route template, method, handler file, function, line span.
-- Param bindings: name, location, Java type.
-- Call graph, with dependency-injection and interface-to-implementation cases resolved where simple.
+- Route table: route template, method, handler file, function, line span, `route_origin` (`source` or `discovered`). Reads composed annotations and mappings inherited from superclasses and interfaces.
+- Param bindings: name, location, Java type. Covers `@RequestParam`, `@PathVariable`, `@RequestHeader`, `@CookieValue`, map getters, `getParameter`, and the fields of `@RequestBody` and `@ModelAttribute` DTOs read from source. Fields declared with Lombok are visible this way.
+- `params_status` per route: `complete`, `partial` or `unknown`. A route with custom binders, converters or a DTO type outside the source tree is not `complete`.
+- Call graph, multi-hop, with dependency-injection and interface-to-implementation cases resolved where simple.
 - Sink inventory.
+- Generated source folders are indexed when present in the source tree. Otherwise the gap is listed in coverage.
 - Unresolved calls are flagged. They are never dropped.
 
 ### Stage 2: Static (Must)
 
-- Own sink finder: tree-sitter plus a per-CWE YAML sink catalogue. It matches on call name and receiver type. No dataflow. Output: sink locations with `sink_id`.
+- Own sink finder: tree-sitter plus a per-CWE YAML sink catalogue. It matches on call name and receiver type. No dataflow. Output: sink locations with `sink_id` and `arg_shape`.
 - Own secrets and crypto pass: regex and entropy rules for hard-coded secrets (CWE-798), call-name rules for weak hashes and ciphers. Rules live in YAML.
 - The call graph is walked backward from each sink to its entry routes. Output per finding: `(route, CWE, sink_id, call_path)`.
 
 This gives route and call path. It does not say which param reaches the sink. The static stage never claims a param.
+
+Catalogue rules:
+
+- Each entry has a `kind`, because many Spring sinks are not calls:
+
+| `kind` | Matches | Example |
+|---|---|---|
+| `call` | Call name and receiver type | `Statement.executeQuery` |
+| `return_value` | A handler's returned string | `"redirect:" + url`, a `@ResponseBody` string |
+| `annotation` | An annotation value | A native query string |
+| `template` | Markup in a template file | `th:utext`, JSP expression output |
+| `xml` | A mapper file | MyBatis `${}` |
+
+- Anchor entries on low-level APIs. A wrapper inside the target's source is then still found through the sink inside it, and the backward walk reaches its callers. The remaining wrapper risk is third-party wrappers and unresolved call chains. Third-party wrappers get their own entries.
+- Each entry records the API it came from. No entry names a class, route or module of a test app.
+
+`arg_shape` is a syntax check on the sink's argument at the call site. It is not dataflow.
+
+| `arg_shape` | Rule | Effect |
+|---|---|---|
+| `constant` | A literal, a concatenation of literals and constants, or a local variable assigned exactly once from one of those | No directed hypothesis. Status `safe_pattern`. |
+| `sanitised` | The argument is a direct call to a sanitiser catalogued for that CWE and output context | No directed hypothesis. Status `safe_pattern`. |
+| `dynamic` | Anything else, including anything the check cannot read | Normal directed hypothesis |
+
+Unknown always means `dynamic`. The route is still swept, so a wrong `safe_pattern` can still be caught at run time by the [conflict rule](#conflict-positive-oracle-versus-a-suppressed-sink).
+
+Recall comes from catalogue growth and measurement, not from the flow engine. M1 and M2 recall does not depend on the flow engine. The PRD's 85% code-detection figure is a target, not a claim. See [Measurement](#measurement).
 
 Semgrep is not part of the pipeline. It is an optional adapter, off by default, enabled by the config flag `semgrep.enabled`. Uses:
 
@@ -128,36 +160,95 @@ Strict mode matches only when the receiver type resolves. Call sites that match 
 | Kind | Content | Purpose |
 |---|---|---|
 | Directed | `(route, CWE, sink_id, call_path)` with `candidate_params` = all params of the route | The probe tries each param. The oracle shows which one fires. |
-| Sweep | Every param by every supported class | Bugs static analysis missed |
+| Sweep | Every injectable param by every supported class | Bugs static analysis missed |
 
-Owner: Person A, both sets. Stage 3 emits one Hypothesis record type for both sets. The project coordinator turns each hypothesis into a ZAP active-scan job. Directed jobs are scoped to the hypothesis route, method, parameter and supported CWE scan policy where ZAP provides that precision. Sweep jobs scan supported route/parameter/class combinations without a static sink hypothesis.
+Stage 3 emits one Hypothesis record type for both sets. Sweep skips a param whose declared Java type cannot carry a payload: numeric, boolean, UUID or enum. Directed hypotheses never skip it. Skipped params are listed in coverage.
+
+Hypotheses are not jobs. The coordinator groups hypotheses into ZAP jobs in stage 4.
 
 ### Stage 4: ZAP-backed probe engine
 
-OWASP ZAP's active scanner generates and sends attack requests. Project-owned code coordinates ZAP through its local API, applies the baseline gate, associates each scan job with its originating hypothesis, captures request/response evidence, and applies deterministic oracles. A ZAP alert by itself is not a runtime verdict.
+OWASP ZAP's active scanner generates and sends attack requests. Project-owned code coordinates ZAP through its local API, applies the baseline gate, records which hypotheses each job covers, attributes each request, replays candidate hits and applies deterministic oracles. A ZAP alert by itself is not a runtime verdict.
 
 | Part | Behaviour |
 |---|---|
-| Job construction | One controlled ZAP active-scan job per hypothesis or sweep unit, with route, method, candidate parameter and supported CWE scan policy recorded before execution. |
+| Job construction | One ZAP active-scan job per `(route, method)`. Jobs run one at a time. Before a job starts, the coordinator records a `ProbeJob`: job id, route, method, covered `hypothesis_ids`, CWEs, seed request and canary. |
+| Scan scope | The ZAP context is built from exact route-table patterns, not the whole base path. No recursion. Input vectors are limited to the param locations in the index. |
+| Scan policy | An allow-list. Only the rule IDs in `zap.rule_map.<cwe>` for the job's CWEs are on. Out-of-band and SSRF rules stay off. |
 | Typed seeds | Supply valid route and parameter values from the index. ZAP generates attack variants. AI repair is Should, only after non-AI seeds work. |
-| Baseline gate | Start an active scan only if the parameter baseline returns the expected status. Otherwise record `blocked_by_validation` with a sub-code: `validation` (400, 422), `auth` (401, 403), `not_found` (404), `server_error` (5xx), `other`. |
-| Hypothesis lineage | Keep a coordinator-side mapping from each ZAP scan job to its `hypothesis_id`. Copy that ID to probe evidence only when the alert's route, method, parameter and CWE fit the job. Do not infer a directed link from a broad alert after the fact. |
-| Canary id | Associate a unique canary with each job and include it in relevant requests where ZAP's API/add-on configuration permits. Validate propagation before relying on canary-based oracles. |
-| Probe header | Add `X-Elenchus-Probe` to every request where ZAP can reliably propagate it through active-scan mutations. Validate this behavior before treating the header as guaranteed. |
-| Replay log | Capture full request/response messages for alerts and their originating scan-job metadata. Store references and redact secrets. |
+| Baseline gate | Take a fresh baseline right before each job. A param whose baseline fails is excluded from the job and recorded as `blocked_by_validation` with a sub-code: `validation` (400, 422), `auth` (401, 403), `not_found` (404), `server_error` (5xx), `other`. If every param fails, the job does not start. |
+| Hypothesis lineage | The `ProbeJob` record is written before the scan, so lineage does not depend on matching afterwards. A hit's hypotheses are the job's hypotheses with the hit's CWE and param. |
+| Request attribution | Every message is attributed from the request itself. See [Request attribution](#request-attribution). |
+| Verification replay | Every candidate hit is replayed by the coordinator after its job ends. The project oracle's result on the replay is the verdict. See [Verification replay](#verification-replay). |
+| Probe header | `X-Elenchus-Probe: <job canary>` on every ZAP request, set by a Replacer rule that changes per job `[verify in BS0; fallback: an HTTP Sender script]`. A message without the header is not evidence. |
+| Canaries | The job canary in the header ties traffic to the job. ZAP's own payloads do not contain our canary, so the payload canary is added only at verification replay. |
+| Replay log | Capture full request/response messages for candidate hits and replays, with job id, scan id, rule id and hypothesis ids. Store references and redact secrets. |
 | Header and cookie checks | Project-owned deterministic checks over responses observed by ZAP. Covers the planted runtime-only class and needs no sink link. |
-| Session manager | Should |
+| Auth | Optional `target.auth.*`: a static header or cookie, value read from an environment variable, sent by a Replacer rule. Without it, auth-gated routes are `blocked` with sub-code `auth`. Login automation stays with the session manager (Should). |
+| Session manager | Should. Moves to M2 only if kickoff shows the app needs a login. |
 | App-log tail | Could. Never in judging mode. |
 
-Oracles are differential: each compares a ZAP-captured probe response with the route/parameter baseline. An alert without required response evidence is not confirmed. ZAP scans the locally running target; active scans can change application state, so use a disposable target instance and test data.
+Oracles are differential: each compares a probe response with the route/parameter baseline. An alert without required response evidence is not confirmed.
 
-ZAP may not natively expose a one-to-one mapping from every generated mutation to its originating hypothesis. The coordinator must isolate or serialize jobs and validate alert attribution. If an alert cannot be assigned to one job and parameter, record it as an unlinked sweep/runtime hit or ambiguous result; never manufacture directed lineage. Implementing and testing this adapter is part of stage 4, not a feature verified by the current runner.
+#### Request attribution
+
+ZAP alerts do not carry a `hypothesis_id`, so alerts are not the source of attribution. For each finished job, the coordinator reads every message through `ascan/view/messagesIds` and:
+
+1. Drops the message if the probe header or job canary is missing, or if the URL does not normalise to the job's route.
+2. Finds the **param** by diffing the request against the job's seed request.
+3. Finds the **CWE** from the rule ID in `X-ZAP-Scan-ID` (ZAP's inject-plugin-id option), through `zap.rule_map.<cwe>`.
+4. Runs the project oracle for that CWE on the response. An oracle match or a ZAP alert on the message makes it a candidate hit. Alerts are hints only.
+
+If the diff shows zero params or more than one, the message cannot support a directed link. A hit from it stays unlinked. Never manufacture directed lineage.
+
+A candidate on a CWE or param with no directed hypothesis in the job is a sweep hit.
+
+This design is unverified until `BS0` passes. Fallback if `BS0` shows that messages or rule IDs cannot be attributed: one job per `(route, method, param)`, with the other params excluded. That costs much more of the time budget, so the schedule below is re-tuned.
+
+#### Verification replay
+
+- Replay each candidate up to `replay.count` times through `core/action/sendRequest`, with redirects off, the probe header on and no other job running.
+- It counts as confirmed when the oracle fires on at least `replay.min_hits` replays.
+- The coordinator adds the payload canary to ZAP's attack string where the oracle needs it, and sends boolean pairs and timing repeats itself. This is why timing is measured with no other traffic.
+- A candidate that does not reproduce gets `oracle_flaky: true` in the replay log and creates no hit.
+- Replays use the reserved replay budget. A candidate not replayed before that budget ends is not confirmed. Its finding stays `untested`, and coverage counts it.
+
+#### Scheduler
+
+The budget is a deadline, not a job count, because job durations vary. Values: [Config reference](#config-reference).
+
+1. **Pass 1:** routes with directed hypotheses, using only the rules for those CWEs, at `zap.attack_strength.directed`.
+2. **Pass 2:** sweep the remaining classes on every route, with the time left, at `zap.attack_strength.sweep`. Skip any `(route, param, CWE)` already confirmed.
+
+Within each pass, order follows the [state guard](#state-guard).
+
+- The coordinator stops a job at `probe.max_job_seconds` with `ascan/action/stop`. ZAP's own scan limit is in whole minutes, so it is too coarse to rely on.
+- `probe.max_jobs` is a safety limit only.
+- Jobs not run are recorded in coverage. Their findings can only be `untested`, never `tested_negative`.
+- Whatever the budget does not reach is reported as a gap. A missed job is never reported as a clean result.
+
+#### State guard
+
+Judging allows no restarts, and active scans can change data mid-run. A read-only rule would skip every POST bug, and a reset would break the no-restart rule, so the rule is risk ordering plus a stop condition.
+
+1. Order jobs: GET, then POST, then PUT and PATCH, then DELETE.
+2. Within that order, run last any route whose static findings hold an `UPDATE`, `DELETE`, `DROP` or `TRUNCATE` literal.
+3. After each state-changing job, re-request up to `probe.drift_routes` GET routes that had a valid baseline.
+4. On drift (a route that was valid now returns 5xx or 404): stop state-changing jobs, mark the rest `untested`, and report the drift in coverage.
+5. Never assign `tested_negative` to a finding probed after drift.
+
+This limits damage. It does not prevent it: a tautology payload can still change data. Practice mode may restart the target between runs. Judging mode never does.
+
+#### Scan safety checks
+
+- At run end, compare the hosts in ZAP's history with loopback. Any other host fails the run loudly and is reported. An open-redirect payload that gets followed is the case this guards against.
+- Replays never follow redirects.
 
 | Class | Oracle |
 |---|---|
 | SQL injection | Error signature, boolean pair, or timing with repeats |
-| XSS | Content type and reflection context: canary reflected unescaped in an HTML context |
-| Command injection | Timing with repeats |
+| XSS | Content type and reflection context: payload canary reflected unescaped in an HTML context |
+| Command injection | Output marker first, timing with repeats as the fallback |
 | Path traversal | File-content marker `[proposed: a Linux passwd line pattern, since no canary file can be planted in the organisers' target]` |
 | Open redirect | `Location` header host |
 
@@ -167,7 +258,7 @@ ZAP is the required active-scan engine in practice and judging mode. Its passive
 
 ### Stage 5: Correlation
 
-Evidence types: `PATH`, `ORACLE`, `TRACE`, `FAMILY`. Definitions in [finding-schema.md](finding-schema.md#linking-and-ambiguity). `TRACE` exists only when the optional log tail runs. It is not available in judging mode.
+Evidence types: `PATH`, `ORACLE`, `TRACE`, `RESPONSE_TRACE`, `FAMILY`. Definitions in [finding-schema.md](finding-schema.md#linking-and-ambiguity). `TRACE` exists only when the optional log tail runs. It is not available in judging mode.
 
 After an oracle fires, hypotheses are grouped by `(route, param, CWE)`.
 
@@ -187,7 +278,15 @@ Two link fields. Both are required and orthogonal.
 
 - Primary rule `[proposed: more specific catalogue match first, then shorter call path, then source order; Semgrep corroboration counts only if the adapter ran]`. A match on receiver type and call name is more specific than a match on call name alone `[proposed meaning]`.
 - `TRACE` resolves ambiguity when present.
-- Sweep hits (oracle fired, no directed hypothesis): matched to a static finding by route and CWE with `link_origin: sweep`, lower confidence. Otherwise see [Back-guided static search](#back-guided-static-search).
+- `RESPONSE_TRACE` can resolve ambiguity, including in judging mode. If a verification replay's response holds a stack trace, the adapter's frame parser turns it into generic frames, and correlation compares them with the group's sinks. Correlation itself stays framework-free.
+
+| Stack trace result | Effect |
+|---|---|
+| The deepest project frame is in the enclosing method of exactly one candidate | That candidate is primary. `link_status: unique`. |
+| The deepest project frame is in a method with no known sink | No upgrade. Lower confidence. Logged as a catalogue gap. This partly addresses the third-sink flaw. |
+| No stack trace, or several candidates in that method | No change. The link stays as it was. |
+
+- Sweep hits (oracle fired, no directed hypothesis): matched to a static finding by route and CWE with `link_origin: sweep`, lower confidence. Sinks with status `safe_pattern` are not matched this way; the conflict rule handles them. Otherwise see [Back-guided static search](#back-guided-static-search).
 - Confidence is a float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Bands and weights live in config ([Config reference](#config-reference)). The cut points are tuned on `expected_pairs` runs. Each factor is stored in `confidence_reasons`, a list of `{factor, delta}` written by the engine.
 - `sink_id` for the Must set is `(file, enclosing_method, start_line, start_col)`. Refining it to `(method, call-site ordinal, arg index)` is Could.
 - Dedupe key is `(sink_id, cwe)` `[proposed]`. The resolved param is an attribute. Several firing params on one sink are several evidence entries on one issue. Findings with no `sink_id` use the fallback keys in [finding-schema.md](finding-schema.md#contract-logic). Header findings follow config `header.count_mode` `[TODO: confirm at kickoff against the answer key]`.
@@ -195,7 +294,7 @@ Two link fields. Both are required and orthogonal.
 
 ### Back-guided static search
 
-Tier: Should. Owner: Person A. Config `backguided.enabled`, off until measured. Values: [Config reference](#config-reference).
+Tier: Should. Config `backguided.enabled`, off until measured. Values: [Config reference](#config-reference).
 
 Purpose: for a runtime-only hit (sweep, oracle fired, no hypothesis), try to attach a code location.
 
@@ -220,7 +319,7 @@ Rules:
 - With the defaults in the Config reference, one unresolved hop leaves the confidence at or above the threshold. Two or more fall below it, and the finding stays Runtime-only.
 - Never runs for header, cookie or info-leak findings.
 - A back-guided link never overrides a directed link on the same issue `[proposed]`.
-- Producer entry: `run_back_guided(target, route_map, runtime_only_findings)`. Person A implements it, reading A's index and sink catalogue. The CLI calls it after the probe stage and passes the result to correlation `[proposed order]`. Person B consumes the resulting evidence through the cli seam.
+- Producer entry: `run_back_guided(target, route_map, runtime_only_findings)`. It reads the index and sink catalogue. The CLI calls it after the probe stage and passes the result to correlation `[proposed order]`.
 - Measurement: run VulnerableApp with it on and off against `expected_pairs`. If it adds no correct links, or adds any wrong link, leave it off.
 
 ### Stage 6: Verify and negative evidence
@@ -228,21 +327,42 @@ Rules:
 Status is assigned in this order:
 
 1. An oracle fired: the finding is linked. It has no unconfirmed status.
-2. No route reaches the sink: `no_http_path`, with a reason code.
-3. Any candidate param is `blocked_by_validation` and no oracle fired: `blocked`.
-4. Every candidate param probed, baseline valid, all payload families for the CWE tried within budget: `tested_negative`.
-5. Otherwise (budget spent or not attempted): `untested`.
+2. `arg_shape` is `constant` or `sanitised`: `safe_pattern`.
+3. No route reaches the sink: `no_http_path`, with a reason code.
+4. Any candidate param is `blocked_by_validation` and no oracle fired: `blocked`.
+5. The [adequacy test](#adequacy-test) passes: `tested_negative`.
+6. Otherwise (budget spent, not attempted, params incomplete, or probed after drift): `untested`.
 
 | `status` | Rule | Report |
 |---|---|---|
-| `tested_negative` | 4 | Suppressed (PRD bonus B-2) |
-| `no_http_path` | 2 | Primary report, Code-only, reason code shown. Suppressed only if eligible (below). |
-| `blocked` | 3 | Primary report, Code-only |
-| `untested` | 5 | Primary report, Code-only |
+| `safe_pattern` | 2 | Suppressed (PRD bonus B-2), if the CWE is in `export.suppress_cwes` |
+| `no_http_path` | 3 | Primary report, Code-only, reason code shown. Suppressed only if eligible (below). |
+| `blocked` | 4 | Primary report, Code-only |
+| `tested_negative` | 5 | Suppressed (PRD bonus B-2), if the CWE is in `export.suppress_cwes` |
+| `untested` | 6 | Primary report, Code-only |
 
-The per-param probe outcomes and the `blocked` sub-code are recorded in `unlinked_reason`.
+If the CWE is not in `export.suppress_cwes`, a `safe_pattern` or `tested_negative` finding keeps its status and stays in the primary report as Code-only.
+
+The per-param probe outcomes and the `blocked` sub-code are recorded in `unlinked_reason`. Blocked or untested never means safe.
 
 The adequacy logic and the suppressed file are M2. The suppressed file has real content in M2, not an empty placeholder.
+
+#### Adequacy test
+
+A negative result must prove the probe reached the code. `tested_negative` requires all of these:
+
+- `params_status` is `complete` for the route.
+- The job ran before any drift and was not stopped early.
+- Every candidate param has one of these two outcomes:
+
+| Param outcome | Rule |
+|---|---|
+| `adequate` | The baseline was valid, every rule in `zap.rule_map.<cwe>` mutated the param, and at least one mutated request got past validation (not 400, 401, 403, 404 or 422) |
+| `type_rejected` | The baseline was valid, every mutated request returned 400 or 422, and the declared Java type is numeric, boolean, UUID or enum |
+
+If every mutated request on any other param returns a rejection, the outcome is `blocked_by_validation`, sub-code `validation`.
+
+A negative result is not proof that a query is parameterised. It is measured by `wrong_suppression_count`: if the count is above zero for a CWE, remove that CWE from `export.suppress_cwes`. See [Measurement](#measurement).
 
 `no_http_path` reason codes:
 
@@ -255,15 +375,17 @@ The adequacy logic and the suppressed file are M2. The suppressed file has real 
 - PRD bonus B-2 names code that no URL can reach as a safe marker, so the flag exists. It stays off until measured.
 - Tradeoff: suppression cuts false alarms. It lowers code-detection recall if the probe missed a real bug. `[TODO: measure with the same protocol as export.include_alternatives (see STATE.md), then set the default.]`
 
-### Conflict: positive oracle versus tested_negative
+### Conflict: positive oracle versus a suppressed sink
 
-Case: an `ORACLE` hit matches the `(route, param, CWE)` of a sink marked `tested_negative`.
+Case: an `ORACLE` hit matches the `(route, param, CWE)` of a sink marked `tested_negative` or `safe_pattern`.
+
+A sink with `arg_shape: constant` cannot be the cause, because no input reaches its argument. The hit stays Runtime-only with `conflict: true`, the sink is listed in `candidate_sinks` as a hint, and the sink stays `safe_pattern`. The rest of this rule applies to `tested_negative` and to `arg_shape: sanitised`, where the sanitiser may not fit the output context.
 
 1. Replay the probe up to `replay.count` times.
-2. Fires in at least `replay.min_hits` replays: un-suppress the finding and clear `tested_negative`. Set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`. Record the reason "directed probes negative, positive hit on replay". Lower the confidence. Move it to the primary report. Then apply the threshold `backguided.min_confidence_to_confirm`, the same one used by back-guided search:
+2. Fires in at least `replay.min_hits` replays: un-suppress the finding and clear its status. Set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`. Record the reason "directed probes negative, positive hit on replay". Lower the confidence. Move it to the primary report. Then apply the threshold `backguided.min_confidence_to_confirm`, the same one used by back-guided search:
    - At or above it: label Confirmed, with `sink_id` set.
    - Below it: label Runtime-only. Keep `conflict: true` and `link_status: ambiguous`. Set `sink_id` to null and list the sink in `candidate_sinks` as a hint. Export no Confirmed link. The oracle hit is real, so it is not suppressed. It is not confident enough to claim a code location. A conflict case will usually fall below the threshold, so it usually exports as Runtime-only with `conflict: true`.
-3. Does not reproduce: keep `tested_negative`. Set `oracle_flaky: true` on that evidence entry. Create no link. The hit stays Runtime-only.
+3. Does not reproduce: keep the status. Set `oracle_flaky: true` on that evidence entry. Create no link. The hit stays Runtime-only.
 
 Rationale: a positive oracle is stronger evidence than a failed probe. One unconfirmed hit is not enough to override an adequately tested negative.
 
@@ -280,12 +402,76 @@ Rationale: a positive oracle is stronger evidence than a failed probe. One uncon
 |---|---|
 | Primary report | Every finding except `suppressed`. Alternative sinks are attributes of the primary issue, not separate issues. |
 | SAST grader payload | Every finding except `suppressed`. Primary and alternative sinks both, controlled by `export.include_alternatives`. |
-| Suppressed file | `tested_negative` findings, each with its reason. |
+| Suppressed file | Suppressed `tested_negative` and `safe_pattern` findings, each with its reason. |
+| Coverage report | What the run did not or could not test. See [Coverage report](#coverage-report). |
 | Postgres | Everything, including suppressed findings. |
 
 Config flag `export.include_suppressed` merges the suppressed findings into the graded export.
 
 Alternative sinks go in the grader payload because code detection is scored from that export, and the planted bug may be the alternative. `[TODO: measure false alarms and code detection with export.include_alternatives on and off on VulnerableApp against expected_pairs, then set the default.]`
+
+### Coverage report
+
+Every run writes one. It states this line at the top: "Blocked or untested does not mean safe."
+
+| Section | Contents |
+|---|---|
+| Routes | Mapped, discovered, unreached, and blocked by sub-code. The context path result. |
+| Params | Routes whose `params_status` is not `complete`. Params the tool could not build. Params the sweep skipped by type. |
+| Classes | Classes this run does not test: IDOR, business logic, blind SSRF, XXE, and any supported class turned off. |
+| Static gaps | Unresolved call sites that matched a catalogue name. `walk_unresolved` sinks. Generated code not indexed. Catalogue gaps seen in stack traces. |
+| Probe gaps | Jobs skipped by budget or drift. Jobs stopped at the limit. Candidates not replayed. |
+| Attribution | The measures in [Measurement](#measurement) for this run. |
+| Safety | Drift events. Hosts seen in ZAP history. |
+
+## Measurement
+
+Nothing below has been measured yet. Report each on VulnerableApp against `expected_pairs` and its expected-issues file. Record results in [STATE.md](STATE.md).
+
+| Measure | Definition | Rule |
+|---|---|---|
+| Recall per CWE | Planted issues found, per CWE, with each miss listed and tagged: `no_catalogue_entry`, `route_missing`, `walk_unresolved` or `param_unbuildable` | The stated baseline. The PRD's targets stay targets until this exists. |
+| Supported and raw score | Score on the CWEs we support, shown beside the raw score on all CWEs | Always print both. The supported score alone is not comparable to the PRD metric. |
+| `attribution_rate` | Candidate hits tied to one job and one param, divided by all candidate hits and alerts | Also list the unattributed ones. |
+| `attribution_accuracy` | Attributed hits whose route, param and CWE match `expected_pairs`, divided by attributed hits with a matching pair | A high rate can still be wrong, so both are required. |
+| `header_propagation_rate` | Messages with the probe header and job canary, divided by all job messages | Below 100% means the header claim fails. Report it. |
+| Ambiguity rate | Linked issues with `link_status: ambiguous`, divided by all linked issues, and how many `RESPONSE_TRACE` resolved | Report it. Do not hide it. |
+| `wrong_suppression_count` | Planted issues with a suppressed status, per CWE | Above zero: remove that CWE from `export.suppress_cwes`. |
+| Decoy result | Each decoy fixture's status against the required status in [the decoy plan](implementation-plan.md#decoy-test-plan) | Any decoy reported, or any vulnerable twin suppressed, is a failure. |
+| Time | Wall time per stage, jobs run, jobs skipped | Set budget values from this. |
+
+VulnerableApp has no secrets module. Secrets recall is measured on our own static fixtures, not on VulnerableApp.
+
+Reaching a target on VulnerableApp does not show generality. See [Generality](#generality).
+
+## Generality
+
+The PRD's unseen app is a separate proof. These rules apply before judging:
+
+| Rule | Enforcement |
+|---|---|
+| No VulnerableApp route, module or class name in tool code or the catalogue | A CI test fails on a match. The banned list is kept in the test. |
+| Every catalogue entry names the API it came from | Catalogue format and a CI test |
+| The catalogue is frozen before kickoff | Changes after the freeze are recorded in [STATE.md](STATE.md). A change based on the test app's results is recorded as fitted. |
+| No assumed context path, port, seed value or param name | Rehearse with only `--target` and the source path as inputs |
+| Hold-out check | Run stages 1 and 2 on another public Spring repo. **Static only.** Dynamic scanning is limited to the organisers' app and VulnerableApp. |
+
+No hold-out result proves the unseen-app target. It only exposes parser and catalogue assumptions early.
+
+## ZAP acceptance check
+
+Build stage `BS0`. These are assumptions until run against the pinned ZAP image and VulnerableApp. API names come from ZAP's documentation. Only part of that documentation could be read word for word, so each is checked here.
+
+| # | Must show | If it fails |
+|---|---|---|
+| 1 | `ascan/view/messagesIds` returns only the messages of one scan | Per-param jobs. Re-tune the schedule. |
+| 2 | `X-ZAP-Scan-ID` is on every active-scan request, and gives the rule | Run one job per `(route, method, CWE)`. Re-tune the schedule. |
+| 3 | A Replacer rule adds the probe header to active-scan traffic | HTTP Sender script |
+| 4 | Query, form, path and JSON params can each be mutated, and each diff finds the param | List the location as unsupported in coverage |
+| 5 | `core/action/sendRequest` can replay with redirects off | Replay directly from the coordinator, still logged |
+| 6 | The rule IDs in `zap.rule_map.<cwe>` exist in the pinned version | Correct the config |
+| 7 | Real time per job, at each attack strength, on VulnerableApp | Set the probe budgets. If the sweep cannot fit, the sweep gets cut first. |
+| 8 | ZAP history shows loopback hosts only after an open-redirect scan | Fix before any further scan |
 
 ## Judging mode
 
@@ -295,10 +481,11 @@ The organisers run the target at judging. A separate config profile applies.
 |---|---|
 | Log tail | Off |
 | Target restarts | None |
-| Required input | The target base URL: `--target` or an environment variable. The context path and routes are detected. |
+| State changes | [State guard](#state-guard): risk ordering, drift check, stop on drift |
+| Required input | The target base URL: `--target` or an environment variable. The context path and routes are detected. `target.auth.*` is optional. |
 | Profile | `judging.profile` forces `semgrep.enabled`, `logtail.enabled` and `ai.enabled` to false. ZAP active scanning remains enabled and bounded by the stage budget. |
 | Command | One |
-| Time budget per stage | `probe.stage_budget_seconds.<stage>` `[TODO: set values]` |
+| Time budget per stage | `probe.stage_budget_seconds.<stage>`. Proposed values in the Config reference. Final values come from `BS0` and `BS6` measurements. |
 | AI | Off |
 | ZAP | On: required active probe engine |
 | Semgrep | Off |
@@ -316,19 +503,32 @@ The single source for config names and default values. Other docs point here and
 | `target.base_url` | [required] | Target app base URL on localhost |
 | `target.source_path` | [required] | Target source folder |
 | `target.context_path` | [auto-detected] | Servlet context path. See Stage 0. |
+| `target.auth.header_name` | [none] | Optional header or `Cookie` sent on every request to the target |
+| `target.auth.value_env` | [none] | Environment variable holding that header's value. Never commit or print it. |
 | `judging.profile` | [false] | When true: forces `semgrep.enabled`, `logtail.enabled` and `ai.enabled` to false, requires ZAP active scanning, and allows no target restarts |
 | `semgrep.enabled` | [false] | Optional Semgrep adapter |
 | `zap.enabled` | [true] | Required ZAP active scan engine and passive response analysis. Must stay enabled in judging mode. |
 | `zap.api_url` | [`http://127.0.0.1:8090`] | Local ZAP API endpoint. Must be host loopback; never expose it to an untrusted network. |
 | `zap.api_key` | [`ZAP_API_KEY` environment variable] | Local API access key. Never commit or print it. |
+| `zap.version` | [TODO: pin in BS0] | The ZAP image or version the acceptance check ran against |
+| `zap.rule_map.<cwe>` | [proposed: 89 = 40018, 79 = 40012, 78 = 90020, 22 = 6, 601 = 20019. Verify and add variants in BS0.] | ZAP rule IDs allowed for each CWE. Maps a rule ID back to its CWE. |
+| `zap.attack_strength.directed` | [proposed: MEDIUM] | Attack strength in scheduler pass 1 |
+| `zap.attack_strength.sweep` | [proposed: LOW] | Attack strength in scheduler pass 2 |
+| `zap.thread_per_host` | [TODO: from BS0] | ZAP threads per host within one job |
 | `logtail.enabled` | [false] | App-log tail for `TRACE` evidence |
 | `ai.enabled` | [false] | Master AI switch |
 | `ai.max_calls` | [30] | Cap on AI calls per run |
 | `ai.tasks.<name>.enabled` | [false] | Per-task AI switch |
-| `probe.max_attempts_per_hypothesis` | [TODO] | Probe attempts per hypothesis |
+| `probe.max_job_seconds` | [TODO: from BS0] | The coordinator stops a job at this limit |
+| `probe.max_jobs` | [proposed: 60] | Safety limit on jobs per run. The deadline is the real budget. |
+| `probe.drift_routes` | [proposed: 3] | GET routes re-requested after a state-changing job |
 | `probe.timing_repeats` | [TODO] | Repeats for timing oracles |
-| `probe.stage_budget_seconds.<stage>` | [TODO] | Time budget per stage |
-| `replay.count` | [3] | Replays of a probe in the conflict rule |
+| `probe.stage_budget_seconds.index_static` | [proposed: 30] | Stages 1 to 3 |
+| `probe.stage_budget_seconds.preflight` | [proposed: 20] | Stage 0 |
+| `probe.stage_budget_seconds.zap_jobs` | [proposed: 170] | Stage 4 ZAP jobs |
+| `probe.stage_budget_seconds.replay` | [proposed: 40] | Stage 4 verification replays. Reserved, so ZAP jobs cannot spend it. |
+| `probe.stage_budget_seconds.output` | [proposed: 20] | Stages 5 to 7. The stage budgets total 280 seconds, leaving 20 as margin under 5 minutes. |
+| `replay.count` | [3] | Replays of a candidate hit, and of a probe in the conflict rule |
 | `replay.min_hits` | [2] | Replays that must fire to count as reproduced |
 | `backguided.enabled` | [false] | Back-guided static search |
 | `backguided.max_unresolved_hops` | [3] | Unresolved calls the search may walk through |
@@ -339,19 +539,20 @@ The single source for config names and default values. Other docs point here and
 | `confidence.band.high_min` | [0.7] | Lower bound of the high band. The medium band is between the two. |
 | `export.include_alternatives` | [true] | Alternative sinks in the SAST grader payload |
 | `export.include_suppressed` | [false] | Suppressed findings in the graded export |
+| `export.suppress_cwes` | [proposed: 89, 79, 78, 601, 22] | CWEs whose `tested_negative` and `safe_pattern` findings may be suppressed. Remove a CWE when `wrong_suppression_count` is above zero. |
 | `export.suppress_no_http_path` | [false] | Suppress eligible `no_http_path` findings |
 | `export.count_multi_entry` | [TODO: confirm at kickoff against the answer key] | How the export counts one sink reached from several routes |
 | `header.count_mode` | [per_app] | `per_app` or `per_url` `[TODO: confirm at kickoff against the answer key]` |
 
 ## Milestones
 
-Time is not a constraint. Work is ordered by dependency. Milestone gates replace hour gates. Details: [implementation-plan.md](implementation-plan.md#milestones).
+Time is not a constraint. Work is ordered by dependency, in build stages. Milestones are gates over them. Details: [implementation-plan.md](implementation-plan.md#build-stages).
 
-| Milestone | Scope |
-|---|---|
-| M1 spine | One command on a clean VulnerableApp run yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. No other stage is added until M1 passes. |
-| M2 core | All four classes, own header and cookie checks, the `tested_negative` adequacy logic, the suppressed file with real content (not an empty placeholder), the judging-mode profile, the benchmark adapter, `expected_pairs` measurement. |
-| M3 extras | The Should list. |
+| Milestone | Build stages | Scope |
+|---|---|---|
+| M1 spine | `BS0` to `BS5` | One command on a clean VulnerableApp run uses ZAP active scanning and yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. |
+| M2 core | `BS6` to `BS9` | All four classes, own header and cookie checks, `safe_pattern` and the adequacy test, the suppressed file with real content (not an empty placeholder), the coverage report, the secrets pass, the judging-mode profile with the state guard, the benchmark adapter, measurement, the generality checks. |
+| M3 extras | `BS10` | The Should list. |
 
 ## AI advisor (optional side channel)
 
@@ -372,13 +573,20 @@ No AI task becomes default-on until a with/without run on VulnerableApp against 
 
 | Flaw | Effect | Mitigation |
 |---|---|---|
-| Same-route sink ambiguity | `TRACE` is unavailable at judging, so some links stay ambiguous | Mark `ambiguous`, attach alternatives. Measure how often it happens on VulnerableApp. |
-| A real third sink that was never found | The proof links to the wrong hypothesis with misleading confidence | Only `TRACE` catches this |
-| Second-order bugs (stored XSS) | Need a write/read route-pair config, or stay unlinked | `injected_route` and `observed_route` fields. Route-pair config is Could. |
-| IDOR and business logic | No oracle | None in this design |
-| Blind SSRF and XXE | Need out-of-band callbacks. Localhost-only scanning limits this. | None in this design |
-| Index gaps | Unresolved calls, Lombok or generated code, reflection | Flag unresolved calls. Never drop them. |
-| Sink catalogue quality | Recall depends on the quality of the sink catalogue. Custom wrappers are missed unless the catalogue or an AI spec proposal covers them. | Extend the catalogue. AI spec proposals (Could). Measure on VulnerableApp. |
+| Same-route sink ambiguity | `TRACE` is unavailable at judging, so some links stay ambiguous | Mark `ambiguous`, attach alternatives. `RESPONSE_TRACE` resolves some, only when the app leaks a stack trace. Measure how often it happens on VulnerableApp. |
+| A real third sink that was never found | The proof links to the wrong hypothesis with misleading confidence | `TRACE`, or `RESPONSE_TRACE` when a stack trace appears. Otherwise uncaught. |
+| No dataflow in the sink finder | A `dynamic` sink is a lead, not proof that input reaches it. Safe `dynamic` sinks need a probe to clear them. | `arg_shape` clears the syntactically safe ones. The adequacy test and decoy plan cover the rest. Own flow engine (Should) narrows further. |
+| A negative result is not proof of safety | A payload ZAP does not generate can leave a real bug `tested_negative` | The adequacy test, `wrong_suppression_count`, per-CWE `export.suppress_cwes` |
+| ZAP attribution | The design is unverified until `BS0` passes. Unattributable hits lose their link. | `attribution_rate` and `attribution_accuracy`. Unlinked, never manufactured. |
+| Time budget | The arithmetic for about 30 routes leaves about 6 seconds per job in pass 1. It may not fit once measured. | The scheduler reports what it did not reach as `untested`. The sweep is cut first. |
+| State changes during a scan | A tautology payload can change or delete data. The state guard limits this but cannot prevent it. | Risk ordering, drift check. Disposable target in practice. |
+| Second-order bugs (stored XSS) | Need a write/read route-pair config, or stay unlinked | `injected_route` and `observed_route` fields. An automatic read-back with a stored canary is Could. |
+| Multi-step workflows | One route's job cannot set up another route's state | Listed in coverage as a gap. No support in M1 or M2. |
+| IDOR and business logic | No oracle | Listed in coverage as unsupported |
+| Blind SSRF and XXE | Need out-of-band callbacks. Localhost-only scanning limits this. | Listed in coverage as unsupported |
+| Index gaps | Unresolved calls, generated code, reflection, proxies, conditional beans, WebFlux functional routes | Flag unresolved calls. Never drop them. Actuator and OpenAPI discovery when exposed. Listed in coverage. |
+| Sink catalogue quality | Recall depends on the quality of the sink catalogue. Third-party wrappers are missed unless the catalogue or an AI spec proposal covers them. | Extend the catalogue. AI spec proposals (Could). Per-CWE recall with tagged misses. |
+| Unseen app | A VulnerableApp score says little about it | The [generality rules](#generality) |
 | Non-Java target | Stages 1 and 2 need a new adapter. The rest is unchanged. | Adapter boundary. The optional Semgrep adapter can supply sinks as a fallback. |
 
 ## Components
@@ -390,14 +598,15 @@ No AI task becomes default-on until a with/without run on VulnerableApp against 
 | Semgrep adapter | Optional | Off by default (`semgrep.enabled`). Fallback sink source, cross-check, benchmark yardstick. |
 | Preflight | No | Stage 0 |
 | Hypothesis builder | No | Stage 3 |
-| ZAP-backed probe coordinator | No | Stage 4. Starts scoped ZAP active scans, maintains hypothesis/job association, applies oracles, and captures evidence. ZAP generates and sends payload requests. |
+| ZAP-backed probe coordinator | No | Stage 4. Schedules scoped ZAP active scans, records hypothesis/job association, attributes requests, replays candidates, applies oracles, and captures evidence. ZAP generates and sends payload requests. |
+| Stack frame parser | Yes | Behind the adapter. Turns a response's stack trace into generic frames for correlation. |
 | Correlation + verify | No | Stages 5 and 6. Deterministic. |
 | Output | No | Stage 7. Scoring, Postgres, CLI, SARIF, benchmark adapter. |
 | AI advisor | No | Optional. Advisory only. |
 
 | Adapter | Status | Route annotations | Param annotations |
 |---|---|---|---|
-| Java / Spring MVC | Primary | `@RestController` / `@Controller`, class `@RequestMapping`, method `@GetMapping` / `@PostMapping` / `@RequestMapping` | `@RequestParam`, `@PathVariable` |
+| Java / Spring MVC | Primary | `@RestController` / `@Controller`, class `@RequestMapping`, method `@GetMapping` / `@PostMapping` / `@RequestMapping`, composed annotations resolved through their meta-annotations, inherited mappings | `@RequestParam`, `@PathVariable`, `@RequestHeader`, `@CookieValue`, `@RequestBody`, `@ModelAttribute` |
 | Java / JAX-RS | Secondary | Class + method `@Path`, `@GET` / `@POST` | `@QueryParam`, `@PathParam` |
 
 The JAX-RS adapter is Could. It moves to Should only if kickoff shows the graded app is not Spring. It would also earn PRD bonus B-7.
@@ -466,9 +675,9 @@ Credentials handling for Postgres: `[TODO]`. Never commit them.
 5. Build the code index.
 6. Run preflight. Write the coverage report.
 7. Run the static stage (own sink finder and secrets/crypto pass). Build hypotheses.
-8. The coordinator starts ZAP active scans for eligible hypotheses and sweep units. Capture scan IDs, alerts, relevant messages and replay-log references. Apply deterministic oracles.
+8. The coordinator schedules one ZAP job per `(route, method)`, directed pass first, then sweep. Capture scan IDs, alerts, messages and replay-log references. Attribute each request. Replay candidates. Apply deterministic oracles.
 9. Correlate and verify.
-10. Write Postgres rows, the primary report, the graded export and the suppressed file.
+10. Write Postgres rows, the primary report, the graded export, the suppressed file and the coverage report.
 
 ## Self-scoring harness (VulnerableApp)
 

@@ -1,8 +1,6 @@
 # infra/
 
-**Owner:** joint.
-
-`compose.yaml` runs the Person B CLI container and the official `postgres:17-alpine` image. PostgreSQL uses the named volume `sastdast-pgdata` and private `sastdast-net` network. It publishes its port on `127.0.0.1` only (`POSTGRES_HOST_PORT`, default 5432), through a second bridge network `sastdast-hostport`, so a CLI running on the host can reach it (D-14). Never bind it to `0.0.0.0`. Keep the target app's Compose project separate.
+`compose.yaml` runs the CLI container and the official `postgres:17-alpine` image. PostgreSQL uses the named volume `sastdast-pgdata` and private `sastdast-net` network. It publishes its port on `127.0.0.1` only (`POSTGRES_HOST_PORT`, default 5432), through a second bridge network `sastdast-hostport`, so a CLI running on the host can reach it (D-14). Never bind it to `0.0.0.0`. Keep the target app's Compose project separate.
 
 The DAST-capable CLI runs on the host, so `localhost` reaches the target app. Point it at the database with `DATABASE_URL=postgresql://$POSTGRES_USER@127.0.0.1:5432/$POSTGRES_DB` and supply the password through `PGPASSWORD` or `~/.pgpass`, not in the URL.
 

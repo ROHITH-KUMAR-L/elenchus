@@ -1,4 +1,4 @@
-"""Command-line entry point for the Person B consumer pipeline."""
+"""Command-line entry point for the consumer pipeline."""
 
 from __future__ import annotations
 

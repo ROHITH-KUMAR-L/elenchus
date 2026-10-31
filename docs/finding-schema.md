@@ -1,6 +1,6 @@
 # Internal finding record (DRAFT contract, revised)
 
-Status: **DRAFT**. This revision describes the target state. The fields marked below are not in `common/record.py` yet. Changing the record is a joint, stop-the-world change ([CONTRIBUTING.md](../CONTRIBUTING.md)).
+Status: **DRAFT**. This revision describes the target state. The fields marked below are not in `common/record.py` yet. Changing the record is a contract change, flagged as such ([CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 Every component reads and writes this record. It is framework-agnostic: no Spring or JAX-RS field names.
 
@@ -10,7 +10,7 @@ SARIF 2.1.0 is the interchange format at the edges only: SARIF in from the optio
 
 Code in `common/` is canonical. This doc is the human-readable description. When they disagree, the code wins.
 
-[`common/record.py`](../common/record.py) implements the earlier record. The revised fields below are proposed. Updating `common/record.py`, the engine and the fixtures is a joint change `[TODO: schedule]`.
+[`common/record.py`](../common/record.py) implements the earlier record. The revised fields below are proposed. Updating `common/record.py`, the engine and the fixtures is a contract change, scheduled as build stage `BS1` ([implementation-plan.md](implementation-plan.md#build-stages)).
 
 ## What changed
 
@@ -24,7 +24,8 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `risk_score` from severity, exploit ease, confidence | Computed from config: CWE severity table, exploit factor, evidence-based link factor |
 | Dedupe key `(cwe, file, line)`, else `(cwe, route, method, param)` | `(sink_id, cwe)` `[proposed]`. See [Contract logic](#contract-logic). |
 | `taint_trace` from Semgrep | Kept, optional. Null in the Must plan. The own sink finder gives locations only. |
-| Tiers A / B / C | Evidence types `PATH`, `ORACLE`, `TRACE`, `FAMILY`, plus `link_status` and `link_origin` |
+| Tiers A / B / C | Evidence types `PATH`, `ORACLE`, `TRACE`, `RESPONSE_TRACE`, `FAMILY`, plus `link_status` and `link_origin` |
+| One ZAP job per hypothesis | One job per `(route, method)`, recorded as a `ProbeJob`. Param comes from a request diff, CWE from the rule ID. |
 
 ## Fields
 
@@ -41,14 +42,15 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `file` | string \| null | Sink file (SAST). | SAST |
 | `line` | integer \| null | Sink line (SAST). | SAST |
 | `sink_id` | object \| null | `{file, enclosing_method, start_line, start_col}`. Refined later to `(method, call-site ordinal, arg index)` (Could). Copied onto the probe record from its hypothesis `[proposed]`. | Static stage |
+| `arg_shape` | `"constant"` \| `"sanitised"` \| `"dynamic"` \| null | Syntax check on the sink's argument at the call site. Not dataflow. Anything unreadable is `dynamic`. Null for findings with no injection sink. | Static stage |
 | `entry_paths` | array \| null | Routes that reach the sink. Each: `route`, `method`, `hops` (calls from handler to the sink's method), `call_chain` (list of `{method, file, line}`, the handler is the first hop). One sink reached from several routes is one record with several entry paths. | Static stage, from the call graph |
 | `hypothesis_id` | string \| null | Id of the hypothesis that produced the finding. Kept through the probe and into the evidence. Null for findings with no hypothesis (own header checks). | Stage 3 |
 | `candidate_params` | array \| null | Params the probe will try. Directed: all params of the route. | Stage 3 |
-| `param` | string \| null | Param the project oracle verified from a ZAP-captured response. Null until a probe resolves it, and for static-only findings. | ZAP-backed probe coordinator |
+| `param` | string \| null | Param found by diffing the request against the job's seed, with the oracle verified on a replay. Null until a probe resolves it, and for static-only findings. | ZAP-backed probe coordinator |
 | `param_location` | string \| null | Where the param is bound: `query`, `path`, `header`, `cookie`, `body` `[proposed values]`. | ZAP-backed probe coordinator, from the index |
 | `param_path` | string \| null | Path inside a structured value, e.g. a JSON field `[proposed meaning]`. | ZAP-backed probe coordinator |
 | `payload` | string \| null | ZAP-generated payload associated with the oracle-confirmed request. | ZAP-backed probe coordinator |
-| `evidence` | array | List of `{type, detail}`. Types: `PATH`, `ORACLE`, `TRACE`, `FAMILY`. Raw artefacts (code snippet, request, response excerpt, canary id, replay-log reference, raw scanner severity) go inside `detail`. | All |
+| `evidence` | array | List of `{type, detail}`. Types: `PATH`, `ORACLE`, `TRACE`, `RESPONSE_TRACE`, `FAMILY`. Raw artefacts (code snippet, request, response excerpt, canary id, `zap_job_id`, `zap_scan_id`, `zap_message_id`, `zap_rule_id`, replay counts, replay-log reference, raw scanner severity) go inside `detail`. | All |
 | `taint_trace` | array \| null | Optional source-to-sink path. Each step: `file`, `line`, `role`. Null in the Must plan. | Own flow engine (Could) |
 | `link_status` | `"unique"` \| `"ambiguous"` \| null | How many candidate sinks the link has. Set after an oracle fires. See [Linking](#linking-and-ambiguity). | Correlation |
 | `link_origin` | `"directed"` \| `"sweep"` \| `"back_guided"` \| null | How the link was produced. Orthogonal to `link_status`. Both are required once a link exists. | Correlation |
@@ -57,9 +59,9 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `candidate_sinks` | array \| null | `sink_id` of each candidate when the back-guided search finds several, or of the sink in a conflict case below the confidence threshold. Hints only. No Confirmed link is made. | Back-guided search; correlation |
 | `match_mode` | `"strict"` \| `"relaxed"` \| null | How a sink was matched. `strict` is the default: a catalogue match with a resolved receiver type. `relaxed` means call name alone with the receiver type unresolved. Every back-guided match is `relaxed`. | Static stage; back-guided search |
 | `unresolved_hops` | integer \| null | Unresolved calls walked to reach the sink. At most 3. Back-guided search only. | Back-guided search |
-| `conflict` | boolean | True when a positive oracle hit overrode `tested_negative`. | Correlation |
-| `status` | string \| null | For findings with no oracle hit: `tested_negative`, `no_http_path`, `blocked`, `untested`. See [Statuses](#statuses). | Verify stage |
-| `suppressed` | boolean | True for `tested_negative`. Excluded from the primary report and the graded export. | Verify stage |
+| `conflict` | boolean | True when a positive oracle hit met a `tested_negative` or `safe_pattern` sink. | Correlation |
+| `status` | string \| null | For findings with no oracle hit: `safe_pattern`, `no_http_path`, `blocked`, `tested_negative`, `untested`. See [Statuses](#statuses). | Verify stage |
+| `suppressed` | boolean | True for `tested_negative` and `safe_pattern` findings whose CWE is in `export.suppress_cwes`. Excluded from the primary report and the graded export. | Verify stage |
 | `unlinked_reason` | string \| null | Why a finding has no partner. For `blocked`, `untested` and `no_http_path` findings it records the per-param probe outcomes, the `blocked_by_validation` sub-code (`validation`, `auth`, `not_found`, `server_error`, `other`) and the `no_http_path` reason code (`no_callers`, `walk_unresolved`). | Correlation |
 | `injected_route` | string \| null | Route that wrote the value (second-order flows). | ZAP-backed probe coordinator, from route-pair config |
 | `observed_route` | string \| null | Route where the value fired. | ZAP-backed probe coordinator |
@@ -68,12 +70,12 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `wasc_id` | integer \| null | Passthrough for the VulnerableApp grader. Not used inside the engine. | ZAP alert, or own mapping |
 | `label` | `"Confirmed"` \| `"Code-only"` \| `"Runtime-only"` | FR-7 label. Set by correlation, not by producers. | Correlation |
 | `confidence` | number (0 to 1) \| null | Deterministic function of the evidence present, `link_status` and `link_origin`. Bands and weights live in config ([Config reference](architecture.md#config-reference)). | Correlation |
-| `confidence_reasons` | array \| null | List of `{factor, delta}`: each factor behind `confidence` and its effect. Written by the engine (Person B). Producers never set it. A contract field added before the freeze. | Correlation |
+| `confidence_reasons` | array \| null | List of `{factor, delta}`: each factor behind `confidence` and its effect. Written by the engine. Producers never set it. A contract field added before the freeze. | Correlation |
 | `risk_score` | number \| null | Our ranking number. Drives FR-9 ordering. Weights live in config. | Correlation |
 
 `severity` and `risk_score` are two fields. Do not collapse them.
 
-`oracle_flaky` is a key inside an `ORACLE` evidence entry's `detail`, not a record field `[proposed placement]`. It is true when a replay did not reproduce the hit.
+`oracle_flaky` is a key inside an `ORACLE` evidence entry's `detail`, not a record field `[proposed placement]`. It is true when a replay did not reproduce the hit. A hit that never reproduces creates no record, so outside the conflict rule `oracle_flaky` appears in the replay log only.
 
 ## Hypothesis shape
 
@@ -88,7 +90,25 @@ A hypothesis is a pipeline object, not a finding. It lives in `common/` with the
 | `sink_id`, `call_path` | Directed only. From the static stage. |
 | `candidate_params` | Directed: all params of the route. Sweep: one param. |
 
-Directed hypotheses come from static findings. Sweep hypotheses cover every param against every supported class, for bugs static analysis missed. Both sets use this one record type. The coordinator submits each hypothesis or sweep unit as a bounded ZAP active-scan job. ZAP generates attack requests; project oracles validate captured responses. The coordinator records the job-to-hypothesis mapping before scan execution because a ZAP alert does not itself carry the project's `hypothesis_id`.
+Directed hypotheses come from static findings with `arg_shape: dynamic`. Sweep hypotheses cover every injectable param against every supported class, for bugs static analysis missed. Numeric, boolean, UUID and enum params are skipped by the sweep and listed in coverage. Both sets use this one record type. The coordinator groups hypotheses into one bounded ZAP active-scan job per `(route, method)`. ZAP generates attack requests; project oracles validate replayed responses. The coordinator records the job-to-hypothesis mapping before scan execution because a ZAP alert does not itself carry the project's `hypothesis_id`.
+
+## ProbeJob shape
+
+A probe job is a pipeline object, not a finding. It lives in `common/` with the record. Same freeze rules. Written before the scan starts. Job granularity depends on `BS0`.
+
+| Field | Meaning |
+|---|---|
+| `job_id` | Stable within a run |
+| `scan_id` | ZAP's scan id. Null until the scan starts. |
+| `route`, `method` | The one route under test |
+| `pass` | `directed` or `sweep` |
+| `hypothesis_ids` | Every hypothesis this job covers |
+| `cwes` | CWEs whose rules are on for this job |
+| `seed_request` | The request ZAP mutates. Attribution diffs against it. |
+| `excluded_params` | Params excluded after a failed baseline, each with its sub-code |
+| `canary` | Job canary, sent in `X-Elenchus-Probe` |
+| `outcome` | `finished`, `stopped_at_limit`, `skipped_budget`, `skipped_drift`, `all_blocked` |
+| `after_drift` | True if the job ran after a drift event |
 
 ## Other contract shapes
 
@@ -109,10 +129,14 @@ Derived output of stage 1. Replaces `RouteMap` as the stage-1 output `[proposed;
 
 | Part | Contents |
 |---|---|
-| Route table | Route template, method, handler file, function, line span |
-| Param bindings | Param name, location, Java type |
+| Route table | Route template, method, handler file, function, line span, `route_origin` (`source` or `discovered`) |
+| Param bindings | Param name, location, Java type. `params_status` per route: `complete`, `partial` or `unknown`. |
 | Call graph | Method-to-method edges. Unresolved calls are flagged, never dropped. |
-| Sink inventory | Sink call sites with `sink_id` and CWE |
+| Sink inventory | Sink sites with `sink_id`, CWE, catalogue `kind` (`call`, `return_value`, `annotation`, `template`, `xml`) and `arg_shape` |
+
+### Coverage report
+
+Written once per run, outside the finding record. Sections: [architecture.md](architecture.md#coverage-report). Exact file shape `[TODO: ratify in BS1]`.
 
 ### Stage data
 
@@ -121,10 +145,10 @@ Signatures `[TODO: ratify]`.
 | Stage | Output |
 |---|---|
 | 1 Code index | `CodeIndex` |
-| 2 Static | Static findings: records with `source: sast`, `status: untested`, `entry_paths`, no `param` |
+| 2 Static | Static findings: records with `source: sast`, `status: untested`, `arg_shape`, `entry_paths`, no `param` |
 | 3 Hypotheses | Hypothesis list |
-| 4 Probe | Records with `source: dast`, `hypothesis_id`, resolved `param`, `ORACLE` evidence |
-| 5 Back-guided search (optional) | `run_back_guided(target, route_map, runtime_only_findings)`. Person A. Evidence for runtime-only hits. |
+| 4 Probe | `ProbeJob` list. Records with `source: dast`, `hypothesis_id`, resolved `param`, `ORACLE` evidence, optional `RESPONSE_TRACE` evidence. Per-param outcomes (`adequate`, `type_rejected`, `blocked_by_validation`). |
+| 5 Back-guided search (optional) | `run_back_guided(target, route_map, runtime_only_findings)`. Evidence for runtime-only hits. |
 | 5 to 6 Correlate, verify | Issues with label, `link_status`, `link_origin`, `status` |
 
 ### Contract logic
@@ -163,13 +187,16 @@ A firing probe proves that route, param and CWE are exploitable. It does not pro
 |---|---|---|---|
 | One hypothesis in the `(route, param, CWE)` group | `unique` | `directed` | Linked by lineage: `hypothesis_id` carried through the probe |
 | More than one hypothesis in the group | `ambiguous` | `directed` | Lower confidence. All candidate sinks attached in `alternatives`. One primary chosen. |
+| More than one hypothesis, and `RESPONSE_TRACE` puts the deepest project frame in exactly one candidate's enclosing method | `unique` | `directed` | That candidate is primary. The others stay in `alternatives`. |
+| `RESPONSE_TRACE` puts the deepest project frame in a method with no known sink | unchanged | unchanged | No upgrade. Lower confidence. Logged as a catalogue gap. |
 | Sweep hit matches a static finding of the same CWE whose `entry_paths` include the route `[proposed meaning]` | by count | `sweep` | Lower confidence |
 | Back-guided search finds exactly one sink | `unique` | `back_guided` | `PATH` evidence. Confidence starts at `backguided.start_confidence` and loses `backguided.hop_penalty` per unresolved hop. Confirmed only at or above `backguided.min_confidence_to_confirm`. |
 | Back-guided search finds several sinks | `ambiguous` | `back_guided` | Label stays Runtime-only. `candidate_sinks` hold the hints. No Confirmed link is exported. |
 | Back-guided search finds none | null | null | Stays Runtime-only. `unlinked_reason` set. |
 | Header, cookie or info-leak finding | null | null | Never searched. Stays Runtime-only. |
-| Positive oracle hit on a `tested_negative` sink, reproduces in at least `replay.min_hits` of `replay.count` replays | `ambiguous` | `sweep` | `conflict: true`. Un-suppressed. At or above `backguided.min_confidence_to_confirm`: Confirmed. Below it: Runtime-only, sink listed in `candidate_sinks` as a hint, no Confirmed export. |
-| Same hit, does not reproduce | null | null | `tested_negative` kept. `oracle_flaky: true`. Hit stays Runtime-only. |
+| Positive oracle hit on a `tested_negative` sink or a `safe_pattern` sink with `arg_shape: sanitised`, reproduces in at least `replay.min_hits` of `replay.count` replays | `ambiguous` | `sweep` | `conflict: true`. Un-suppressed. At or above `backguided.min_confidence_to_confirm`: Confirmed. Below it: Runtime-only, sink listed in `candidate_sinks` as a hint, no Confirmed export. |
+| Same hit, does not reproduce | null | null | Status kept. `oracle_flaky: true`. Hit stays Runtime-only. |
+| Positive oracle hit on a `safe_pattern` sink with `arg_shape: constant` | null | null | `conflict: true`. The sink stays `safe_pattern`, because no input reaches its argument. Hit stays Runtime-only, sink listed in `candidate_sinks` as a hint. |
 
 ### Confidence
 
@@ -185,7 +212,8 @@ Evidence types `[proposed meanings]`:
 |---|---|
 | `PATH` | A call path exists from an entry route to the sink |
 | `ORACLE` | A probe oracle fired. Detail holds oracle name, canary id, baseline status, replay-log reference. |
-| `TRACE` | The app log shows the payload reaching the sink. Optional. |
+| `TRACE` | The app log shows the payload reaching the sink. Optional. Not available in judging mode. |
+| `RESPONSE_TRACE` | A replay response holds a stack trace. Detail holds the generic frames from the adapter's parser and the matched method. Available in judging mode, only when the app leaks one. It proves the enclosing method, not the line. |
 | `FAMILY` | The payload family that fired matches the CWE family of the sink |
 
 ## Statuses
@@ -193,25 +221,31 @@ Evidence types `[proposed meanings]`:
 A finding with no oracle hit gets one status, assigned in this order:
 
 1. An oracle fired: the finding is linked. It has no unconfirmed status.
-2. No route reaches the sink: `no_http_path`, with a reason code.
-3. Any candidate param is `blocked_by_validation` and no oracle fired: `blocked`.
-4. Every candidate param probed, baseline valid, all payload families for the CWE tried within budget: `tested_negative`.
-5. Otherwise (budget spent or not attempted): `untested`.
+2. `arg_shape` is `constant` or `sanitised`: `safe_pattern`.
+3. No route reaches the sink: `no_http_path`, with a reason code.
+4. Any candidate param is `blocked_by_validation` and no oracle fired: `blocked`.
+5. The [adequacy test](architecture.md#adequacy-test) passes: `tested_negative`.
+6. Otherwise (budget spent, not attempted, params incomplete, or probed after drift): `untested`.
 
 | `status` | Rule | Report |
 |---|---|---|
-| `tested_negative` | 4 | Suppressed. Kept in Postgres. Excluded from the primary report and the graded export. Written to a separate suppressed file. |
-| `no_http_path` | 2 | Primary report, Code-only, reason code shown. Suppressed only if eligible. |
-| `blocked` | 3 | Primary report, Code-only |
-| `untested` | 5 | Primary report, Code-only |
+| `safe_pattern` | 2 | Suppressed if the CWE is in `export.suppress_cwes`. Kept in Postgres. Written to the suppressed file. Otherwise primary report, Code-only. |
+| `no_http_path` | 3 | Primary report, Code-only, reason code shown. Suppressed only if eligible. |
+| `blocked` | 4 | Primary report, Code-only |
+| `tested_negative` | 5 | Suppressed if the CWE is in `export.suppress_cwes`. Kept in Postgres. Excluded from the primary report and the graded export. Written to a separate suppressed file. Otherwise primary report, Code-only. |
+| `untested` | 6 | Primary report, Code-only |
 
-`blocked_by_validation` is a probe outcome recorded per candidate param when its baseline fails the expected status. Sub-codes: `validation` (400, 422), `auth` (401, 403), `not_found` (404), `server_error` (5xx), `other`. The per-param outcomes and the sub-code go in `unlinked_reason`.
+Blocked or untested never means safe.
+
+Per-param probe outcomes: `adequate` and `type_rejected` can support `tested_negative`. `blocked_by_validation` cannot. Definitions: [adequacy test](architecture.md#adequacy-test).
+
+`blocked_by_validation` is a probe outcome recorded per candidate param when its baseline fails the expected status, or when every mutated request on a param that can carry a payload is rejected. Sub-codes: `validation` (400, 422), `auth` (401, 403), `not_found` (404), `server_error` (5xx), `other`. The per-param outcomes and the sub-code go in `unlinked_reason`.
 
 `no_http_path` reason codes: `no_callers` (the backward walk found no caller) and `walk_unresolved` (the walk stopped at an unresolved call).
 
 Only `no_callers` findings in injection CWEs are ever eligible for suppression, under `export.suppress_no_http_path`. `walk_unresolved` findings and secrets/crypto findings (CWE-798 and similar) are never suppressed.
 
-Flags: `export.include_suppressed`, `export.suppress_no_http_path`. Values: [Config reference](architecture.md#config-reference).
+Flags: `export.include_suppressed`, `export.suppress_cwes`, `export.suppress_no_http_path`. Values: [Config reference](architecture.md#config-reference).
 
 ## Vocabulary alignment
 
@@ -251,7 +285,7 @@ The grader takes its own JSON. It is a third boundary format, separate from our 
 | `sink_id` | `locations[0]`, plus `partialFingerprints` `[proposed]` | Column kept only in fingerprint |
 | `entry_paths`, `hypothesis_id`, `provenance` | `properties` | Ignored by most viewers |
 | `alternatives`, `link_status`, `ambiguity_group_id` | `properties`. Alternative sinks also in `relatedLocations` `[proposed]`. | Viewers show only related locations |
-| `evidence`, `confidence_reasons`, `corroborated`, `link_origin`, `match_mode`, `unresolved_hops`, `candidate_sinks`, `conflict` | `properties` | Ignored by most viewers |
+| `evidence`, `confidence_reasons`, `corroborated`, `link_origin`, `match_mode`, `unresolved_hops`, `candidate_sinks`, `conflict`, `arg_shape` | `properties` | Ignored by most viewers |
 | `suppressed` | SARIF `suppressions` `[verify against the 2.1.0 spec]` | None if supported |
 | `status`, `param`, `payload`, `method`, `route` | `properties` | Ignored by most viewers |
 | `severity` | `level` (`error` / `warning` / `note`) | Coarser scale |
@@ -289,6 +323,7 @@ A SQL sink in a service class. The own sink finder matched it by call name and r
     "start_line": 88,
     "start_col": 31
   },
+  "arg_shape": "dynamic",
   "entry_paths": [
     { "route": "/api/orders/{id}", "method": "GET", "hops": 1,
       "call_chain": [
@@ -329,7 +364,7 @@ A SQL sink in a service class. The own sink finder matched it by call name and r
 
 ### Probe finding (stage 4 output)
 
-The ZAP-backed coordinator ran active-scan jobs for both candidate params. The project oracle fired on `id`. The coordinator can attach the hypothesis ID only if the matching ZAP job and alert evidence identify the route, method, parameter and CWE unambiguously.
+The ZAP-backed coordinator ran one job for the route. The diff against the seed shows the message mutated `id`, and the rule ID gives CWE-89. The project oracle fired on the message and on 3 of 3 replays. The coordinator attaches the hypothesis ID from the job's recorded list. If the diff could not identify one param, no hypothesis ID would be attached.
 
 ```json
 {
@@ -359,8 +394,12 @@ The ZAP-backed coordinator ran active-scan jobs for both candidate params. The p
     { "type": "ORACLE",
       "detail": { "oracle": "db_error",
                   "canary_id": "elx-7c1e",
+                  "zap_job_id": "j-5",
                   "zap_scan_id": "12",
                   "zap_message_id": "48",
+                  "zap_rule_id": "[TODO: from zap.rule_map]",
+                  "replays": 3,
+                  "fired": 3,
                   "baseline_status": 200,
                   "request": "GET http://localhost:[TODO: port]/api/orders/1'",
                   "replay_log": "[TODO: path]" } }

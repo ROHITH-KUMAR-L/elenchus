@@ -1,7 +1,7 @@
 """Canonical finding-record contract shared by producers and engine.
 
 This file is the source of truth for the record shape. docs/finding-schema.md
-describes it. Changes are joint, stop-the-world changes (CONTRIBUTING.md).
+describes it. Changes are stop-the-world contract changes (CONTRIBUTING.md).
 """
 
 from __future__ import annotations

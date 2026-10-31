@@ -1,160 +1,249 @@
 # Implementation plan
 
-Status: plan for the target architecture in [architecture.md](architecture.md). This revision does not claim that anything is built, tested or measured. No benchmark results are recorded here. Team size: `[TODO: confirm at kickoff]`.
+Status: plan for the target architecture in [architecture.md](architecture.md). This revision does not claim that anything is built, tested or measured. No benchmark results are recorded here.
 
-Time is not a constraint. Work is ordered by dependency. Milestones M1 to M3 replace hour gates. See [Milestones](#milestones).
+Time is not a constraint. Work is ordered by dependency. The plan is split into **build stages**, not between people. Anyone can pick up the current build stage.
+
+Two sets of numbers, kept apart:
+
+| Term | Meaning |
+|---|---|
+| Pipeline stage, 0 to 7 | What the tool does at run time. See [architecture.md](architecture.md#pipeline). |
+| Build stage, `BS0` onward | The order we build it in. Defined below. |
+| Milestone, M1 to M3 | A gate over a group of build stages |
+
+## Build stages
+
+Rules:
+
+- Build in order. Do not start a build stage until the one before has passed.
+- A build stage passes only when its exit test has been run and the output recorded in [STATE.md](STATE.md).
+- One short-lived branch per build stage, or several for a large one.
+- A build stage that needs a contract change flags it as one and updates [finding-schema.md](finding-schema.md) first.
+
+| Build stage | Goal | Pipeline stages | Depends on | Milestone |
+|---|---|---|---|---|
+| `BS0` | ZAP acceptance check | 4 | Nothing | M1 |
+| `BS1` | Contract, config, fixtures | All | `BS0` | M1 |
+| `BS2` | Code index | 1 | `BS1` | M1 |
+| `BS3` | SQL sinks and hypotheses | 2, 3 | `BS2` | M1 |
+| `BS4` | Preflight and probe spine | 0, 4 | `BS1`, `BS3` | M1 |
+| `BS5` | End-to-end spine | 5, 7 | `BS4` | M1 gate |
+| `BS6` | All classes and the scheduler | 2, 3, 4 | `BS5` | M2 |
+| `BS7` | Negative evidence, ambiguity, coverage | 5, 6, 7 | `BS6` | M2 |
+| `BS8` | Secrets, exports, measurement | 2, 7 | `BS7` | M2 |
+| `BS9` | Judging mode and generality | All | `BS8` | M2 gate |
+| `BS10` | Should list | Various | `BS9` | M3 |
+| `BS11` | Could list | Various | `BS10` | None |
+
+```mermaid
+flowchart LR
+    bs0["BS0 ZAP check"] --> bs1["BS1 Contract"]
+    bs1 --> bs2["BS2 Code index"]
+    bs2 --> bs3["BS3 SQL sinks, hypotheses"]
+    bs3 --> bs4["BS4 Preflight, probe spine"]
+    bs4 --> bs5["BS5 Spine: M1"]
+    bs5 --> bs6["BS6 All classes, scheduler"]
+    bs6 --> bs7["BS7 Negatives, ambiguity, coverage"]
+    bs7 --> bs8["BS8 Secrets, exports, measurement"]
+    bs8 --> bs9["BS9 Judging, generality: M2"]
+    bs9 --> bs10["BS10 Should: M3"]
+    bs10 --> bs11["BS11 Could"]
+```
+
+### `BS0`: ZAP acceptance check
+
+Why first: the job size in the contract, and the whole attribution design, depend on what ZAP actually does.
+
+| Item | Detail |
+|---|---|
+| Build | A throwaway script, not pipeline code. Pin the ZAP image and version. Start VulnerableApp from its own Compose. |
+| Check | The eight rows in [ZAP acceptance check](architecture.md#zap-acceptance-check) |
+| Decide | Job size: `(route, method)`, or a fallback. Replacer or HTTP Sender for the probe header. |
+| Set | `zap.version`, `zap.rule_map.<cwe>`, `zap.thread_per_host`, `probe.max_job_seconds`, first budget values |
+| Exit test | All eight rows have a recorded result and a recorded decision. A failed row with its fallback chosen still passes. |
+
+Known blocker: an earlier ZAP image pull failed with a connection reset.
+
+### `BS1`: Contract, config, fixtures
+
+| Item | Detail |
+|---|---|
+| Build | Update `common/record.py` to [finding-schema.md](finding-schema.md). Add `Hypothesis`, `ProbeJob`, `CodeIndex`. New fallback dedupe keys. A config loader that reads the [Config reference](architecture.md#config-reference) keys. |
+| Update | Mechanical changes to the old engine, runner and tests, so they still run on the new record. Their logic is reworked in later build stages. |
+| Fixtures | Replace the five old fixtures with [Required fixtures](#required-fixtures) rows 1 to 7 |
+| Dependencies | Make Semgrep an optional extra. Its tests skip when it is not installed. |
+| Exit test | `pytest` passes with Semgrep uninstalled. Every fixture loads through the new record. |
+
+### `BS2`: Code index
+
+| Item | Detail |
+|---|---|
+| Build | Extend `producers/sast/spring_routes.py`: param Java types, `params_status`, DTO fields, `@RequestHeader`, `@CookieValue`, inherited mappings, `route_origin`. A multi-hop call graph with unresolved calls flagged. The current parser walks one hop. |
+| Hand-made | `expected_pairs` for SQL injection on VulnerableApp |
+| Exit test | Unit tests on small Java fixtures for each binding and call shape. A run on VulnerableApp's source with route, param and unresolved-call counts recorded. |
+
+### `BS3`: SQL sinks and hypotheses
+
+| Item | Detail |
+|---|---|
+| Build | The catalogue YAML format with `kind` and source API. SQL entries. `arg_shape`. The backward walk to routes. `producers/hypotheses/`: directed and sweep hypotheses. |
+| Exit test | On Java fixtures: a parameterised query is `constant`, a concatenated query is `dynamic`, an unreadable argument is `dynamic`. On VulnerableApp's source: SQL recall recorded with misses tagged, and the `expected_pairs` SQL sinks have a directed hypothesis. |
+
+### `BS4`: Preflight and probe spine
+
+| Item | Detail |
+|---|---|
+| Build | `probe/`: loopback check, context path detection, baselines, typed seeds. The ZAP client in `producers/dast/`. One-at-a-time jobs from `ProbeJob`, exact-route scope, allow-list policy, probe header. Request attribution. Error-based SQL injection oracle. Verification replay. Replay log. Run-end host check. |
+| Exit test | Unit tests with recorded ZAP messages: zero-param and two-param diffs stay unlinked, a message without the header is dropped, a non-reproducing hit creates no record. A live run on VulnerableApp with `attribution_rate` and `header_propagation_rate` recorded, and only loopback in ZAP history. |
+
+### `BS5`: End-to-end spine (M1 gate)
+
+| Item | Detail |
+|---|---|
+| Build | Rework correlation to lineage, `link_status`, `link_origin`, config-driven confidence and `confidence_reasons`. Labels and scoring. Postgres. CLI report. One command. |
+| Exit test | **M1:** one command on a clean VulnerableApp run uses ZAP active scanning and yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. `attribution_accuracy` recorded. |
+
+If M1 cannot pass: cut to open redirect and error-based SQL injection, then fix the spine first.
+
+### `BS6`: All classes and the scheduler
+
+| Item | Detail |
+|---|---|
+| Build | Catalogue entries for XSS, command injection and open redirect, including `return_value`, `annotation`, `template` and `xml` kinds. Their oracles: XSS payload canary, command output then timing, `Location` host, boolean and timing SQL. The two-pass deadline scheduler. Sweep with type pruning. Own header and cookie checks. `target.auth.*`. |
+| Exit test | Each oracle passes unit tests on recorded vulnerable and safe responses. A live run on VulnerableApp finishes inside the budget, with wall time per stage, jobs run and jobs skipped recorded, and budget values updated. |
+
+### `BS7`: Negative evidence, ambiguity, coverage
+
+| Item | Detail |
+|---|---|
+| Build | Stage 6 status order, `safe_pattern`, the adequacy test, the suppressed file. The conflict rule. Ambiguity groups, the primary rule, `RESPONSE_TRACE` and the frame parser. The coverage report. |
+| Fixtures | Rows 8 and 9 below, and the [decoy test plan](#decoy-test-plan) |
+| Exit test | Every decoy and twin gets its required status. The suppressed file has real content. A live VulnerableApp run records `wrong_suppression_count` per CWE, with `export.suppress_cwes` updated, and the ambiguity rate. |
+
+### `BS8`: Secrets, exports, measurement
+
+| Item | Detail |
+|---|---|
+| Build | Own secrets and crypto pass, with its own static fixtures. SARIF export. Benchmark adapter. Measurement output for every row in [Measurement](architecture.md#measurement). |
+| Measure | `export.include_alternatives` and `export.suppress_no_http_path`, each on and off. Keep the setting that meets the Great targets on both code detection and false alarms. If both do, keep the lower false-alarm rate. If neither does, keep the one with code detection above the Good target and the lower false-alarm rate. |
+| Exit test | A full measurement table recorded in [STATE.md](STATE.md), with supported and raw scores side by side, per-CWE recall and tagged misses. No target has to be met to pass this build stage: the numbers are the baseline. |
+
+### `BS9`: Judging mode and generality (M2 gate)
+
+| Item | Detail |
+|---|---|
+| Build | `judging.profile`. The state guard. The generality CI tests. The catalogue freeze. |
+| Exit test | **M2:** a judging-profile rehearsal on VulnerableApp with only `--target` and the source path, one command, no restarts, AI and Semgrep off, ZAP on, under 5 minutes. Drift handling tested with a forced drift. Generality CI passing. A static-only hold-out run recorded. |
+
+### `BS10`: Should list (M3)
+
+Build in the table's order. Each item has its own measurement rule where one is stated.
+
+| Order | Item | Pipeline stage | Exit test |
+|---|---|---|---|
+| 1 | Path traversal class (CWE-22): catalogue entries, hypotheses, file-content oracle | 2 to 4 | Recall recorded for CWE-22 |
+| 2 | Back-guided static search, relaxed mode only. Producer entry `run_back_guided(target, route_map, runtime_only_findings)`. Config `backguided.enabled`, off until measured. | 5 | On and off against `expected_pairs`. If it adds no correct links, or adds any wrong link, it stays off. |
+| 3 | Own flow engine (narrows `candidate_params`). Gate for making it the default: matches the measured Semgrep count on VulnerableApp, Semgrep run offline as the yardstick. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality. | 2 | The gate |
+| 4 | Scan comparison (B-5): new, fixed and still-open issues, from stored runs and the dedupe key | 7 | Two stored runs compared |
+| 5 | Session manager. Moves to `BS6` if kickoff shows the app needs a login. | 4 | Auth-gated routes reached on a fixture run |
+| 6 | Supplemental ZAP passive alert ingestion (not a verdict owner) | 4 | Alerts stored, verdicts unchanged |
+| 7 | Best-effort preflight items | 0 | Runs when exposed, skipped cleanly when not |
+| 8 | AI with/without measurement harness. Built before any AI task. | All | Harness runs with AI off |
+| 9 | AI fix text and link explanations (B-3, B-4). Advisory. Zero metric risk. | 7 | With/without run |
+| 10 | AI seeds from DTOs, with repair. Only after non-AI typed seeds work. | 4 | With/without run |
+
+### `BS11`: Could list
+
+| Item | Pipeline stage |
+|---|---|
+| Semgrep optional adapter (fallback and cross-check) | 2 |
+| App-log tail (`TRACE`). Never in judging mode. | 4 |
+| AI payload variants when blocked | 4 |
+| AI source, sink and sanitiser spec proposals | 2 |
+| AI judging of `tested_negative` findings (demote only). The adequacy rule already demotes. | 6 |
+| Chromium-confirmed XSS | 4 |
+| Patch re-verification | 4 |
+| Second-order read-back: after write jobs, re-read GET routes for a stored canary, using `injected_route` and `observed_route` | 4 |
+| Refined `sink_id` | 2 |
+| JAX-RS adapter. Promote to Should only if kickoff shows the graded app is not Spring. It would also earn PRD bonus B-7. | 1, 2 |
+
+The Semgrep yardstick is separate from the adapter. Run it offline once before `BS10` item 3 needs it: use the public OWASP rule pack as shipped, make no edits after seeing results, and record the count, date and rule pack version.
 
 ## Existing code and the target
 
-The repo predates this architecture. The table lists what exists in the tree and how it relates to the target. Whether each piece passes its tests today is not re-checked by this revision.
+The repo predates this architecture. The table lists what exists in the tree, how it relates to the target, and which build stage reworks it. Whether each piece passes its tests today is not re-checked by this revision.
 
-| Piece | In the tree | Relation to the target |
+| Piece | In the tree | Relation to the target | Build stage |
+|---|---|---|---|
+| `producers/sast/spring_routes.py` | Spring route-map parser with tests. Handles composed annotations, map getters and `getParameter`. Walks one hop. | Seed of stage 1. Missing: Java types on params, DTO fields, `params_status`, multi-hop call graph, sink inventory, unresolved-call flags. | `BS2` |
+| `producers/sast/semgrep_runner.py`, `rules/` | Semgrep runner, Semgrep-format taint and pattern rules, tests | Becomes the optional Semgrep adapter (`semgrep.enabled`, off by default). It must not guess `param`. Its tests must skip when Semgrep is not installed. The rules are Semgrep syntax and do not carry over to the own sink catalogue or secrets pass `[TODO: confirm]`. | `BS1`, `BS11` |
+| `pyproject.toml` | Semgrep is a regular dependency | Move to an optional extra `[proposed]`. The pipeline and its tests must pass without it. | `BS1` |
+| `producers/benchmark.py` | Offline SAST score against VulnerableApp's expected-issues CSV | Part of the benchmark adapter. Results not recorded here. Its CWE total currently covers only CWEs we report, so the raw score must be added. | `BS8` |
+| `producers/dast/zap_runner.py` | ZAP-driven active DAST with response-oracle checks and tests. One scan per seed, then alerts read for the whole base URL. | Seed for the required ZAP active probe engine. Keep the API client. Replace alert-driven attribution with request attribution, the whole-base-path scope with exact routes, and fixed seeds with typed seeds. | `BS4`, `BS6` |
+| `engine/correlate/` | Tier A/B/C correlation with tests | Rework: hypothesis lineage, `link_status`, `link_origin`, ambiguity groups, the conflict rule, evidence-based confidence. | `BS5`, `BS7` |
+| `engine/store/`, `engine/report/` | Postgres store, text report, SARIF export | Reusable as the base for stage 7. Needs the new fields, the suppressed file and the coverage report `[TODO: verify]`. | `BS5`, `BS7`, `BS8` |
+| `cli/main.py` | `correlate` and `scan` commands | Rework the scan flow to stages 0 to 7. | `BS5` |
+| `common/record.py` | Earlier record | Update to [finding-schema.md](finding-schema.md). Contract change. | `BS1` |
+| `common/fixtures/` | Five fixtures in the tier-based shape | Replace with the fixtures below. Reuse where they fit `[TODO]`. | `BS1` |
+
+## Required fixtures
+
+Each at route granularity, with `candidate_params`.
+
+| # | Fixture | Purpose | Build stage |
+|---|---|---|---|
+| 1 | Unique directed hit | Basic lineage link | `BS1` |
+| 2 | Ambiguous group: two same-CWE sinks on one route | `link_status: ambiguous`, alternatives, primary rule | `BS1` |
+| 3 | `tested_negative` decoy | Suppression and the suppressed file | `BS1` |
+| 4 | Blocked baseline | `status: blocked` | `BS1` |
+| 5 | `no_http_path` | Code-only with a reason | `BS1` |
+| 6 | Runtime-only header | Own header check, no correlation | `BS1` |
+| 7 | Sweep hit, two variants: matched to a static finding by route and CWE, and no match | `link_origin: sweep`, lower confidence. Stays Runtime-only when there is no match. | `BS1` |
+| 8 | Conflict: oracle hit on a `tested_negative` sink, two variants, and on a `constant` `safe_pattern` sink | Reproduces: `conflict: true`, un-suppressed. Does not reproduce: `oracle_flaky: true`, no link. Constant sink: stays `safe_pattern`, hit stays Runtime-only. | `BS7` |
+| 9 | `RESPONSE_TRACE`, three variants: frame in one candidate, frame in no known sink, no frame | Upgrade to `unique`, catalogue gap, no change | `BS7` |
+| 10 | Back-guided link, one candidate `[proposed]` | `link_origin: back_guided`, `match_mode: relaxed`, `unresolved_hops` | `BS10` |
+| 11 | Back-guided search, several candidates `[proposed]` | `link_status: ambiguous`, `candidate_sinks`, label stays Runtime-only | `BS10` |
+
+## Decoy test plan
+
+A sink finder with no dataflow flags safe code unless something clears it. Each decoy has a vulnerable twin, so a rule that clears too much also fails a test.
+
+Three layers, so no extra live target is needed:
+
+| Layer | Form | Runs in |
 |---|---|---|
-| `producers/sast/spring_routes.py` | Spring route-map parser with tests | Seed of stage 1. Missing: Java types on params, full call graph, sink inventory, unresolved-call flags. |
-| `producers/sast/semgrep_runner.py`, `rules/` | Semgrep runner, Semgrep-format taint and pattern rules, tests | Becomes the optional Semgrep adapter (`semgrep.enabled`, off by default). It must not guess `param`. Its tests must skip when Semgrep is not installed. The rules are Semgrep syntax and do not carry over to the own sink catalogue or secrets pass `[TODO: confirm]`. |
-| `pyproject.toml` | Semgrep is a regular dependency | Move to an optional extra `[proposed]`. The pipeline and its tests must pass without it. |
-| `producers/benchmark.py` | Offline SAST score against VulnerableApp's expected-issues CSV | Part of the benchmark adapter. Results not recorded here. |
-| `producers/dast/zap_runner.py` | ZAP-driven active DAST with response-oracle checks and tests | Seed for the required ZAP active probe engine. Rework it to run hypothesis-scoped jobs, preserve job-to-hypothesis provenance, enforce baseline gates, capture replay evidence, and keep project oracles as verdict owners. |
-| `engine/correlate/` | Tier A/B/C correlation with tests | Rework: hypothesis lineage, `link_status`, `link_origin`, ambiguity groups, the conflict rule, evidence-based confidence. |
-| `engine/store/`, `engine/report/` | Postgres store, text report, SARIF export | Reusable as the base for stage 7. Needs the new fields and the suppressed file `[TODO: verify]`. |
-| `cli/main.py` | `correlate` and `scan` commands | Rework the scan flow to stages 0 to 7. |
-| `common/record.py` | Earlier record | Update to [finding-schema.md](finding-schema.md). Joint change. |
-| `common/fixtures/` | Five fixtures in the tier-based shape | Replace with the fixtures below. Reuse where they fit `[TODO]`. |
+| Static | Small Java source files | CI. `arg_shape` and hypothesis checks. |
+| Oracle | Recorded response pairs, safe and vulnerable | CI. Oracle and adequacy checks. |
+| Live | VulnerableApp's safe variants `[verify: confirm its secure levels when the source is available]` | `BS7` run, compared with `expected_pairs` |
 
-## Must
+| Decoy | Required status | Vulnerable twin | Required result |
+|---|---|---|---|
+| Parameterised SQL with a literal | `safe_pattern` | Same query built by concatenation | Confirmed |
+| Parameterised SQL, literal in a local variable assigned once | `safe_pattern` | Variable reassigned from input | Confirmed |
+| Directly escaped HTML output | `safe_pattern` | Same output unescaped | Confirmed |
+| Allowlisted redirect target | `tested_negative` | No allowlist | Confirmed |
+| Allowlisted `ORDER BY` column, concatenated | `tested_negative` | Column not checked | Confirmed |
+| Numeric param concatenated into SQL, rejected by binding | `tested_negative`, outcome `type_rejected` | Same code with a string param | Confirmed |
+| Safe sink with no route | `safe_pattern` | Unsafe sink with no route | `no_http_path` |
 
-| # | Item | Stage | Owner | Milestone |
-|---|---|---|---|---|
-| 1 | Preflight: baseline per route, context path, coverage report | 0 | Person B | M1 baseline and context path. M2 coverage report. |
-| 2 | Route table and param bindings | 1 | Person A | M1 |
-| 3 | Own sink finder and own secrets/crypto pass, plus call graph walked backward, route-granularity hypotheses (directed and sweep) | 2 to 3 | Person A | M1 SQL sinks, call graph, hypotheses. M2 other classes, secrets and crypto pass. |
-| 4 | ZAP active scanner integration for four classes: hypothesis-scoped jobs, baseline gate, deterministic differential oracles, canary/header propagation, replay log | 4 | Person B | M1 error-based SQL injection through ZAP with baseline gate, hypothesis association, evidence and replay. M2 four classes. |
-| 5 | Own header and cookie-flag checks over responses observed by ZAP | 4 | Person B | M2 |
-| 6 | Hypothesis linking with ambiguity marking, labels and scoring | 5, 7 | Person B | M1 lineage link, label, score. M2 ambiguity marking. |
-| 7 | Postgres, CLI, SARIF and the suppressed file | 6, 7 | Person B | M1 Postgres and CLI report. M2 SARIF and the suppressed file. |
-| 8 | Benchmark adapter and the `expected_pairs` file | 7 | Person B | M1 `expected_pairs` file. M2 adapter and measurement. |
-| 9 | Judging-mode profile | all | Person B | M2 |
-| 10 | `tested_negative` adequacy logic: baseline valid for every candidate param, every candidate param probed, all payload families for the CWE tried within budget. It fills the suppressed file with real content. | 6, 7 | Person B | M2 |
-
-The four classes: SQL injection, XSS, command injection, open redirect. Path traversal (CWE-22) is Should, M3, the first item after M2. Its oracle is a file-content marker. With the secrets pass it covers all six PRD vulnerability types.
-
-## Should
-
-| Item | Stage | Owner |
-|---|---|---|
-| Path traversal class (CWE-22): sink catalogue entries and hypotheses, file-content oracle | 2 to 4 | Person A for the catalogue and hypotheses. Person B for the oracle. First item after M2. |
-| Scan comparison (B-5): new, fixed and still-open issues, from stored runs and the dedupe key | 7 | Person B. M3. |
-| AI fix text and link explanations (B-3, B-4). Advisory. Zero metric risk. | 7 | Person B. M3. |
-| AI with/without measurement harness. Built before any AI task. | all | Person B. M3. |
-| AI seeds from DTOs, with repair. Only after non-AI typed seeds work. | 4 | Person B. M3. |
-| Session manager | 4 | Person B |
-| ZAP passive alert ingestion (supplemental; not verdict owner) | 4 | Person B |
-| Best-effort preflight items | 0 | Person B |
-| Back-guided static search, relaxed mode only. Producer entry `run_back_guided(target, route_map, runtime_only_findings)`. Config `backguided.enabled`, off until measured. | 5 | Person A. Reads A's index and sink catalogue. Person B consumes the evidence through the cli seam. |
-| Own flow engine (narrows `candidate_params`). Built after M2. Never blocks M1 or M2. Gate for making it the default: matches the measured Semgrep count on VulnerableApp, Semgrep run offline as the yardstick. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality. | 2 | Person A |
-
-## Could
-
-| Item | Stage | Owner |
-|---|---|---|
-| Semgrep optional adapter (fallback and cross-check) | 2 | Person A |
-| App-log tail (`TRACE`). Never in judging mode. | 4 | Person B |
-| AI payload variants when blocked | 4 | Person B |
-| AI source, sink and sanitiser spec proposals | 2 | Person A |
-| AI judging of `tested_negative` findings (demote only). The adequacy rule already demotes. | 6 | Person B |
-| Chromium-confirmed XSS | 4 | Person B |
-| Patch re-verification | 4 | Person B |
-| Second-order route pairs | 4 | Person B |
-| Refined `sink_id` | 2 | Person A |
-| JAX-RS adapter. Promote to Should only if kickoff shows the graded app is not Spring. It would also earn PRD bonus B-7. | 1 to 2 | Person A |
+Any decoy reported as an issue, or any twin suppressed, fails the build stage. Reporting one safe decoy counts as a false alarm in the PRD.
 
 ## PRD bonus items
 
 | Bonus | Where it lands |
 |---|---|
-| B-1 Auto-verify Code-only | Directed probes (Must item 4) |
-| B-2 Cut SAST noise | `tested_negative` suppression (Must item 10, M2) |
-| B-3 Explain links | Confidence reasons stored (Must item 6). AI link explanations (Should, M3). Report display `[TODO]`. |
-| B-4 Fix suggestion | AI fix text (Should, M3) |
-| B-5 Compare two scans | Should, M3 |
-| B-6 SARIF and CI exit | Must item 7 |
-| B-7 Second framework | JAX-RS, Could. Promote to Should only if kickoff shows the graded app is not Spring. |
-
-## Milestones
-
-Order work by dependency. A milestone passes only when its test has been run and the output recorded in [STATE.md](STATE.md).
-
-| Milestone | Scope |
-|---|---|
-| M1 spine | One command on a clean VulnerableApp run uses ZAP active scanning and yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. No other stage is added until M1 passes. |
-| M2 core | All four classes, own header and cookie checks, the `tested_negative` adequacy logic, the suppressed file with real content (not an empty placeholder), the judging-mode profile, the benchmark adapter, `expected_pairs` measurement. |
-| M3 extras | The Should list. The own flow engine is built after M2. |
-
-If M1 cannot pass:
-
-1. Cut to open redirect and error-based SQL injection.
-2. Fix the spine first.
-
-The pipeline and its tests must pass with Semgrep not installed. Semgrep stays an optional adapter, off by default. ZAP is required for active runtime probing, including judging mode; the judging profile must enforce bounded ZAP use, not disable it.
-
-## Split
-
-| Person | Owns |
-|---|---|
-| Person A | Stages 1, 2 and 3 (directed and sweep hypotheses), the back-guided search (`run_back_guided`), the own flow engine, the fixtures |
-| Person B | Stages 0, 4, 5, 6 and 7, ZAP active-scan orchestration and deterministic probe oracles, the `expected_pairs` file, the judging profile, and review of every fixture against the correlation cases before the contract freeze |
-
-Stage 3 emits one Hypothesis record type for both sets. Person B's coordinator starts a ZAP active-scan job for each directed hypothesis and sweep unit, and preserves the job-to-hypothesis association. ZAP generates and sends attack requests; project oracles validate captured responses and own verdicts. If a ZAP alert cannot be assigned uniquely to a job and parameter, it must remain unlinked or ambiguous rather than being assigned fabricated lineage.
-
-Person B builds against fixtures first. Both test against `common/fixtures/`. Person B consumes `run_back_guided` output through the cli seam.
-
-### Required fixtures
-
-Each at route granularity, with `candidate_params`. Rows 1 to 7 are required. Rows 8 to 10 cover the Should items `[proposed]`. Person A writes the fixtures. Person B reviews each one against the correlation cases before the contract freeze.
-
-| # | Fixture | Purpose |
-|---|---|---|
-| 1 | Unique directed hit | Basic lineage link |
-| 2 | Ambiguous group: two same-CWE sinks on one route | `link_status: ambiguous`, alternatives, primary rule |
-| 3 | `tested_negative` decoy | Suppression and the suppressed file |
-| 4 | Blocked baseline | `status: blocked` |
-| 5 | `no_http_path` | Code-only with a reason |
-| 6 | Runtime-only header | Own header check, no correlation |
-| 7 | Sweep hit, two variants: matched to a static finding by route and CWE, and no match | `link_origin: sweep`, lower confidence. Stays Runtime-only when there is no match. |
-| 8 | Back-guided link, one candidate `[proposed]` | `link_origin: back_guided`, `match_mode: relaxed`, `unresolved_hops` |
-| 9 | Back-guided search, several candidates `[proposed]` | `link_status: ambiguous`, `candidate_sinks`, label stays Runtime-only |
-| 10 | Conflict: oracle hit on a `tested_negative` sink, two variants `[proposed]` | Reproduces: `conflict: true`, un-suppressed. Does not reproduce: `oracle_flaky: true`, no link. |
-
-## Dependency order
-
-```mermaid
-flowchart LR
-    contract["Record + hypothesis shape + fixtures"]
-    contract --> idx["1 Code index"]
-    idx --> sta["2 Static"]
-    sta --> hyp["3 Hypotheses"]
-    idx --> pre["0 Preflight"]
-    contract --> probe["4 ZAP active-scan coordinator + oracles"]
-    pre --> probe
-    hyp --> probe
-    contract --> store["Run store (Postgres)"]
-    probe --> corr["5 Correlation"]
-    idx --> bg["5 Back-guided search (Should)"]
-    probe --> bg
-    bg --> corr
-    hyp --> corr
-    store --> corr
-    corr --> ver["6 Verify"]
-    ver --> out["7 Output: report, SARIF, suppressed file"]
-    out --> bench["Benchmark adapter + expected_pairs"]
-    bench --> judge["Judging profile"]
-```
-
-Person B can build stages 4 to 7 against fixtures before stages 1 to 3 exist.
+| B-1 Auto-verify Code-only | Directed probes (`BS4`, `BS6`) |
+| B-2 Cut SAST noise | `safe_pattern` and `tested_negative` suppression (`BS7`) |
+| B-3 Explain links | Confidence reasons stored (`BS5`). AI link explanations (`BS10`). Report display `[TODO]`. |
+| B-4 Fix suggestion | AI fix text (`BS10`) |
+| B-5 Compare two scans | `BS10` |
+| B-6 SARIF and CI exit | `BS8` |
+| B-7 Second framework | JAX-RS (`BS11`). Promote only if kickoff shows the graded app is not Spring. |
 
 ## Cut order
 
-If scope must shrink, drop in this order. M1 and M2 items are never cut.
+If scope must shrink, drop in this order. `BS0` to `BS9` are never cut as stages, but the scheduler may cut sweep work at run time.
 
 1. Could items, last row first
 2. Own flow engine
@@ -162,15 +251,17 @@ If scope must shrink, drop in this order. M1 and M2 items are never cut.
 4. B-5 scan comparison
 5. Supplemental ZAP passive alert ingestion
 6. AI items
-7. Session manager
+7. Session manager (unless kickoff shows a login)
 8. Best-effort preflight items
 9. Path traversal (cut last among the Should items, because it covers a PRD type)
 
 Never cut: the contract, the code index, the own sink finder, hypothesis linking with ambiguity marking, ZAP active scanning with its baseline gate and deterministic oracles, the run store, the CLI report, the judging profile.
 
+The pipeline and its tests must pass with Semgrep not installed. Semgrep stays an optional adapter, off by default. ZAP is required for active runtime probing, including judging mode; the judging profile must enforce bounded ZAP use, not disable it.
+
 ## Metric targets
 
-From the PRD. No results recorded.
+From the PRD. These are targets. No results are recorded, and nothing here claims they will be met. The first real numbers come from `BS8`. Definitions of what else we measure: [Measurement](architecture.md#measurement).
 
 | What we measure | Good | Great |
 |---|---|---|
@@ -182,7 +273,7 @@ From the PRD. No results recorded.
 | Unseen app (pairs linked) | >40% | >65% |
 | Run time | <15 min | <5 min |
 
-VulnerableApp's grader measures detection only. Semgrep is run offline as a yardstick, outside the pipeline. Link metrics are measured against the `expected_pairs` file. Ambiguity rate on VulnerableApp is measured too `[TODO]`. The back-guided search is measured by running with `backguided.enabled` on and off. If it adds no correct links, or adds any wrong link, it stays off. The alternative-sink export is measured with `export.include_alternatives` on and off `[TODO]`.
+VulnerableApp's grader measures detection only. Semgrep is run offline as a yardstick, outside the pipeline. Link metrics are measured against the `expected_pairs` file. A VulnerableApp score does not show the unseen-app target. See [Generality](architecture.md#generality).
 
 ## Docs rule
 

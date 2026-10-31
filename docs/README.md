@@ -1,7 +1,5 @@
 # docs/
 
-**Owner:** split by file.
-
 Planning and design docs.
 
-Ownership and rules: see [repo-structure.md](repo-structure.md).
+Repo map and rules: see [repo-structure.md](repo-structure.md). Build order: [implementation-plan.md](implementation-plan.md#build-stages).

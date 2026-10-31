@@ -20,9 +20,9 @@ Details: [docs/architecture.md](docs/architecture.md).
 | Target app | Java / Spring Boot (primary). Practice target: OWASP VulnerableApp. Organisers' app framework: `[TODO: confirm at kickoff]`. JAX-RS adapter: Could. |
 | Core idea | Static-guided dynamic testing. A directed hypothesis keeps its `hypothesis_id` into the evidence, so a direct hit is linked by lineage and not by matching afterwards. |
 | Static analysis | Own code index (tree-sitter-java), own sink finder (per-CWE YAML catalogue, call name and receiver type, no dataflow) and own secrets/crypto pass. The call graph is walked backward from each sink to its routes. Static output gives route and call path, never the param. |
-| Dynamic testing | ZAP active scanner is the required payload/probe engine. Project code coordinates hypothesis-scoped scans, baseline gates, canary/header propagation, replay capture, differential oracles, and header/cookie checks. ZAP alerts alone do not decide verdicts. |
+| Dynamic testing | ZAP active scanner is the required payload/probe engine. Project code schedules one scan per route and method, applies baseline gates, attributes each request by diffing it against its seed, replays candidate hits, applies differential oracles, and runs header/cookie checks. ZAP alerts alone do not decide verdicts. |
 | Linking | `link_status` (unique or ambiguous) and `link_origin` (directed, sweep or back-guided). Confidence is a float from 0 to 1 with stored reasons. |
-| Negative evidence | A finding with no oracle hit gets one status: `no_http_path`, `blocked`, `tested_negative` or `untested`. `tested_negative` findings are suppressed and written to a separate file. |
+| Negative evidence | A finding with no oracle hit gets one status: `safe_pattern`, `no_http_path`, `blocked`, `tested_negative` or `untested`. `safe_pattern` and `tested_negative` findings are suppressed and written to a separate file. A coverage report lists what was not tested. Blocked or untested does not mean safe. |
 | Labels | Confirmed, Code-only, Runtime-only (FR-7) |
 | Optional adapters | Semgrep is optional and off by default. ZAP active scanning is required, including judging mode. |
 | AI | Off by default and off in judging mode. It never creates or deletes a finding, sets a verdict or decides a link. |
@@ -67,15 +67,17 @@ flowchart TD
     corr --> out["7 Output: report, SARIF, suppressed file"]
 ```
 
-Our stack and the target app use separate Docker networks. ZAP reaches the target only over `localhost:<port>`, through its host-loopback API configuration. Active scans can change application state; use a disposable target instance and test data, never production.
+Our stack and the target app use separate Docker networks. ZAP reaches the target only over `localhost:<port>`, through its host-loopback API configuration. Active scans can change application state; use a disposable target instance and test data, never production. Localhost-only is a scope limit, not a sandbox.
 
-## 6. Milestones
+## 6. Build stages and milestones
 
-| Milestone | Scope |
-|---|---|
-| M1 spine | One command on a clean VulnerableApp run yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs` |
-| M2 core | All four classes, secrets pass, header and cookie checks, the `tested_negative` logic and suppressed file, judging profile, benchmark adapter |
-| M3 extras | Path traversal, back-guided search, own flow engine, scan comparison, session manager, AI items |
+Work is built in stages, each with an exit test. Details: [docs/implementation-plan.md](docs/implementation-plan.md#build-stages).
+
+| Build stages | Milestone | Scope |
+|---|---|---|
+| `BS0` to `BS5` | M1 spine | ZAP acceptance check, contract, code index, SQL sinks, probe spine. One command on a clean VulnerableApp run yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. |
+| `BS6` to `BS9` | M2 core | All four classes, scheduler, `safe_pattern` and adequacy logic, suppressed file, coverage report, secrets pass, header and cookie checks, benchmark adapter, measurement, judging profile, generality checks |
+| `BS10` | M3 extras | Path traversal, back-guided search, own flow engine, scan comparison, session manager, AI items |
 
 None has passed. Status and evidence: [docs/STATE.md](docs/STATE.md).
 
@@ -144,7 +146,7 @@ Versions: Python dependencies are constrained in `pyproject.toml` and pinned in 
 
 ## 10. Metric targets
 
-From the PRD. Good qualifies. Great stands out. No results are measured yet.
+From the PRD. Good qualifies. Great stands out. These are targets, not results. Nothing is measured yet. When measured, the supported-CWE score is shown beside the raw score.
 
 | What we measure | Good | Great |
 |---|---|---|
@@ -177,6 +179,6 @@ Docs:
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Pipeline, judging mode, config reference, residual flaws |
 | [docs/finding-schema.md](docs/finding-schema.md) | Record contract, statuses, examples |
-| [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones, tiers, ownership split, fixtures |
-| [docs/repo-structure.md](docs/repo-structure.md) | Directory ownership |
+| [docs/implementation-plan.md](docs/implementation-plan.md) | Build stages, milestones, fixtures, decoy plan |
+| [docs/repo-structure.md](docs/repo-structure.md) | What lives where, module boundary |
 | [docs/STATE.md](docs/STATE.md) | Current state and open questions |

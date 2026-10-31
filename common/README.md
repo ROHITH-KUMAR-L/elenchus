@@ -1,7 +1,5 @@
 # common/
 
-**Owner:** joint.
+The shared contract: finding record, hypothesis, probe job, code index, contract logic and fixtures. Changes here are contract changes.
 
-The shared contract: finding record, hypothesis, code index, contract logic and fixtures.
-
-Ownership and rules: see [docs/repo-structure.md](../docs/repo-structure.md).
+Repo map and rules: see [docs/repo-structure.md](../docs/repo-structure.md).

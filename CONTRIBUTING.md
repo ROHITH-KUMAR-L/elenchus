@@ -1,34 +1,31 @@
 # Contributing
 
-Two-person team. Rules to avoid merge conflicts. Ownership map: [docs/repo-structure.md](docs/repo-structure.md).
+Work is organised by build stage, not by person. Build stages: [docs/implementation-plan.md](docs/implementation-plan.md#build-stages). Repo map: [docs/repo-structure.md](docs/repo-structure.md).
 
-## Ownership
+## Build stages
 
-- [ ] Nobody edits another person's directory without asking.
-- [ ] `producers/` is Person A: stages 1, 2 and 3, the back-guided search, the flow engine.
-- [ ] The HTTP probe code is Person B: stages 0 and 4. Until `probe/` exists (proposed, not created), `producers/dast/` is Person B's.
-- [ ] `engine/` and `cli/` are Person B.
-- [ ] `common/` and `infra/` are joint.
-- [ ] Tests live under `tests/<component>/`, owned by the component owner.
+- [ ] Work on the current build stage. Do not start the next one until this one's exit test has run.
+- [ ] Record the exit test output in `docs/STATE.md`.
+- [ ] Keep the module boundary: static code and probe or engine code meet only through `common/` and `cli/`.
+- [ ] Tests live under `tests/<component>/`.
 
-## Schema is a joint call
+## Schema is a contract change
 
-- [ ] Freeze the record schema in `common/` before anyone codes against it.
-- [ ] Any change to it is decided together.
-- [ ] After a schema change merges, both pull immediately.
+- [ ] Freeze the record schema in `common/` in `BS1`, before anyone codes against it.
+- [ ] Update `docs/finding-schema.md` first, and flag the change as a contract change.
+- [ ] After a schema change merges, everyone pulls immediately.
 - [ ] A mid-build schema change is stop-the-world. It is never a casual edit.
 
 ## Fixtures first
 
-- [ ] Once the schema is frozen, Person A writes the fixtures listed in `docs/implementation-plan.md`.
-- [ ] Person B reviews each fixture against the correlation cases before the freeze.
-- [ ] Person B builds and tests stages 4 to 7 against the fixtures before Person A's stages exist.
+- [ ] Write the fixtures each build stage lists in `docs/implementation-plan.md`.
+- [ ] Check each fixture against the correlation cases before the freeze.
+- [ ] Test consumers against fixtures before the live stages that feed them exist.
 
 ## Branches
 
-- [ ] One short-lived branch per task: `feat/<topic>`, e.g. `feat/sast-routemap`, `feat/correlation-tiers`.
+- [ ] One short-lived branch per task: `feat/<topic>`, e.g. `feat/bs2-code-index`.
 - [ ] Pull `main` before each session.
-- [ ] Pull `main` after the other person merges.
 - [ ] Rebase onto `main` rather than drift.
 
 ## PR cadence
@@ -38,10 +35,8 @@ Two-person team. Rules to avoid merge conflicts. Ownership map: [docs/repo-struc
 
 ## Docs
 
-- [ ] Person A owns `architecture.md` and `finding-schema.md` (A drafts, B reviews).
-- [ ] Person B owns `implementation-plan.md` and `decisions.md`.
-- [ ] `README.md` and `AGENTS.md`: whoever is free, in their own small PR, never alongside code.
-- [ ] Never two people in one doc file.
+- [ ] `AGENTS.md`, `architecture.md`, `finding-schema.md`, `implementation-plan.md` and `STATE.md` are kept current while coding.
+- [ ] `README.md` and `AGENTS.md` changes go in their own small PR, never alongside code.
 
 ## .gitignore policy
 
@@ -50,5 +45,5 @@ Two-person team. Rules to avoid merge conflicts. Ownership map: [docs/repo-struc
 
 ## Dependency files
 
-- [ ] Dependency files (none exist yet) are append-only.
+- [ ] Dependency files are append-only.
 - [ ] Resolve any conflict in them immediately after merge.
