@@ -1,0 +1,97 @@
+# Semgrep pattern rules for code-only Java findings. Our own rules.
+#
+# These bugs have no runtime proof (hard-coded secrets, weak crypto), so the
+# runner keeps them without a route: they are Code-only by nature.
+
+rules:
+  - id: hardcoded-secret
+    message: A secret is hard-coded in source.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      cwe: 798
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $TYPE $NAME = "$VALUE";
+              - pattern: $NAME = "$VALUE";
+          - metavariable-regex:
+              metavariable: $NAME
+              regex: (?i)(passw(or)?d|pwd|secret|api_?key|access_?key|private_?key|auth_?token|credential)
+          # Constants naming a field, header or parameter are not secrets.
+          - metavariable-regex:
+              metavariable: $NAME
+              regex: (?i)^(?!.*(param|header|field|label|name|prefix|path|url|template|message|key_?name|attribute|charset|chars|alphabet|pattern|regex|format)$).*$
+          - metavariable-regex:
+              metavariable: $VALUE
+              regex: ^\S{4,}$
+      - patterns:
+          - pattern: $OBJ.$SETTER("$VALUE")
+          - metavariable-regex:
+              metavariable: $SETTER
+              regex: (?i)^set(Password|Secret|ApiKey|Credentials?)$
+          - metavariable-regex:
+              metavariable: $VALUE
+              regex: ^\S{4,}$
+
+  - id: weak-hash
+    message: A broken hash algorithm protects sensitive data.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: 327
+    pattern-either:
+      - patterns:
+          - pattern: MessageDigest.getInstance("$ALG")
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: (?i)^(MD2|MD4|MD5|SHA-?1|SHA)$
+      - patterns:
+          - pattern: $CLS.$FUNC($ARG, ...)
+          - metavariable-regex:
+              metavariable: $FUNC
+              regex: (?i)^(md2|md4|md5|sha1|lm|ntlm)(hex|hash|digest)?$|^lmhash$|^unsalted
+          - metavariable-regex:
+              metavariable: $ARG
+              regex: (?i)passw|pwd|secret
+
+  - id: weak-cipher
+    message: A broken cipher or mode is used.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: 327
+    patterns:
+      - pattern: Cipher.getInstance("$ALG", ...)
+      - metavariable-regex:
+          metavariable: $ALG
+          regex: (?i)^(DES|DESede|RC2|RC4|Blowfish)(/.*)?$|/ECB/
+
+  - id: weak-random
+    message: A predictable random generator produces a security value.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: 330
+    patterns:
+      - pattern-either:
+          - pattern: (java.util.Random $R).$NEXT(...)
+          - pattern: (Random $R).$NEXT(...)
+          - pattern: Math.random()
+      - pattern-inside: |
+          $RET $METHOD(...) { ... }
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: (?i)(token|session|otp|reset|password|secret|nonce|salt|key)
+
+  - id: weak-password-hash-cost
+    message: The password hash work factor is too low.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: 916
+    patterns:
+      - pattern: new BCryptPasswordEncoder($COST, ...)
+      - metavariable-comparison:
+          metavariable: $COST
+          comparison: $COST < 10

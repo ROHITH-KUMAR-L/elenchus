@@ -1,0 +1,213 @@
+# Semgrep taint rules for Java web injection classes. Our own rules.
+#
+# Sources are every method parameter plus servlet request getters. Semgrep OSS
+# taint is intraprocedural, so a private helper's parameter is the only way to
+# see request data inside it. The runner then keeps a finding only if the route
+# map shows its method is a handler or is called from one (reachability), which
+# drops findings in code no URL can reach.
+#
+# Sinks focus on the argument that carries the tainted value, so the reported
+# line is the line where tainted data enters the sink.
+
+rules:
+  - id: sql-injection
+    message: User input reaches a SQL query string.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      cwe: 89
+    mode: taint
+    pattern-sources: &sources
+      - patterns:
+          - pattern-inside: $RET $METHOD(..., $TYPE $PARAM, ...) { ... }
+          - pattern: $PARAM
+      - pattern: (javax.servlet.http.HttpServletRequest $REQ).$GETTER(...)
+      - pattern: (jakarta.servlet.http.HttpServletRequest $REQ).$GETTER(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.query($SQL, ...)
+              - pattern: $DB.queryForObject($SQL, ...)
+              - pattern: $DB.queryForList($SQL, ...)
+              - pattern: $DB.queryForMap($SQL, ...)
+              - pattern: $DB.queryForRowSet($SQL, ...)
+              - pattern: $DB.update($SQL, ...)
+              - pattern: $DB.batchUpdate($SQL, ...)
+              - pattern: $DB.execute($SQL, ...)
+              - pattern: $DB.executeQuery($SQL, ...)
+              - pattern: $DB.executeUpdate($SQL, ...)
+              - pattern: $DB.executeLargeUpdate($SQL, ...)
+              - pattern: $DB.addBatch($SQL)
+              - pattern: $DB.prepareStatement($SQL, ...)
+              - pattern: $DB.prepareCall($SQL, ...)
+              - pattern: $DB.createQuery($SQL, ...)
+              - pattern: $DB.createNativeQuery($SQL, ...)
+          - focus-metavariable: $SQL
+    # Bound parameters never reach $SQL, so parameterised-query decoys do not fire.
+
+  - id: command-injection
+    message: User input reaches an OS command.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      cwe: 78
+    mode: taint
+    pattern-sources: *sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new ProcessBuilder($CMD, ...)
+              - pattern: (java.lang.Runtime $RT).exec($CMD, ...)
+              - pattern: Runtime.getRuntime().exec($CMD, ...)
+              - pattern: $PB.command($CMD, ...)
+          - focus-metavariable: $CMD
+
+  - id: open-redirect
+    message: User input controls a redirect target.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: 601
+    mode: taint
+    pattern-sources: *sources
+    pattern-propagators:
+      # A tainted value added to a headers map taints the map.
+      - pattern: $H.add($K, $V)
+        from: $V
+        to: $H
+      - pattern: $H.set($K, $V)
+        from: $V
+        to: $H
+      - pattern: $H.put($K, $V)
+        from: $V
+        to: $H
+      - pattern: $H.setLocation($V)
+        from: $V
+        to: $H
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern: new ResponseEntity<$T>($HEADERS, HttpStatus.$STATUS)
+                  - metavariable-regex:
+                      metavariable: $STATUS
+                      regex: ^(FOUND|MOVED_PERMANENTLY|SEE_OTHER|TEMPORARY_REDIRECT|PERMANENT_REDIRECT)$
+              - patterns:
+                  - pattern: new ResponseEntity<>($HEADERS, HttpStatus.$STATUS)
+                  - metavariable-regex:
+                      metavariable: $STATUS
+                      regex: ^(FOUND|MOVED_PERMANENTLY|SEE_OTHER|TEMPORARY_REDIRECT|PERMANENT_REDIRECT)$
+          - focus-metavariable: $HEADERS
+      - patterns:
+          - pattern: $RESP.sendRedirect($HEADERS)
+          - focus-metavariable: $HEADERS
+      - patterns:
+          - pattern: $B.location($HEADERS)
+          - focus-metavariable: $HEADERS
+      - patterns:
+          - pattern: '"redirect:" + $HEADERS'
+
+  - id: open-redirect-header-list
+    # Semgrep cannot carry taint from h.get(K).add(v) back into h, so this
+    # form is matched structurally: a parameter added to a header map's list,
+    # then that map returned with a redirect status.
+    message: User input controls a redirect target.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: 601
+    patterns:
+      - pattern-inside: $RET $METHOD(..., $TYPE $PARAM, ...) { ... }
+      - pattern-inside: |
+          $HEADERS.get($KEY).add(<... $PARAM ...>);
+          ...
+      - pattern: new ResponseEntity<$T>($HEADERS, HttpStatus.$STATUS)
+      - metavariable-regex:
+          metavariable: $STATUS
+          regex: ^(FOUND|MOVED_PERMANENTLY|SEE_OTHER|TEMPORARY_REDIRECT|PERMANENT_REDIRECT)$
+      - focus-metavariable: $HEADERS
+
+  - id: open-redirect-header-list-diamond
+    message: User input controls a redirect target.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: 601
+    patterns:
+      - pattern-inside: $RET $METHOD(..., $TYPE $PARAM, ...) { ... }
+      - pattern-inside: |
+          $HEADERS.get($KEY).add(<... $PARAM ...>);
+          ...
+      - pattern: new ResponseEntity<>($HEADERS, HttpStatus.$STATUS)
+      - metavariable-regex:
+          metavariable: $STATUS
+          regex: ^(FOUND|MOVED_PERMANENTLY|SEE_OTHER|TEMPORARY_REDIRECT|PERMANENT_REDIRECT)$
+      - focus-metavariable: $HEADERS
+
+  - id: xss
+    message: User input reaches an HTTP response body without HTML encoding.
+    languages: [java]
+    severity: ERROR
+    metadata:
+      cwe: 79
+    mode: taint
+    pattern-sources: *sources
+    pattern-propagators:
+      - pattern: $SB.append($X)
+        from: $X
+        to: $SB
+      - pattern: $SB.insert($I, $X)
+        from: $X
+        to: $SB
+    pattern-sanitizers:
+      - pattern: HtmlUtils.htmlEscape(...)
+      - pattern: StringEscapeUtils.escapeHtml4(...)
+      - pattern: Encode.forHtml(...)
+      - pattern: Encode.forHtmlAttribute(...)
+      - pattern: ESAPI.encoder().encodeForHTML(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new ResponseEntity<$T>($BODY, ...)
+              - pattern: new ResponseEntity<>($BODY, ...)
+              - pattern: ResponseEntity.ok($BODY)
+              - pattern: $B.body($BODY)
+              - pattern: (javax.servlet.http.HttpServletResponse $R).getWriter().$W($BODY)
+              - pattern: (jakarta.servlet.http.HttpServletResponse $R).getWriter().$W($BODY)
+          # Objects and maps are serialised as JSON, not rendered as HTML.
+          - metavariable-pattern:
+              metavariable: $BODY
+              patterns:
+                - pattern-not: new $OBJ(...)
+                - pattern-not: Map.of(...)
+                - pattern-not: List.of(...)
+          - focus-metavariable: $BODY
+      # A method that returns markup built from input (handler or helper).
+      - patterns:
+          - pattern: return $BODY;
+          - metavariable-regex:
+              metavariable: $BODY
+              regex: (?s)"[^"]*<[a-zA-Z/][^"]*"
+          - focus-metavariable: $BODY
+
+  - id: path-traversal
+    message: User input reaches a file path.
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: 22
+    mode: taint
+    pattern-sources: *sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new File($PATH, ...)
+              - pattern: new File($PARENT, $PATH)
+              - pattern: new FileInputStream($PATH)
+              - pattern: new FileReader($PATH)
+              - pattern: Paths.get($PATH, ...)
+              - pattern: Path.of($PATH, ...)
+              - pattern: $P.resolve($PATH)
+              - pattern: $C.getResourceAsStream($PATH)
+              - pattern: $C.getResource($PATH)
+          - focus-metavariable: $PATH
