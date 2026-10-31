@@ -1,42 +1,50 @@
 # SAST and DAST Correlation
 
-CyberForge hackathon entry. Spec: [docs/prd.md](docs/prd.md).
+CyberForge hackathon entry. Spec: [docs/prd.md](docs/prd.md). Agent rules: [AGENTS.md](AGENTS.md). Build order: [docs/implementation-plan.md](docs/implementation-plan.md).
 
 Status: design stage. Nothing has been built, run or measured yet.
 
 ## 1. What it is
 
-The tool scans Python source code (SAST) and the running app (DAST). It correlates the two sets of findings into one prioritised list. Each real bug appears once, with its code line and its runtime proof.
+A Python CLI. It scans a web app's source code (SAST) and its running instance on localhost (DAST). It correlates the two sets of findings into one prioritised list. Each real bug appears once, with its code line and its runtime proof.
 
 ## 2. Approach
 
-Current plan. Items marked `[TODO: confirm at kickoff]` depend on the test app.
+Details: [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/decisions.md).
 
 | Area | Decision |
 |---|---|
-| Target language | Python (Flask/FastAPI). `[TODO: confirm at kickoff]` |
-| SAST, injection classes | Semgrep in taint mode. Sanitiser-aware, so parameterised-query decoys are not reported. |
-| SAST, simple patterns | Bandit and regex rules for code-only findings such as hard-coded secrets. |
-| DAST | OWASP ZAP, seeded from the route map instead of blind crawling. |
-| Route map | URL → handler function → file and line range. Built with Python's `ast` (tree-sitter if the framework needs it). This is the correlation join key. |
-| Correlation | Our own logic. See below. |
-| Runtime verdicts | Deterministic oracles only. See below. |
-| Labels | Confirmed / Code-only / Runtime-only (FR-7). |
+| Tool language | Python |
+| Target app | Java / Spring Boot (primary). Practice target: OWASP VulnerableApp. Organisers' app framework: `[TODO: confirm at kickoff]` |
+| Framework adapters | SAST rules and route-map parser per framework. Spring MVC first, JAX-RS second. Core is framework-agnostic. |
+| SAST | Semgrep taint mode for the four injection classes. Sanitiser-aware, so parameterised-query decoys are not reported. |
+| Secrets/crypto pass | gitleaks or Semgrep secret rules `[TODO: confirm]` |
+| DAST | OWASP ZAP, seeded from the route map. Active scan for injection, passive scan for headers. |
+| Route map | Source → URL template → file, handler, line range, params. Parsed with tree-sitter-java or javalang `[TODO: confirm]` |
+| Correlation | Our own logic. Confidence tiers A / B / C. Tier B is the main path on Spring. |
+| Runtime verdicts | Deterministic oracles only. The AI never decides an exploit worked. |
+| Labels | Confirmed / Code-only / Runtime-only (FR-7) |
+| Result format | Internal finding record inside the engine. SARIF 2.1.0 at the edges only: Semgrep SARIF in, correlated SARIF out (B-6). |
+| Persistence | Our own Postgres on its own Docker network and volume, separate from the target. Runs, findings, issues, evidence, benchmark results. |
+| Delivery | CLI only |
 
-### Correlation rule
+### Correlation tiers
 
-Link a DAST finding to a SAST finding when both hold:
+CWE must match in every tier. Param match guards against wrong links.
 
-1. The CWE matches.
-2. The DAST route's handler line range contains the SAST finding's file and line.
-
-Where both findings carry a parameter name, it must also match. This avoids wrong links when one handler has several bugs.
+| Tier | Rule |
+|---|---|
+| A | SAST sink line inside the DAST route's handler span, same param |
+| B | Taint source of the SAST trace inside the handler span, sink in any file (Spring controller → service) |
+| C | Route + param only. Low confidence. |
 
 - Linked pair → **Confirmed**
 - SAST finding with no link → **Code-only**
 - DAST finding with no code location → **Runtime-only** (e.g. missing security headers)
 
-Duplicate merge key and re-run behaviour (FR-6): `[TODO]`
+Merge and dedupe on `(cwe, file, line)` across runs via `run_id`. Dedupe key for Runtime-only findings: `[TODO]`
+
+Tier B needs a cross-file taint trace. Semgrep OSS taint is intraprocedural. How we get the trace: `[TODO: open question]`
 
 ### Oracles
 
@@ -44,10 +52,10 @@ Every runtime verdict comes from a deterministic check. The AI never decides tha
 
 | Type | Oracle |
 |---|---|
-| SQL injection | Database error in response, or time delay |
-| XSS | Unique marker reflected unescaped in response |
-| Command injection | Time delay |
-| Open redirect | `Location` header points to our marker host |
+| SQL injection | DB error string, or time delay |
+| XSS | Reflected unescaped marker |
+| Command injection | Response time delay |
+| Open redirect | `Location` header host |
 
 Delay thresholds and marker formats: `[TODO]`
 
@@ -61,79 +69,57 @@ Delay thresholds and marker formats: `[TODO]`
 | Open redirect | CWE-601 | Code and runtime | Committed |
 | Path traversal | CWE-22 | Code and runtime | Stretch |
 
-Hard-coded secrets (CWE-798) are code-only. The Bandit/regex pass reports them as Code-only findings.
+Hard-coded secrets (CWE-798) are code-only. The secrets/crypto pass reports them as Code-only. VulnerableApp has no secrets module, so its crypto or JWT module stands in during practice.
 
 ## 4. Finding schema
 
-This schema is frozen first. Every component reads and writes it. Example values below are illustrative, taken from the PRD.
-
-```json
-{
-  "run_id": "example-run",
-  "source": "dast",
-  "cwe": 89,
-  "route": "GET /api/orders",
-  "file": "orders.py",
-  "line": 88,
-  "param": "id",
-  "payload": "1'",
-  "evidence": {
-    "oracle": "db_error",
-    "request": "GET /api/orders?id=1'",
-    "response_excerpt": "..."
-  },
-  "label": "Confirmed",
-  "risk_score": null
-}
-```
-
-- `source`: `sast` or `dast`.
-- `file` and `line`: filled by SAST, or by the route map for a linked DAST finding.
-- `route`, `param`, `payload`: filled by DAST, or by the route map for a SAST finding.
-- `risk_score`: severity and ease of exploitation (FR-9). Formula `[TODO]`.
-- Severity field and storage (SQLite or file): `[TODO]`
+Draft contract: [docs/finding-schema.md](docs/finding-schema.md). The internal finding record is frozen first. Every component reads and writes it. SARIF is used only for ingest and export, and the export is lossy. `type` and `cwe` align to the VulnerableApp grader vocabulary.
 
 ## 5. Architecture
 
 ```
-source code  --> Semgrep, Bandit       --+
-source code  --> route map (ast)         +--> common finding format
-running app  --> ZAP (seeded by routes)--+              |
-                                                        v
-                                    correlation engine (uses route map)
-                                                        |
-                                                        v
-                                                prioritised list
+source --> Semgrep --[SARIF in]-----+
+source --> route-map adapter -------+--> internal finding record
+localhost app --> ZAP + oracles ----+              |
+                                                   v
+                         correlation + merge (tiers A/B/C) <--> Postgres (our network)
+                                                   |
+                                  +----------------+----------------+
+                                  v                                 v
+                         prioritised CLI report            [SARIF out] (B-6)
 ```
+
+Our stack and the target app use separate Docker networks. Our scanner reaches the target only over `localhost:<port>`. Details: [docs/architecture.md](docs/architecture.md).
 
 ## 6. Getting started
 
 Prerequisites:
 
-- Docker and Docker Compose
-- The organisers' test app, running on your own machine
+- Python `[TODO: version]`
+- Semgrep `[TODO]`
+- OWASP ZAP `[TODO: install method]`
+- Docker and Docker Compose, to run our Postgres and the target app
 
-The test app runs separately, from the organisers' own Compose file. Our DAST scanner points only at that app. Do not point it at any other host.
+The target app runs separately, from its own Docker Compose, on localhost. Our DAST scanner points only at that app. Do not point it at any other host.
 
 Steps:
 
-1. Start the organisers' test app: `[TODO: per organisers' instructions]`
-2. Clone this repo: `[TODO]`
-3. Set the target app URL and source path: `[TODO]`
-4. Start the tool with Docker Compose: `[TODO]`
-5. Run a scan and read the report: `[TODO]`
-
-Interface (CLI, API or page, FR-10): `[TODO]`
+1. Start our stack (Postgres on its own network and volume): `[TODO]`
+2. Start the target app: `[TODO: per organisers' instructions, or VulnerableApp's Compose file]`
+3. Install the tool: `[TODO]`
+4. Run a scan with the source path and localhost URL: `[TODO: CLI command]`
+5. Read the prioritised report: `[TODO]`
 
 ## 7. Open-source scanners used
 
-The challenge rules require this list. The correlation logic (route map join, linking, merging, labelling, prioritisation) is our own work.
+The challenge rules require this list. The correlation logic (route map join, tiers, merging, labelling, prioritisation) is our own work.
 
 | Tool | Role | Rulesets / config |
 |---|---|---|
-| Semgrep | SAST, taint mode for injection classes | `[TODO]` |
-| Bandit | SAST, pattern checks such as hard-coded secrets | `[TODO]` |
-| OWASP ZAP | DAST | `[TODO]` |
+| Semgrep | SAST, taint mode | OWASP Java ruleset `[TODO: exact rulesets]` |
+| gitleaks or Semgrep secret rules | Secrets/crypto pass | `[TODO: confirm]` |
+| OWASP ZAP | DAST | `[TODO: scan policy]` |
+| Nuclei | Optional, bonus only | `[TODO]` |
 
 Versions: `[TODO]`
 
