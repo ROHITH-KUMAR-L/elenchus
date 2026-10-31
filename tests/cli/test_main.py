@@ -6,7 +6,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from common.record import Finding, ScanTarget
 from cli.main import main
 
 
@@ -37,6 +39,82 @@ def sast_record() -> dict[str, object]:
 
 
 class CliTests(unittest.TestCase):
+    def test_scan_runs_route_map_then_both_producers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            order: list[str] = []
+            routes = ("route-map",)
+            sast = Finding.from_dict({**sast_record(), "run_id": "scan-run"})
+            targets: list[ScanTarget] = []
+
+            def build_routes(target: ScanTarget) -> tuple[str, ...]:
+                order.append("route_map")
+                targets.append(target)
+                return routes
+
+            def run_sast(target: ScanTarget, route_map: tuple[str, ...]) -> list[Finding]:
+                order.append("run_sast")
+                targets.append(target)
+                self.assertEqual(route_map, routes)
+                return [sast]
+
+            def run_dast(target: ScanTarget, route_map: tuple[str, ...]) -> list[Finding]:
+                order.append("run_dast")
+                targets.append(target)
+                self.assertEqual(route_map, routes)
+                return []
+
+            output = io.StringIO()
+            with (
+                patch("producers.sast.spring_routes.route_map", build_routes),
+                patch("producers.sast.semgrep_runner.run_sast", run_sast),
+                patch("producers.dast.zap_runner.run_dast", run_dast),
+                contextlib.redirect_stdout(output),
+            ):
+                result = main(
+                    [
+                        "scan",
+                        "--source-path",
+                        temporary_directory,
+                        "--base-url",
+                        "http://localhost:9090/VulnerableApp",
+                        "--run-id",
+                        "scan-run",
+                        "--no-store",
+                    ]
+                )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(order, ["route_map", "run_sast", "run_dast"])
+        self.assertEqual(
+            [(item.source_path, item.base_url, item.run_id, item.framework) for item in targets],
+            [
+                (
+                    temporary_directory,
+                    "http://localhost:9090/VulnerableApp",
+                    "scan-run",
+                    "spring-mvc",
+                )
+            ] * 3,
+        )
+        self.assertIn("Code-only", output.getvalue())
+
+    def test_scan_rejects_non_local_target_before_running_producers(self) -> None:
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            result = main(
+                [
+                    "scan",
+                    "--source-path",
+                    ".",
+                    "--base-url",
+                    "http://example.com",
+                    "--no-store",
+                ]
+            )
+
+        self.assertEqual(result, 2)
+        self.assertIn("localhost", errors.getvalue())
+
     def test_correlate_reads_records_writes_json_and_sarif(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)

@@ -14,6 +14,7 @@ import csv
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Any, TypedDict
 
 from common.record import ScanTarget, normalize_file
 from common.vocabulary import to_grader_sast
@@ -23,16 +24,39 @@ from producers.sast.spring_routes import route_map
 EXPECTED_CSV = "src/main/resources/scanner/sast/expectedIssues.csv"
 
 
-def load_expected(root: Path) -> list[dict[str, str]]:
+class ExpectedIssue(TypedDict):
+    cwe: str
+    type: str
+    file: str
+    line: int
+
+
+class SastScore(TypedDict):
+    matched: set[int]
+    unmatched: list[dict[str, Any]]
+
+
+def load_expected(root: Path) -> list[ExpectedIssue]:
     with open(root / EXPECTED_CSV, newline="") as handle:
-        return [
-            {"cwe": row["CWE"].strip().upper(), "type": row["Vulnerability Type"].strip().lower(),
-             "file": normalize_file(row["File"].strip()), "line": int(row["Line"])}
-            for row in csv.DictReader(handle)
-        ]
+        expected = []
+        for row in csv.DictReader(handle):
+            file = normalize_file(row["File"].strip())
+            if file is None:
+                raise ValueError("ground-truth file path must not be empty")
+            expected.append(
+                ExpectedIssue(
+                    cwe=row["CWE"].strip().upper(),
+                    type=row["Vulnerability Type"].strip().lower(),
+                    file=file,
+                    line=int(row["Line"]),
+                )
+            )
+        return expected
 
 
-def score_sast(expected: list[dict[str, str]], reported: list[dict]) -> dict:
+def score_sast(
+    expected: list[ExpectedIssue], reported: list[dict[str, Any]]
+) -> SastScore:
     """Grader matching: exact file and line, plus CWE or type."""
     matched = set()
     unmatched = []

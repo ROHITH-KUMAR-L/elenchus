@@ -80,9 +80,6 @@ rules:
           - pattern: Math.random()
       - pattern-inside: |
           $RET $METHOD(...) { ... }
-      - metavariable-regex:
-          metavariable: $METHOD
-          regex: (?i)(token|session|otp|reset|password|secret|nonce|salt|key)
 
   - id: weak-password-hash-cost
     message: The password hash work factor is too low.

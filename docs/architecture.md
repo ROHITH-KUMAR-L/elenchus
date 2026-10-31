@@ -1,6 +1,6 @@
 # Architecture
 
-Status: plan. Nothing is built.
+Status: Spring route-map and Semgrep SAST producers, the localhost-scoped ZAP producer, the consumer engine, and the host CLI scan command are implemented. The ZAP API and oracle paths have unit coverage; a full VulnerableApp DAST benchmark remains unverified because that target is not present in this checkout.
 
 ## Run model (local mode)
 
@@ -14,10 +14,10 @@ Status: plan. Nothing is built.
 
 | Component | Framework-specific? | Role |
 |---|---|---|
-| SAST adapter | Yes | Runs Semgrep taint rules and a secrets/crypto pass for one framework. Semgrep output is read as SARIF. |
-| Route-map adapter | Yes | Parses source into `route template → {file, handler, line_start, line_end, params}`. |
-| DAST runner | No | Drives OWASP ZAP via the Python client or Automation Framework YAML. Seeds ZAP with route-map URLs. Active scan for injection, passive scan for headers. |
-| Oracles | No | Deterministic HTTP checks that decide each runtime verdict. |
+| SAST adapter | Yes | Runs Semgrep taint and pattern rules for Spring MVC. SARIF findings are normalized into the shared record. |
+| Route-map adapter | Yes | Parses Spring MVC source with tree-sitter-java into routes, handler spans, params, and bounded call edges. |
+| DAST runner | No | Drives the ZAP API on localhost. Scans only route-map URLs inside an exact localhost context. |
+| Oracles | No | Deterministic checks for SQL errors, raw XSS reflection, command output, external redirect headers, and missing response headers. |
 | Normaliser | No | Maps Semgrep SARIF and ZAP alerts to the internal finding record, with grader vocabulary. |
 | Correlation + merge | No | Tiered linking, labels, dedupe across runs, risk score. |
 | Run store | No | Our Postgres. Runs, raw findings, issues, evidence, benchmark results. Backs FR-6 dedupe and B-5 comparison. |
@@ -40,7 +40,7 @@ The SAST and route-map entries are framework-specific. The DAST entry is not. Th
 | Java / Spring MVC | Primary | `@RestController` / `@Controller`, class `@RequestMapping`, method `@GetMapping` / `@PostMapping` / `@RequestMapping` | `@RequestParam`, `@PathVariable` |
 | Java / JAX-RS | Secondary | Class + method `@Path`, `@GET` / `@POST` | `@QueryParam`, `@PathParam` |
 
-Parser: tree-sitter-java or javalang. `[TODO: confirm at kickoff]`
+Parser: tree-sitter-java.
 
 The route map must handle dynamic segments (`/x/{id}` matched against `/x/5`) and class-level base paths. It must read annotation shapes, not names from the test app.
 
@@ -68,7 +68,7 @@ flowchart TD
     corr --> grader["Grader JSON (VulnerableApp only)"]
 ```
 
-Secrets/crypto pass output format (SARIF or tool JSON): `[TODO: confirm with tool choice]`
+The Semgrep taint and pattern rules both emit SARIF, which the SAST runner maps to the shared record.
 
 ## Correlation design
 
@@ -86,24 +86,25 @@ Output is a confidence tier, not a boolean. CWE must match in every tier. Param 
 - Merge rule: a newly linked pair searches stored issues by both keys and merges into any match, including a stored Runtime-only issue.
 - Sort: Confirmed first, then `risk_score` = f(severity, exploit ease, confidence).
 
-Tier B uses call edges from the route-map parser, not a cross-file taint trace. Semgrep OSS taint stays inside one function. See [decisions.md](decisions.md) D-07.
+Tier B uses call edges from the route-map parser, not a cross-file taint trace. Semgrep OSS 1.183 SARIF emits no `codeFlows` for the taint rules covered by our tests. See [decisions.md](decisions.md) D-07.
 
 Call-edge limits to check against the real app `[TODO: confirm at kickoff]`:
 
-- One hop only. A sink in a repository called by the service is two hops away.
-- Service interfaces. The controller calls `OrderService.find()`, but the sink is in `OrderServiceImpl`. The parser must resolve interface to implementation.
-- Param mapping. The DAST param name belongs to the controller. The service method may name its argument differently. Tier B's param guard must map controller request params to call arguments.
+- One cross-class hop only. Same-class helper calls are followed transitively. A sink in a repository called by the service is two cross-class hops away.
+- The parser resolves service interfaces to implementations.
+- Parameter names are not data-flow mapped across calls. A SAST sink whose local variable name differs from the route parameter may not satisfy the Tier B parameter guard.
 
 ## Oracles
 
 | Type | Oracle |
 |---|---|
-| SQLi | DB error string, or time delay |
-| XSS | Reflected unescaped marker |
-| Command injection | Response time delay |
-| Open redirect | `Location` header host |
+| SQLi | A database error signature in the captured ZAP response body. Time-only alerts are not confirmed. |
+| XSS | The ZAP attack string appears unescaped in the captured response body. |
+| Command injection | A recognized command-output marker is reflected in the response. Time-only alerts are not confirmed. |
+| Open redirect | A redirect response contains an absolute `Location` outside localhost. The redirect is not followed. |
+| Missing security header | The named header is absent from the captured response headers. |
 
-Whether the oracle replays every ZAP alert or only checks ZAP's own evidence: `[TODO: confirm]`
+Each oracle checks the response captured for the ZAP alert. Alerts without matching deterministic evidence are discarded. The command-injection oracle does not confirm time-delay-only findings.
 
 ## Infrastructure (our stack)
 
@@ -132,9 +133,10 @@ flowchart LR
 |---|---|---|
 | Network | `sastdast-net` | Our services only. The target never joins it. |
 | Volume | `sastdast-pgdata` | Postgres data. Survives target teardown and reset. |
-| Service | `sastdast-postgres` | Official `postgres` image. Version `[TODO]`. |
+| Loopback bridge | `sastdast-hostport` | Enables the database's loopback-only host port. |
+| Service | `postgres` | Official `postgres:17-alpine` image. |
 
-Names are proposals. Ratify in hour one. No compose file or SQL is written yet.
+The Compose file is [infra/compose.yaml](../infra/compose.yaml). Its database port is bound only to `127.0.0.1`.
 
 What the store holds:
 
@@ -152,22 +154,20 @@ Rules:
 - Postgres is not reachable from the target. It is not exposed beyond our network.
 - The store holds our tool's own state. It does not change the localhost-only rule or CLI-only delivery.
 
-Placement (D-14): the DAST-capable CLI runs on the host. Postgres publishes its port on `127.0.0.1` only, through a second bridge network `sastdast-hostport`, because Docker does not publish ports from internal-only networks. ZAP placement: `[TODO: confirm]`
+Placement (D-14): the DAST-capable CLI runs on the host. Postgres publishes its port on `127.0.0.1` only, through a second bridge network `sastdast-hostport`, because Docker does not publish ports from internal-only networks. Run ZAP on the host or in host-network mode, with its API bound to `127.0.0.1`; do not connect ZAP to the target's Docker network.
 
 Credentials handling for Postgres: `[TODO]`. Never commit them.
 
 ## End-to-end workflow
 
-1. Start our stack (Postgres on `sastdast-net`). `[TODO: exact command]`
+1. Start Postgres with `docker compose -f infra/compose.yaml up -d postgres`.
 2. Start the target app with its own Docker Compose on `localhost`.
-3. Run the CLI with the source folder and the localhost URL. A new `run_id` is recorded. `[TODO: exact CLI]`
-4. Route-map adapter builds the route map.
-5. SAST adapter runs Semgrep and the secrets/crypto pass. Semgrep SARIF is ingested.
-6. ZAP scans the localhost app, seeded from the route map.
-7. Oracles check runtime findings.
-8. Normaliser writes all findings as internal records. Raw findings go to the store.
-9. Correlation links, labels, merges against stored issues, and scores.
-10. CLI prints the prioritised list. Issue detail covers FR-8 fields. Optional SARIF export.
+3. Start ZAP's API on host loopback and set `ZAP_API_KEY`; configure PostgreSQL credentials if persistence is enabled.
+4. Run `elenchus scan --source-path <source> --base-url http://127.0.0.1:<port>/<context>`. A new `run_id` is recorded.
+5. The route-map adapter builds the map. Semgrep runs against source; ZAP scans only its mapped routes.
+6. Oracles verify response evidence. Unverified alerts are discarded.
+7. Correlation links, labels, merges against stored issues, and scores.
+8. The CLI prints the prioritized list and can export SARIF.
 
 ## Self-scoring harness (VulnerableApp)
 

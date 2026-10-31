@@ -1,0 +1,62 @@
+[
+  {
+    "run_id": "fixture-tier-b",
+    "source": "sast",
+    "cwe": 89,
+    "type": "SQL Injection",
+    "route": null,
+    "method": null,
+    "file": "src/main/java/com/example/OrderService.java",
+    "line": 88,
+    "param": "id",
+    "payload": null,
+    "handler_file": null,
+    "handler_line_start": null,
+    "handler_line_end": null,
+    "reached_via": [
+      {
+        "route": "/api/orders/{id}",
+        "method": "GET",
+        "handler_file": "src/main/java/com/example/OrderController.java",
+        "handler_line_start": 40,
+        "handler_line_end": 48
+      }
+    ],
+    "evidence": {
+      "snippet": "statement.executeQuery(\"SELECT * FROM orders WHERE id=\" + id);"
+    },
+    "taint_trace": null,
+    "label": null,
+    "confidence": null,
+    "risk_score": null,
+    "severity": "high",
+    "wasc_id": null
+  },
+  {
+    "run_id": "fixture-tier-b",
+    "source": "dast",
+    "cwe": 89,
+    "type": "SQL Injection",
+    "route": "/api/orders/{id}",
+    "method": "GET",
+    "file": null,
+    "line": null,
+    "param": "id",
+    "payload": "1'",
+    "handler_file": null,
+    "handler_line_start": null,
+    "handler_line_end": null,
+    "reached_via": null,
+    "evidence": {
+      "oracle": "database_error",
+      "request": "GET http://localhost:9090/api/orders/1",
+      "response_excerpt": "SQLSyntaxErrorException"
+    },
+    "taint_trace": null,
+    "label": null,
+    "confidence": null,
+    "risk_score": null,
+    "severity": "high",
+    "wasc_id": null
+  }
+]

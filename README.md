@@ -2,7 +2,7 @@
 
 CyberForge hackathon entry. Spec: [docs/prd.md](docs/prd.md). Agent rules: [AGENTS.md](AGENTS.md). Build order: [docs/implementation-plan.md](docs/implementation-plan.md). Who owns what: [docs/repo-structure.md](docs/repo-structure.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status: the Spring route-map parser and initial Person B consumer path are implemented. End-to-end scanning and benchmark metrics are not yet available.
+Status: the Spring route-map parser, Semgrep SAST producer, localhost-scoped ZAP producer, consumer engine, and CLI scan orchestration are implemented. Producer tests pass; a real ZAP/VulnerableApp DAST run and fresh benchmark metrics have not been verified.
 
 ## 1. What it is
 
@@ -17,10 +17,10 @@ Details: [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/
 | Tool language | Python |
 | Target app | Java / Spring Boot (primary). Practice target: OWASP VulnerableApp. Organisers' app framework: `[TODO: confirm at kickoff]` |
 | Framework adapters | SAST rules and route-map parser per framework. Spring MVC first, JAX-RS second. Core is framework-agnostic. |
-| SAST | Semgrep taint mode for the four injection classes. Sanitiser-aware, so parameterised-query decoys are not reported. |
-| Secrets/crypto pass | gitleaks or Semgrep secret rules `[TODO: confirm]` |
-| DAST | OWASP ZAP, seeded from the route map. Active scan for injection, passive scan for headers. |
-| Route map | Source → URL template → file, handler, line range, params. Parsed with tree-sitter-java or javalang `[TODO: confirm]` |
+| SAST | Semgrep taint and pattern rules for injection and selected secrets/crypto cases. SARIF is ingested into internal findings. |
+| Secrets/crypto pass | Semgrep pattern rules for hard-coded credentials, weak hashes/ciphers, weak random, and password-hash work factor. |
+| DAST | ZAP API, scoped to localhost and seeded from the route map. Deterministic response oracles filter alerts. |
+| Route map | Source → URL template → file, handler, line range, params, and bounded call edges. Parsed with tree-sitter-java. |
 | Correlation | Our own logic. Confidence tiers A / B / C. Tier B is the main path on Spring. |
 | Runtime verdicts | Deterministic oracles only. The AI never decides an exploit worked. |
 | Labels | Confirmed / Code-only / Runtime-only (FR-7) |
@@ -52,12 +52,13 @@ Every runtime verdict comes from a deterministic check. The AI never decides tha
 
 | Type | Oracle |
 |---|---|
-| SQL injection | DB error string, or time delay |
-| XSS | Reflected unescaped marker |
-| Command injection | Response time delay |
-| Open redirect | `Location` header host |
+| SQL injection | Database error signature in response; time-only alerts are not confirmed. |
+| XSS | ZAP attack string reflected unescaped in response. |
+| Command injection | Recognized command-output marker reflected; time-only alerts are not confirmed. |
+| Open redirect | Redirect response has an absolute external `Location`; it is not followed. |
+| Missing security header | Named header absent from response headers. |
 
-Delay thresholds and marker formats: `[TODO]`
+Alerts without matching deterministic evidence are discarded. Exact API setup and remaining limitations are in [docs/architecture.md](docs/architecture.md).
 
 ## 3. Vulnerability types covered
 
@@ -97,20 +98,38 @@ Our stack and the target app use separate Docker networks. Our scanner reaches t
 
 Prerequisites:
 
-- Python `[TODO: version]`
-- Semgrep `[TODO]`
-- OWASP ZAP `[TODO: install method]`
-- Docker and Docker Compose, to run our Postgres and the target app
+- Python 3.14+
+- `uv` for the locked environment (Semgrep is installed as a project dependency)
+- OWASP ZAP with its API bound to `127.0.0.1:8090`
+- Docker and Docker Compose for Postgres and the target app
 
-The target app runs separately, from its own Docker Compose, on localhost. Our DAST scanner points only at that app. Do not point it at any other host.
+The target app runs separately, from its own Docker Compose, on localhost. The DAST scanner refuses non-local target URLs. Do not point it at any other host.
 
 Steps:
 
-1. Start our stack (Postgres on its own network and volume): `[TODO]`
-2. Start the target app: `[TODO: per organisers' instructions, or VulnerableApp's Compose file]`
-3. Install the tool: `[TODO]`
-4. Run a scan with the source path and localhost URL: `[TODO: CLI command]`
-5. Read the prioritised report: `[TODO]`
+1. Install the locked dependencies with `uv sync --locked`.
+2. Start the target app using its own Compose instructions and note its localhost URL.
+3. Start OWASP ZAP with its API bound to loopback and set `ZAP_API_KEY`. For Docker on Linux, host networking keeps both the API and localhost-only target reachable on host loopback:
+
+   ```sh
+   export ZAP_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+   docker run --rm --network host --name elenchus-zap \
+     -e ZAP_API_KEY="$ZAP_API_KEY" zaproxy/zap-stable \
+     zap.sh -daemon -host 127.0.0.1 -port 8090 \
+     -config api.key="$ZAP_API_KEY"
+   ```
+
+4. Run the producers from the host, not from the CLI container:
+
+   ```sh
+   uv run elenchus scan \
+     --source-path <target-source-directory> \
+     --base-url http://127.0.0.1:<target-port>/<context> \
+     --no-store
+   ```
+
+   Omit `--no-store` to persist results; start our PostgreSQL service and configure `DATABASE_URL` first.
+5. Read the prioritized report. Add `--sarif-output report.sarif` to write SARIF.
 
 ## 7. Continuous integration
 

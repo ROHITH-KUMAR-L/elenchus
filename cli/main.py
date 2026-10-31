@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
+from common.record import ScanTarget
 from engine.correlate import Finding, Issue, correlate
 from engine.report import format_text, to_sarif
 
@@ -18,11 +19,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
-        records = _load_inputs(args.sast, args.dast)
         if args.run_id is not None and not args.run_id.strip():
             raise ValueError("--run-id must not be empty")
         run_id = args.run_id or uuid.uuid4().hex
-        findings = [record.with_run_id(run_id) for record in records]
+        if args.command == "scan":
+            findings = _run_producers(args, run_id)
+        else:
+            records = _load_inputs(args.sast, args.dast)
+            findings = [record.with_run_id(run_id) for record in records]
         issues = correlate(findings)
         if not args.no_store:
             from engine.store import PostgresStore
@@ -56,6 +60,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "correlate",
         help="correlate JSON finding records produced by scanners",
     )
+    correlate_parser.add_argument("--run-id", help="run identifier (default: generated UUID)")
     correlate_parser.add_argument(
         "--sast",
         action="append",
@@ -70,34 +75,66 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help="DAST JSON array or object containing a findings array; repeatable",
     )
-    correlate_parser.add_argument("--run-id", help="run identifier (default: generated UUID)")
-    correlate_parser.add_argument(
+    _add_output_arguments(correlate_parser)
+
+    scan_parser = commands.add_parser(
+        "scan",
+        help="run the route map, Semgrep, and localhost ZAP scans",
+    )
+    scan_parser.add_argument("--source-path", required=True, help="target source directory")
+    scan_parser.add_argument(
+        "--base-url",
+        required=True,
+        help="target base URL; must resolve to localhost, 127.0.0.1, or ::1",
+    )
+    scan_parser.add_argument(
+        "--framework",
+        choices=("spring-mvc",),
+        default="spring-mvc",
+        help="target framework adapter (default: spring-mvc)",
+    )
+    scan_parser.add_argument("--run-id", help="run identifier (default: generated UUID)")
+    _add_output_arguments(scan_parser)
+    return parser
+
+
+def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "--database-url",
         default=os.environ.get("DATABASE_URL"),
         help="PostgreSQL connection string (or DATABASE_URL environment variable)",
     )
-    correlate_parser.add_argument(
+    parser.add_argument(
         "--no-store",
         action="store_true",
         help="skip persistence for local previews and tests",
     )
-    correlate_parser.add_argument(
+    parser.add_argument(
         "--output-format",
         choices=("text", "json"),
         default="text",
         help="report format (default: text)",
     )
-    correlate_parser.add_argument(
+    parser.add_argument(
         "--sarif-output",
         metavar="FILE",
         help="write the correlated issues as SARIF 2.1.0",
     )
-    correlate_parser.add_argument(
+    parser.add_argument(
         "--ci",
         action="store_true",
         help="return exit status 1 for Confirmed high or critical issues",
     )
-    return parser
+
+
+def _run_producers(args: argparse.Namespace, run_id: str) -> list[Finding]:
+    target = ScanTarget(args.source_path, args.base_url, run_id, args.framework)
+    from producers.dast.zap_runner import run_dast
+    from producers.sast.semgrep_runner import run_sast
+    from producers.sast.spring_routes import route_map
+
+    routes = route_map(target)
+    return run_sast(target, routes) + run_dast(target, routes)
 
 
 def _load_inputs(sast_paths: Sequence[str], dast_paths: Sequence[str]) -> list[Finding]:

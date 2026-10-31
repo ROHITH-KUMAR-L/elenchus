@@ -1,0 +1,27 @@
+[
+  {
+    "run_id": "fixture-code-only",
+    "source": "sast",
+    "cwe": 798,
+    "type": "Hard-coded Credentials",
+    "route": null,
+    "method": null,
+    "file": "src/main/java/com/example/security/Secrets.java",
+    "line": 14,
+    "param": null,
+    "payload": null,
+    "handler_file": null,
+    "handler_line_start": null,
+    "handler_line_end": null,
+    "reached_via": null,
+    "evidence": {
+      "snippet": "private static final String API_KEY = \"example-value\";"
+    },
+    "taint_trace": null,
+    "label": null,
+    "confidence": null,
+    "risk_score": null,
+    "severity": "high",
+    "wasc_id": null
+  }
+]

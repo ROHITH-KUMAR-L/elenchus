@@ -35,7 +35,7 @@ Authoritative definition: [`common/record.py`](../common/record.py) (frozen data
 | `handler_line_end` | integer \| null | Handler span end. | SAST, when resolvable |
 | `reached_via` | array \| null | Handlers that call the method holding the sink (one-hop call edges). Each entry: `route`, `method`, `handler_file`, `handler_line_start`, `handler_line_end`. Tier B matches on this. `[proposed: list, since one service method can be called from several handlers]` | SAST, from the route-map parser's call edges |
 | `evidence` | object | Proof. DAST: oracle name, request, response excerpt. SAST: code snippet. Raw scanner severity also goes here. | All |
-| `taint_trace` | array \| null | Source-to-sink path from Semgrep, within one function. Each step: `file`, `line`, `role` (`source` / `step` / `sink`). | SAST |
+| `taint_trace` | array \| null | Optional source-to-sink path from a SAST tool. Each step: `file`, `line`, `role` (`source` / `step` / `sink`). Semgrep OSS 1.183 SARIF did not include `codeFlows` in our synthetic rule tests, so the current runner sets this to null. | SAST |
 | `severity` | string \| null | The scanner's own severity claim. Shown in the report (FR-1). | Producer, when the scanner gives one |
 | `wasc_id` | integer \| null | Passthrough for the VulnerableApp grader. Not used inside the engine. | ZAP alert |
 | `label` | `"Confirmed"` \| `"Code-only"` \| `"Runtime-only"` | FR-7 label. Set by correlation, not by scanners. | Correlation engine |
@@ -104,12 +104,18 @@ The VulnerableApp grader (`POST /VulnerableApp/scanner/benchmark`) matches on it
 
 | Our class | CWE | Grader `type` string |
 |---|---|---|
-| SQL injection | 89 | `[TODO: copy from benchmarks/README.md]` |
-| XSS | 79 | `[TODO]` |
-| Command injection | 78 | `[TODO]` |
-| Open redirect | 601 | `[TODO]` |
-| Path traversal (stretch) | 22 | `[TODO]` |
-| Crypto / JWT stand-in (code-only) | `[TODO]` | `[TODO]` |
+| SQL injection | 89 | `SQL Injection` |
+| XSS | 79 | `Reflected XSS` |
+| Command injection | 78 | `Command Injection` |
+| Open redirect | 601 | `Open Redirect` |
+| Path traversal (stretch) | 22 | `Path Traversal` |
+| Hard-coded credentials | 798 | `Hard-coded Credentials` |
+| Cryptographic failures | 326 or 327 | `Cryptographic Failures` |
+| Weak random | 330 | `Weak Random Number Generation` |
+| Weak password hashing | 916 | `Weak Password Hashing` |
+| Vulnerable JWT | 347 | `Server Side Vulnerable Jwt` |
+
+For the VulnerableApp grader only, internal CWE-78 is translated to grader CWE-77. The internal finding remains CWE-78. See `common/vocabulary.py`.
 
 Grader request bodies, as stated in VulnerableApp's docs (not yet exercised by us):
 
@@ -122,7 +128,7 @@ The grader takes its own JSON. It is a third boundary format, separate from our 
 
 SARIF is mapped to and from the internal record only at the edges.
 
-**Ingest.** Semgrep SARIF output becomes internal records. `ruleId` and rule metadata give `cwe` and `type`. `locations` give `file` and `line`. Whether Semgrep's SARIF carries the dataflow trace (for `taint_trace`) is unverified: `[TODO: confirm at kickoff]`
+**Ingest.** Semgrep SARIF output becomes internal records. `ruleId` and rule metadata give `cwe` and `type`. `locations` give `file` and `line`. Synthetic scans with Semgrep OSS 1.183 confirmed that taint results contain no `codeFlows`; the runner therefore sets `taint_trace` to null.
 
 **Export (B-6).** Each correlated issue becomes one SARIF `result`. Fields with no SARIF home go in `result.properties`. The mapping is lossy.
 
