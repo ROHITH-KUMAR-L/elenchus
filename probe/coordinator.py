@@ -11,6 +11,7 @@ carries the job's hypotheses without any after-the-fact matching.
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -33,6 +34,22 @@ _INJECTABLE_QUERY_AND_BODY = "3"
 _POLL_SECONDS = 0.5
 _BLOCKING_STATUSES = range(400, 600)
 _ADEQUACY_REJECTIONS = {400, 401, 403, 404, 422}
+# State-guard method risk: GET/HEAD/ANY are read-only; the rest change state and
+# run last, so the safe reads are done before anything can drift the app.
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "ANY"}
+_METHOD_RANK = {"GET": 0, "HEAD": 0, "OPTIONS": 0, "ANY": 0, "POST": 1, "PUT": 2, "PATCH": 2, "DELETE": 3}
+# A destructive SQL verb in the seed pushes the job last within its risk rank.
+_DESTRUCTIVE_SQL = re.compile(r"\b(DROP|DELETE|TRUNCATE|UPDATE|ALTER|INSERT)\b", re.IGNORECASE)
+
+
+def _is_state_changing(method: str) -> bool:
+    return method.upper() not in _SAFE_METHODS
+
+
+def _risk_key(job: ProbeJob, index: int) -> tuple[int, int, int]:
+    seed = job.seed_request
+    destructive = 1 if _DESTRUCTIVE_SQL.search(f"{seed.url} {seed.body}") else 0
+    return (_METHOD_RANK.get(job.method.upper(), 1), destructive, index)
 _TYPE_REJECTION_STATUSES = {400, 422}
 _TYPE_REJECTABLE = {
     "byte", "short", "int", "integer", "long", "float", "double",
@@ -72,6 +89,7 @@ class ProbeResult:
     foreign_hosts: list[str] = field(default_factory=list)
     jobs_skipped: list[tuple[str, str]] = field(default_factory=list)  # (job_id, reason)
     stage_seconds: float = 0.0
+    drift_detected: bool = False
 
 
 @dataclass(frozen=True)
@@ -236,6 +254,18 @@ class Coordinator:
         totals = {"considered": 0, "attributed": 0, "with_header": 0, "messages": 0}
         # One finding per missing protection across the whole app (per_app dedupe).
         header_hits: dict[tuple[int, str], tuple[str, HeaderFinding]] = {}
+        # State guard: run read-only jobs first, watch a sample of GET routes, and
+        # stop state-changing jobs once the app drifts. It limits damage; it does
+        # not prevent it.
+        ordered = sorted(
+            range(len(jobs)),
+            key=lambda i: _risk_key(
+                replace(jobs[i], seed_request=build_seed(entries[(jobs[i].route, jobs[i].method)], self.base_url)),
+                i,
+            ),
+        )
+        ordered = [jobs[i] for i in ordered]
+        drift = {"detected": False}
         start = self._now()
         try:
             self._set_auth_header()
@@ -246,29 +276,38 @@ class Coordinator:
             self.api.set_option(
                 "ascan", "TargetParamsInjectable", "Integer", _INJECTABLE_QUERY_AND_BODY
             )
+            has_state_change = any(_is_state_changing(job.method) for job in ordered)
+            baselines = self._drift_baselines(routes) if has_state_change else {}
 
             def run_one(job: ProbeJob) -> ProbeJob:
                 entry = entries[(job.route, job.method)]
                 seed = build_seed(entry, self.base_url)
+                # After drift, run no further state-changing job; read-only jobs
+                # still run. Everything run after drift is flagged, so a negative
+                # on a drifted app is never read as tested_negative.
+                if drift["detected"] and _is_state_changing(job.method):
+                    return replace(job, seed_request=seed, outcome="skipped_drift", after_drift=True)
                 # One job's ZAP failure (a stalled or rejected API call) must not
                 # abort the run: record it as errored and move on, so the budget
                 # and the other jobs still hold.
                 try:
                     outcome, job_findings, headers, stats, job_adequacy = self._run_job(
-                        run_id, job, entry, seed, context_id
+                        run_id, replace(job, after_drift=drift["detected"]), entry, seed, context_id
                     )
                 except RuntimeError:
-                    return replace(job, seed_request=seed, outcome="errored")
+                    return replace(job, seed_request=seed, outcome="errored", after_drift=drift["detected"])
                 findings.extend(job_findings)
                 adequacy.extend(job_adequacy)
                 for key in totals:
                     totals[key] += stats[key]
                 for header in headers:
                     header_hits.setdefault((header.cwe, header.header_name), (job.route, header))
-                return replace(job, seed_request=seed, outcome=outcome)
+                if _is_state_changing(job.method) and not drift["detected"] and self._drifted(baselines):
+                    drift["detected"] = True
+                return replace(job, seed_request=seed, outcome=outcome, after_drift=drift["detected"])
 
             schedule = run_two_pass(
-                jobs, self.config["probe.stage_budget_seconds.zap_jobs"], self._now, run_one
+                ordered, self.config["probe.stage_budget_seconds.zap_jobs"], self._now, run_one
             )
             executed = list(schedule.ran)
             executed.extend(replace(job, outcome="skipped_budget") for job, _ in schedule.skipped)
@@ -306,6 +345,7 @@ class Coordinator:
             foreign_hosts=foreign,
             jobs_skipped=[(job.job_id, reason) for job, reason in schedule.skipped],
             stage_seconds=round(self._now() - start, 3),
+            drift_detected=drift["detected"],
         )
 
     def _run_job(
@@ -504,6 +544,33 @@ class Coordinator:
                 return "stopped_at_limit"
             self._sleep(_POLL_SECONDS)
         return "finished"
+
+    def _drift_baselines(self, routes: tuple[RouteEntry, ...]) -> dict[str, tuple[str, Response]]:
+        """Raw request and response of a sample of GET routes before scanning, so
+        drift can be re-checked by replaying the exact same request. Best effort: a
+        route that cannot be fetched is left out, not retried."""
+        sample = [r for r in routes if r.method.upper() in _SAFE_METHODS][
+            : self.config["probe.drift_routes"]
+        ]
+        baselines: dict[str, tuple[str, Response]] = {}
+        for entry in sample:
+            raw = self._raw(build_seed(entry, self.base_url))
+            try:
+                baselines[entry.route] = (raw, _response(self.api.send_request(raw)))
+            except RuntimeError:
+                continue
+        return baselines
+
+    def _drifted(self, baselines: dict[str, tuple[str, Response]]) -> bool:
+        """True if any sampled GET route now answers differently than its baseline."""
+        for raw, before in baselines.values():
+            try:
+                now = _response(self.api.send_request(raw))
+            except RuntimeError:
+                continue
+            if (now.status, now.body) != (before.status, before.body):
+                return True
+        return False
 
     def _set_probe_header(self, canary: str) -> None:
         # The canary is "elx-...", so the probe rule is "elenchus-elx-...". Match

@@ -7,7 +7,7 @@ positive lineage, flaky replay evidence, adequacy observations, and attribution.
 from __future__ import annotations
 
 from common.config import load_config
-from common.pipeline import Hypothesis, SeedRequest
+from common.pipeline import Hypothesis, ProbeJob, SeedRequest
 from common.record import CallHop, RouteEntry, RouteParam, SinkId
 from probe.coordinator import Coordinator, plan_directed_jobs
 from probe.preflight import ContextPath
@@ -292,3 +292,68 @@ def test_auth_header_requires_its_env_var():
     except ValueError:
         return
     raise AssertionError("expected a ValueError when the auth env var is empty")
+
+
+POST_ROUTE = "/orders/create"
+DRIFT_ROUTES = (
+    RouteEntry(ROUTE, "GET", "C.java", "C.get", 70, 90, (RouteParam("id", "query", "String"),), ()),
+    RouteEntry(POST_ROUTE, "POST", "O.java", "O.create", 10, 30, (RouteParam("q", "query", "String"),), ()),
+)
+
+
+def post_job(job_id):
+    return ProbeJob(
+        job_id=job_id, route=POST_ROUTE, method="POST", job_pass="directed",
+        hypothesis_ids=(), cwes=(89,), canary=f"elx-{job_id}",
+        seed_request=SeedRequest(url=f"{BASE}{POST_ROUTE}?q=1", method="POST"),
+    )
+
+
+class DriftZap:
+    """A GET route that answers differently once a state-changing scan has run."""
+
+    base_url = "http://127.0.0.1:8090"
+
+    def __init__(self):
+        self.state_changed = False
+        self.replacer = {}
+        self.started = []
+
+    def set_option(self, *a): pass
+    def ensure_scan_policy(self, *a): pass
+    def create_context(self, name, regex): return "7"
+    def remove_context(self, name): pass
+    def replacer_rules(self): return [{"description": d} for d in self.replacer]
+    def add_replacer_request_header(self, description, header, value): self.replacer[description] = value
+    def remove_replacer_rule(self, description): self.replacer.pop(description, None)
+    def prime_site_tree(self, *a): pass
+
+    def send_request(self, raw_request, follow_redirects=False):
+        if ROUTE in raw_request:  # the GET drift sample
+            body = "CHANGED" if self.state_changed else "STABLE"
+            return {"responseHeader": "HTTP/1.1 200 OK\r\n", "responseBody": body}
+        return {"responseHeader": "HTTP/1.1 200 OK\r\n", "responseBody": "{}"}  # POST seed
+
+    def start_scan(self, url, method, post_data, context_id, policy):
+        self.started.append(policy)
+        self.state_changed = True  # the state-changing scan mutates the app
+        return "11"
+
+    def stop_scan(self, scan_id): pass
+    def active_scan_status(self, scan_id): return 100
+    def scan_message_ids(self, scan_id): return []
+    def message(self, message_id): return {}
+    def hosts(self): return ["127.0.0.1"]
+
+
+def test_drift_after_a_state_changing_job_skips_the_rest():
+    fake = DriftZap()
+    config = load_config(overrides={"target.base_url": BASE, "probe.drift_routes": 1},
+                         environ={"ZAP_API_KEY": "k"})
+    coord = Coordinator(fake, config, BASE, ContextPath("/VulnerableApp", "config"))
+    result = coord.run("run", [post_job("p0"), post_job("p1")], DRIFT_ROUTES)
+    assert result.drift_detected is True
+    outcomes = {job.job_id: job.outcome for job in result.jobs}
+    # The first POST runs and trips drift; the second is skipped, never run.
+    assert outcomes["p1"] == "skipped_drift"
+    assert fake.started == ["elenchus-run-p0"] or len(fake.started) == 1

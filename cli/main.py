@@ -376,7 +376,8 @@ def _report_probe_telemetry(result: Any) -> None:
     outcomes = Counter(job.outcome for job in result.jobs)
     print(
         f"probe: stage_seconds={result.stage_seconds} jobs_run={len(result.jobs)} "
-        f"jobs_skipped={len(result.jobs_skipped)} outcomes={dict(outcomes)} "
+        f"jobs_skipped={len(result.jobs_skipped)} drift_detected={result.drift_detected} "
+        f"outcomes={dict(outcomes)} "
         f"attribution_rate={result.attribution_rate:.3f} "
         f"header_propagation_rate={result.header_propagation_rate:.3f} "
         f"foreign_hosts={result.foreign_hosts}",
