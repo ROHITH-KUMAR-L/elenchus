@@ -248,7 +248,7 @@ This limits damage. It does not prevent it: a tautology payload can still change
 | Class | Oracle |
 |---|---|
 | SQL injection | Error signature, boolean pair, or timing with repeats |
-| XSS | Content type and reflection context: payload canary reflected unescaped in an HTML context. Open for `BS6`: VulnerableApp's XSS routes reply `text/plain` and its page inserts the text as HTML, so this oracle would not fire there. ZAP raised no alert on them either. |
+| XSS | The attack value's markup returned verbatim in a `text/html` response, absent from the baseline. Decision (BS6): a `text/plain` response is not confirmed, because a browser does not render it as HTML. Such a route is untested for XSS, not negative. ZAP raised no alert on VulnerableApp's `text/plain` XSS routes. |
 | Command injection | Output marker first, timing with repeats as the fallback |
 | Path traversal | File-content marker `[proposed: a Linux passwd line pattern, since no canary file can be planted in the organisers' target]` |
 | Open redirect | `Location` header host |
