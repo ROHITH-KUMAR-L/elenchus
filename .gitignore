@@ -2,6 +2,9 @@
 out/
 runs/
 
+# Local checkouts of target apps. Never vendored.
+.targets/
+
 # Benchmark result files
 benchmarks/*-results.json
 
@@ -23,6 +26,7 @@ dist/
 
 # Secrets
 .env
+.env.*
 
 # Local virtualenvs
 .venv/

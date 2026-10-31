@@ -20,3 +20,21 @@ docker compose -f infra/compose.yaml run --rm cli correlate \
 The CLI container mounts the repository read-only at `/workspace`. Input record files must be in the repository or another mounted location. The consumer only reads records; it does not scan source files or make HTTP requests.
 
 Stop the database with `docker compose -f infra/compose.yaml down`. The volume persists. `docker compose -f infra/compose.yaml down -v` deletes the stored data; use that only for an intentional reset.
+
+## ZAP and the practice target
+
+Each has its own Compose file, pinned by digest and bound to loopback, so neither needs Postgres credentials:
+
+```sh
+export ZAP_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+docker compose -f infra/zap.compose.yaml up -d
+docker compose -f infra/vulnerableapp.compose.yaml up -d
+```
+
+`vulnerableapp.compose.yaml` runs VulnerableApp's base service only. Upstream's Compose file also starts Ollama, Mongo and an LLM service, and publishes their ports on all interfaces.
+
+The VulnerableApp source for static stages goes in `.targets/`, which git and Docker ignore:
+
+```sh
+git clone https://github.com/SasanLabs/VulnerableApp.git .targets/VulnerableApp
+```

@@ -1,0 +1,24 @@
+# Keep the build context small and free of local state and secrets.
+.git/
+.github/
+.targets/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+.env
+.env.*
+.vscode/
+.idea/
+out/
+runs/
+docs/
+tests/

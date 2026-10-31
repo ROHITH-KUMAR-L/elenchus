@@ -20,7 +20,7 @@ Static-guided dynamic testing. Static analysis produces hypotheses. OWASP ZAP pe
 ## Linking rules
 
 - A directed hit is linked by hypothesis lineage. The `hypothesis_id` travels through the probe into the evidence. Do not link by matching afterwards.
-- One ZAP job covers one `(route, method)`, unless `BS0` chose a fallback. The `ProbeJob` record, with its `hypothesis_ids`, is written before the scan starts.
+- One ZAP job covers one `(route, method)`. The `ProbeJob` record, with its `hypothesis_ids`, is written before the scan starts.
 - Attribute from the request, not the alert. The param comes from a diff against the seed request, the CWE from the rule ID. Alerts are hints only. If the diff does not show exactly one param, the hit stays unlinked. Never manufacture lineage.
 - Every candidate hit is replayed by the coordinator. The oracle on the replay is the verdict. A candidate not replayed is not confirmed.
 - Never write "true by construction" or "toward zero" about wrong links.
@@ -143,7 +143,8 @@ Definitions: [docs/architecture.md](docs/architecture.md#measurement).
 - The scan policy is an allow-list of rule IDs from `zap.rule_map.<cwe>`. Out-of-band and SSRF rules stay off.
 - Replays never follow redirects. At run end, check ZAP's history for any host that is not loopback, and fail loudly if one appears.
 - Ensure `X-Elenchus-Probe` and a canary id are attached to each ZAP-generated probe request; verify header/canary propagation rather than assuming it. A message without them is not evidence. Keep a replay log with the originating ZAP scan job and hypothesis id.
-- ZAP's API names and behaviours are unverified until `BS0` has run against the pinned version.
+- Keep ZAP's URL-path input vector off unless the route has a path param, and then limit it to that param's seed value. Unscoped, it mutates the context path and leaves the route table.
+- ZAP's API behaviour is checked against the pinned version only. Re-run `scripts/bs0_zap_check.py` whenever the digest in `infra/zap.compose.yaml` changes.
 - Probes are safe test requests, as the PRD says for B-1.
 
 ## Our infrastructure

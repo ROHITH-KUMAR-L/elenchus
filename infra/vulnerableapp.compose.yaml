@@ -1,0 +1,16 @@
+# Practice target: OWASP VulnerableApp, base service only.
+#
+# Upstream's docker-compose.yml also starts Ollama, Mongo, an LLM service and
+# others, and publishes their ports on all interfaces. We need none of them, and
+# deliberately vulnerable services must stay on loopback.
+#
+#   docker compose -f infra/vulnerableapp.compose.yaml up -d
+#
+# Never add this service to our network. Reach it only at localhost:<port>.
+name: elenchus-target-vulnerableapp
+
+services:
+  vulnerableapp:
+    image: sasanlabs/owasp-vulnerableapp@sha256:14e968b822ccba3eb0e3b9f0912b2c550bac16ed278df348d7e6ae6a755e16d7
+    ports:
+      - "127.0.0.1:${VULNERABLEAPP_PORT:-9090}:9090"

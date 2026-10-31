@@ -1,0 +1,24 @@
+# OWASP ZAP, the active probe engine. Separate from compose.yaml so it starts
+# without Postgres credentials.
+#
+#   export ZAP_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+#   docker compose -f infra/zap.compose.yaml up -d
+#
+# Host networking reaches the target at localhost:<port> without joining its
+# Docker network. The API binds to 127.0.0.1 only. Never change that host.
+name: elenchus-zap
+
+services:
+  zap:
+    # The bare image, pinned. zap.version in docs/architecture.md tracks this digest.
+    image: ghcr.io/zaproxy/zaproxy@sha256:99575ac0542e9b424177589d70720c0426ca410005812d3c10bd16370bbb4f54
+    network_mode: host
+    command:
+      - zap.sh
+      - -daemon
+      - -host
+      - 127.0.0.1
+      - -port
+      - "${ZAP_PORT:-8090}"
+      - -config
+      - api.key=${ZAP_API_KEY:?Set ZAP_API_KEY}

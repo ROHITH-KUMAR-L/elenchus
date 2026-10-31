@@ -173,7 +173,8 @@ OWASP ZAP's active scanner generates and sends attack requests. Project-owned co
 | Part | Behaviour |
 |---|---|
 | Job construction | One ZAP active-scan job per `(route, method)`. Jobs run one at a time. Before a job starts, the coordinator records a `ProbeJob`: job id, route, method, covered `hypothesis_ids`, CWEs, seed request and canary. |
-| Scan scope | The ZAP context is built from exact route-table patterns, not the whole base path. No recursion. Input vectors are limited to the param locations in the index. |
+| Scan scope | The ZAP context is built from exact route-table patterns, not the whole base path. No recursion. Input vectors are limited to the param locations in the index. The URL-path vector stays off unless the route has a path param, because it mutates every segment, including the context path. When it is on, an excluded-param rule limits it to the param's seed value. |
+| Seeding | The seed request goes through ZAP's proxy port before the scan. A scan can only start from a site-tree node, and `core/action/sendRequest` does not add a POST to the tree. |
 | Scan policy | An allow-list. Only the rule IDs in `zap.rule_map.<cwe>` for the job's CWEs are on. Out-of-band and SSRF rules stay off. |
 | Typed seeds | Supply valid route and parameter values from the index. ZAP generates attack variants. AI repair is Should, only after non-AI seeds work. |
 | Baseline gate | Take a fresh baseline right before each job. A param whose baseline fails is excluded from the job and recorded as `blocked_by_validation` with a sub-code: `validation` (400, 422), `auth` (401, 403), `not_found` (404), `server_error` (5xx), `other`. If every param fails, the job does not start. |
@@ -194,7 +195,7 @@ Oracles are differential: each compares a probe response with the route/paramete
 
 ZAP alerts do not carry a `hypothesis_id`, so alerts are not the source of attribution. For each finished job, the coordinator reads every message through `ascan/view/messagesIds` and:
 
-1. Drops the message if the probe header or job canary is missing, or if the URL does not normalise to the job's route.
+1. Drops the message if the probe header, job canary or rule header is missing, or if the URL does not normalise to the job's route. ZAP sends one random-path request per job for its own 404 analysis. It has no rule header, so this step drops it.
 2. Finds the **param** by diffing the request against the job's seed request.
 3. Finds the **CWE** from the rule ID in `X-ZAP-Scan-ID` (ZAP's inject-plugin-id option), through `zap.rule_map.<cwe>`.
 4. Runs the project oracle for that CWE on the response. An oracle match or a ZAP alert on the message makes it a candidate hit. Alerts are hints only.
@@ -203,7 +204,7 @@ If the diff shows zero params or more than one, the message cannot support a dir
 
 A candidate on a CWE or param with no directed hypothesis in the job is a sweep hit.
 
-This design is unverified until `BS0` passes. Fallback if `BS0` shows that messages or rule IDs cannot be attributed: one job per `(route, method, param)`, with the other params excluded. That costs much more of the time budget, so the schedule below is re-tuned.
+`BS0` confirmed the mechanism on a small set of VulnerableApp routes. Its accuracy across a full run is measured from `BS4` on.
 
 #### Verification replay
 
@@ -247,7 +248,7 @@ This limits damage. It does not prevent it: a tautology payload can still change
 | Class | Oracle |
 |---|---|
 | SQL injection | Error signature, boolean pair, or timing with repeats |
-| XSS | Content type and reflection context: payload canary reflected unescaped in an HTML context |
+| XSS | Content type and reflection context: payload canary reflected unescaped in an HTML context. Open for `BS6`: VulnerableApp's XSS routes reply `text/plain` and its page inserts the text as HTML, so this oracle would not fire there. ZAP raised no alert on them either. |
 | Command injection | Output marker first, timing with repeats as the fallback |
 | Path traversal | File-content marker `[proposed: a Linux passwd line pattern, since no canary file can be planted in the organisers' target]` |
 | Open redirect | `Location` header host |
@@ -460,18 +461,25 @@ No hold-out result proves the unseen-app target. It only exposes parser and cata
 
 ## ZAP acceptance check
 
-Build stage `BS0`. These are assumptions until run against the pinned ZAP image and VulnerableApp. API names come from ZAP's documentation. Only part of that documentation could be read word for word, so each is checked here.
+Build stage `BS0`, run with [scripts/bs0_zap_check.py](../scripts/bs0_zap_check.py) against ZAP 2.17.0 (the digest in [infra/zap.compose.yaml](../infra/zap.compose.yaml)) and the VulnerableApp digest in [infra/vulnerableapp.compose.yaml](../infra/vulnerableapp.compose.yaml). The results below are from the final run on 2026-10-31: 16 jobs over a handful of routes. It says nothing yet about a full scan.
 
-| # | Must show | If it fails |
-|---|---|---|
-| 1 | `ascan/view/messagesIds` returns only the messages of one scan | Per-param jobs. Re-tune the schedule. |
-| 2 | `X-ZAP-Scan-ID` is on every active-scan request, and gives the rule | Run one job per `(route, method, CWE)`. Re-tune the schedule. |
-| 3 | A Replacer rule adds the probe header to active-scan traffic | HTTP Sender script |
-| 4 | Query, form, path and JSON params can each be mutated, and each diff finds the param | List the location as unsupported in coverage |
-| 5 | `core/action/sendRequest` can replay with redirects off | Replay directly from the coordinator, still logged |
-| 6 | The rule IDs in `zap.rule_map.<cwe>` exist in the pinned version | Correct the config |
-| 7 | Real time per job, at each attack strength, on VulnerableApp | Set the probe budgets. If the sweep cannot fit, the sweep gets cut first. |
-| 8 | ZAP history shows loopback hosts only after an open-redirect scan | Fix before any further scan |
+| # | Must show | Result | Decision |
+|---|---|---|---|
+| 1 | `ascan/view/messagesIds` returns only the messages of one scan | Pass. No message ID appeared in two of the 16 jobs. | One job per `(route, method)` |
+| 2 | `X-ZAP-Scan-ID` is on every active-scan request, and gives the rule | Pass, except one 404-analysis request per job, which has none | Drop messages with no rule header |
+| 3 | A Replacer rule adds the probe header to active-scan traffic | Pass. Every message had the right job canary. | Replacer, not HTTP Sender |
+| 4 | Query, form, path and JSON params can each be mutated, and each diff finds the param | Pass on all four. Each job had at most one message changing more than one param, which by count matches the 404-analysis request. Some rule-sent messages match the seed exactly and carry no evidence. Path needs the scoping below. | Path vector off by default, scoped when needed |
+| 5 | `core/action/sendRequest` can replay with redirects off | Pass. It returned the 302 and did not follow it. | Replay through ZAP |
+| 6 | The rule IDs in `zap.rule_map.<cwe>` exist in the pinned version | Pass | Time-based SQL rules added to the map |
+| 7 | Real time per job, at each attack strength, on VulnerableApp | 0.5 to 1.5 seconds per job at LOW and MEDIUM, where 0.5 is the polling floor. 3 to 25 messages per job. | Budgets stand. A vulnerable route with a time-based payload will take longer. |
+| 8 | ZAP history shows loopback hosts only after an open-redirect scan | Pass. `core/view/hosts` listed only `127.0.0.1`. This reads ZAP's own record, not network traffic. | Keep the run-end host check |
+
+Other findings:
+
+- A POST seed must go through ZAP's proxy port. See Seeding in [Stage 4](#stage-4-zap-backed-probe-engine).
+- With the path vector on and unscoped, ZAP mutated the context path (`/'/ErrorBased...`), which leaves the route table. With an excluded-param rule, it mutated only the param's segment.
+- ZAP's one 404-analysis request per job goes to a random sibling path, on the same host. It carries no payload. It is the one known request outside the route table.
+- ZAP raised alerts on the SQL query, command injection and redirect routes tried, and none on the form, JSON, XSS or traversal routes tried. Which of those routes are really vulnerable to the payloads ZAP sent was not checked here. VulnerableApp lists the XSS and traversal routes as vulnerable, which supports treating alerts as hints only.
 
 ## Judging mode
 
@@ -510,16 +518,16 @@ The single source for config names and default values. Other docs point here and
 | `zap.enabled` | [true] | Required ZAP active scan engine and passive response analysis. Must stay enabled in judging mode. |
 | `zap.api_url` | [`http://127.0.0.1:8090`] | Local ZAP API endpoint. Must be host loopback; never expose it to an untrusted network. |
 | `zap.api_key` | [`ZAP_API_KEY` environment variable] | Local API access key. Never commit or print it. |
-| `zap.version` | [TODO: pin in BS0] | The ZAP image or version the acceptance check ran against |
-| `zap.rule_map.<cwe>` | [proposed: 89 = 40018, 79 = 40012, 78 = 90020, 22 = 6, 601 = 20019. Verify and add variants in BS0.] | ZAP rule IDs allowed for each CWE. Maps a rule ID back to its CWE. |
+| `zap.version` | [2.17.0, digest in `infra/zap.compose.yaml`] | The ZAP image the acceptance check ran against. Re-run `BS0` when it changes. |
+| `zap.rule_map.<cwe>` | [89 = 40018, 40019, 40020, 40021, 40022, 40027; 79 = 40012; 78 = 90020; 22 = 6; 601 = 20019] | ZAP rule IDs allowed for each CWE. Maps a rule ID back to its CWE. All exist in the pinned version. |
 | `zap.attack_strength.directed` | [proposed: MEDIUM] | Attack strength in scheduler pass 1 |
 | `zap.attack_strength.sweep` | [proposed: LOW] | Attack strength in scheduler pass 2 |
-| `zap.thread_per_host` | [TODO: from BS0] | ZAP threads per host within one job |
+| `zap.thread_per_host` | [2] | ZAP threads per host within one job. The value `BS0` ran with. |
 | `logtail.enabled` | [false] | App-log tail for `TRACE` evidence |
 | `ai.enabled` | [false] | Master AI switch |
 | `ai.max_calls` | [30] | Cap on AI calls per run |
 | `ai.tasks.<name>.enabled` | [false] | Per-task AI switch |
-| `probe.max_job_seconds` | [TODO: from BS0] | The coordinator stops a job at this limit |
+| `probe.max_job_seconds` | [proposed: 30] | The coordinator stops a job at this limit. `BS0` jobs took under 2 seconds. The margin allows for a time-based payload that actually sleeps. |
 | `probe.max_jobs` | [proposed: 60] | Safety limit on jobs per run. The deadline is the real budget. |
 | `probe.drift_routes` | [proposed: 3] | GET routes re-requested after a state-changing job |
 | `probe.timing_repeats` | [TODO] | Repeats for timing oracles |
@@ -577,8 +585,8 @@ No AI task becomes default-on until a with/without run on VulnerableApp against 
 | A real third sink that was never found | The proof links to the wrong hypothesis with misleading confidence | `TRACE`, or `RESPONSE_TRACE` when a stack trace appears. Otherwise uncaught. |
 | No dataflow in the sink finder | A `dynamic` sink is a lead, not proof that input reaches it. Safe `dynamic` sinks need a probe to clear them. | `arg_shape` clears the syntactically safe ones. The adequacy test and decoy plan cover the rest. Own flow engine (Should) narrows further. |
 | A negative result is not proof of safety | A payload ZAP does not generate can leave a real bug `tested_negative` | The adequacy test, `wrong_suppression_count`, per-CWE `export.suppress_cwes` |
-| ZAP attribution | The design is unverified until `BS0` passes. Unattributable hits lose their link. | `attribution_rate` and `attribution_accuracy`. Unlinked, never manufactured. |
-| Time budget | The arithmetic for about 30 routes leaves about 6 seconds per job in pass 1. It may not fit once measured. | The scheduler reports what it did not reach as `untested`. The sweep is cut first. |
+| ZAP attribution | `BS0` confirmed the mechanism on a few routes only. Unattributable hits lose their link. | `attribution_rate` and `attribution_accuracy`. Unlinked, never manufactured. |
+| Time budget | `BS0` jobs took under 2 seconds on non-sleeping routes, but no full scan has run. Sleeping time-based payloads and a target with many routes cost more. VulnerableApp lists 171. | The scheduler reports what it did not reach as `untested`. The sweep is cut first. |
 | State changes during a scan | A tautology payload can change or delete data. The state guard limits this but cannot prevent it. | Risk ordering, drift check. Disposable target in practice. |
 | Second-order bugs (stored XSS) | Need a write/read route-pair config, or stay unlinked | `injected_route` and `observed_route` fields. An automatic read-back with a stored canary is Could. |
 | Multi-step workflows | One route's job cannot set up another route's state | Listed in coverage as a gap. No support in M1 or M2. |
