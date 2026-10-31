@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-10-31. Trigger: the user answered the open questions. Decisions R1 to R8 were applied, and the tracker was folded into this file. Branch `docs/merged-architecture`. Local only. Not pushed.
+2026-10-31. Trigger: the user settled the remaining open questions. Fixes F1 to F6 were applied. Branch `docs/merged-architecture`, not pushed. Local `main` and `origin/main` are both at `4df8f3c`, the earlier docs tip. The branch is ahead of them. `main` was fast-forwarded to `4df8f3c` at the user's request.
 
 ## 2. Architecture
 
@@ -30,8 +30,11 @@ Static-guided dynamic testing. Static analysis makes hypotheses. The probe engin
 - R4: alternative sinks go in the SAST grader payload (`export.include_alternatives`, default true). They are attributes of the primary issue in the report.
 - R5: the flow-engine gate is a new Semgrep count with unfitted rules. The old figure overstates.
 - R6: N = 3 unresolved hops. `match_mode` defaults to `strict`.
-- R6: a conflict case has `link_origin: sweep`, `link_status: ambiguous`, `conflict: true`, label Confirmed at low confidence, exported as Confirmed at or above `backguided.min_confidence_to_confirm`.
+- R6: a conflict case has `link_origin: sweep`, `link_status: ambiguous`, `conflict: true`. At or above `backguided.min_confidence_to_confirm` it is Confirmed. Below it, it is Runtime-only with the sink in `candidate_sinks` as a hint, and it is not suppressed.
 - R8: the M1 and M2 split of the Must items is accepted.
+- F3: stage 3 lives in `producers/hypotheses/` `[proposed, not created]`.
+- F4: fallback dedupe keys. Secrets `(cwe, file, line)`. Runtime-only injection `(cwe, normalised_route, method, param)`. Headers `(cwe, header_name)`.
+- F5: confidence is a float from 0 to 1 with three named bands in config. Scoring weights live in config.
 - No id: Semgrep is optional. No pipeline stage imports or requires it.
 - No id: the own probe engine owns every runtime verdict. ZAP is optional and off in judging mode.
 - No id: AI never creates or deletes a finding, sets a verdict, or decides a link.
@@ -47,7 +50,7 @@ Static-guided dynamic testing. Static analysis makes hypotheses. The probe engin
 
 ## 5. Done
 
-Docs on this branch: `AGENTS.md`, `CONTRIBUTING.md`, `docs/architecture.md`, `docs/finding-schema.md`, `docs/implementation-plan.md`, `docs/repo-structure.md`, `docs/STATE.md`. Banners on `README.md` and `docs/decisions.md`. `tests/README.md` deleted. The tracker is deleted in the last commit.
+Docs on this branch: `AGENTS.md`, `CONTRIBUTING.md`, `docs/architecture.md`, `docs/finding-schema.md`, `docs/implementation-plan.md`, `docs/repo-structure.md`, `docs/STATE.md`. Banners on `README.md` and `docs/decisions.md`. `tests/README.md` and `docs/doc-update-tracker.md` deleted. The READMEs in `common/`, `producers/`, `engine/`, `cli/` and `docs/` are pointers to `docs/repo-structure.md`. `infra/README.md` is unchanged.
 
 Code from earlier work, built for the older architecture:
 
@@ -73,7 +76,7 @@ Not run in this session: a VulnerableApp scan, ZAP, Docker.
 5. Rewrite `README.md` before submission and before the demo run. It still carries pre-redesign content under its banner.
 6. Move DAST directory ownership to B and create `probe/` when code starts.
 7. Stage 1: extend the route-map parser to the code index (param types, call graph, sink inventory, unresolved-call flags).
-8. Stage 2 and 3: own sink finder, secrets/crypto pass, hypotheses.
+8. Stage 2 and 3: own sink finder, secrets/crypto pass, hypotheses (`producers/hypotheses/`).
 9. Stage 0 and 4: preflight, probe engine, baseline gate, differential oracles, canary, replay log.
 10. Stage 5 to 7: correlation rework, `tested_negative` logic, suppressed file, scoring config, `expected_pairs`, benchmark adapter.
 11. Judging-mode profile.
@@ -90,26 +93,22 @@ Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.m
 - A third sink that was never found can give a misleading link.
 - Second-order bugs need route pairs. IDOR and business logic have no oracle. Blind SSRF and XXE need callbacks.
 - Recall depends on the sink catalogue. Custom wrappers are missed.
-- Stale: `README.md` and `docs/decisions.md` carry a banner. The READMEs in `common/`, `producers/`, `engine/` and `cli/` still carry old ownership and tier wording.
+- Stale: `README.md` and `docs/decisions.md` carry a banner. Usage notes for the CLI and engine were removed from their READMEs. Recover them from git history when the CLI is reworked.
 - Superseded decisions in `docs/decisions.md`: D-04, D-05, D-06, D-07, D-08, D-14, D-16, D-17.
 
 ## 8. Open questions for the user
 
 - JAX-RS adapter and scan comparison (B-5) sit in Could as proposed. Confirm.
 - Path traversal: its oracle is listed, Must says four classes. Treated as stretch. Confirm.
-- Fallback dedupe key for findings with no `sink_id`.
 - Keep or drop `handler_file`, `handler_line_start`, `handler_line_end`.
-- Confidence scale. Is `confidence_reasons` a field of its own?
-- Source of the context path. Base URL detection at judging while staying localhost-only.
+- Is `confidence_reasons` a field of its own? Band names and cut points for the three confidence bands.
+- Source of the context path. Base URL detection at judging while staying localhost-only. Header findings: counted per URL or per app, confirm at kickoff.
 - Default for `export.suppress_no_http_path` and for suppression overall.
 - Does `blocked_by_validation` map to `status: blocked`?
 - Tier of two AI tasks: spec proposals for custom wrappers, and fix text.
 - Stage 2 with an unresolved receiver: flag only, or fall back?
 - Proposed names: `corroborated`, `semgrep.enabled`, `backguided.enabled`, `backguided.min_confidence_to_confirm`, `export.include_alternatives`.
 - `oracle_flaky` sits inside the evidence entry. `conflict` is a boolean. Confirm.
-- Label of a conflict case below the `backguided.min_confidence_to_confirm` threshold.
-- Subdirectory for stage 3 under `producers/`.
-- Update the four directory READMEs now, or with the code?
 
 ## 9. Next action
 
