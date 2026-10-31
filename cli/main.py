@@ -27,6 +27,7 @@ class _PipelineOutput:
     header_propagation_rate: float | None = None
     skipped_by_type: tuple[tuple[str, str, str], ...] = ()
     index: Any = None
+    advisory_alerts: tuple[dict[str, Any], ...] = ()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -73,9 +74,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         primary_issues = [issue for issue in issues if not issue.suppressed]
         _write_json(output_dir / "suppressed.json", {"issues": [i.to_dict() for i in suppressed]})
         _write_json(output_dir / "coverage.json", coverage)
+        # Passive ZAP alerts are advisory context, not verdicts; they are written
+        # to their own file and never enter correlation.
+        _write_json(
+            output_dir / "advisory.json",
+            {"advisory_alerts": list(pipeline_output.advisory_alerts)},
+        )
         print(
             f"suppressed_file={output_dir / 'suppressed.json'} "
-            f"coverage_file={output_dir / 'coverage.json'}",
+            f"coverage_file={output_dir / 'coverage.json'} "
+            f"advisory_file={output_dir / 'advisory.json'} "
+            f"advisory_alerts={len(pipeline_output.advisory_alerts)}",
             file=sys.stderr,
         )
         if not args.no_store:
@@ -261,6 +270,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
         header_propagation_rate=result.header_propagation_rate,
         skipped_by_type=skipped,
         index=index,
+        advisory_alerts=tuple(result.advisory_alerts),
     )
 
 

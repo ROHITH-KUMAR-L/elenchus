@@ -98,6 +98,7 @@ class ProbeResult:
     jobs_skipped: list[tuple[str, str]] = field(default_factory=list)  # (job_id, reason)
     stage_seconds: float = 0.0
     drift_detected: bool = False
+    advisory_alerts: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -345,6 +346,7 @@ class Coordinator:
                 for route, header in header_hits.values()
             )
             foreign = [host for host in self.api.hosts() if not _is_loopback(host)]
+            advisory = self._collect_advisory_alerts()
         finally:
             self._clear_auth_header()
             self.api.remove_context(f"elenchus-{run_id}")
@@ -359,7 +361,24 @@ class Coordinator:
             jobs_skipped=[(job.job_id, reason) for job, reason in schedule.skipped],
             stage_seconds=round(self._now() - start, 3),
             drift_detected=drift["detected"],
+            advisory_alerts=advisory,
         )
+
+    def _collect_advisory_alerts(self) -> list[dict[str, Any]]:
+        """ZAP's passive alerts as advisory context. Best effort: the active scan
+        and its oracle verdicts do not depend on it, so a failure here is ignored.
+        Alerts from our own active scanners are dropped; the oracles judged those."""
+        from probe.passive import ingest
+
+        reader = getattr(self.api, "alerts", None)
+        if reader is None:
+            return []
+        active = {rule for rules in self.rule_ids_by_cwe.values() for rule in rules}
+        try:
+            raw = reader(self.base_url)
+        except RuntimeError:
+            return []
+        return [alert.to_dict() for alert in ingest(raw, active)]
 
     def _run_job(
         self,
