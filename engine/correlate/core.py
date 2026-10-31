@@ -156,24 +156,7 @@ def _same_file(left: str, right: str) -> bool:
 
 def _issue_key(sast: tuple[FindingCluster, ...], dast: tuple[FindingCluster, ...]) -> str:
     representative = sast[0].representative if sast else dast[0].representative
-    header_name = representative.evidence.get("header_name")
-    if isinstance(header_name, str) and header_name:
-        identity = ("header", representative.cwe, header_name.casefold())
-    elif representative.file is not None and representative.line is not None:
-        identity = (
-            "code",
-            representative.cwe,
-            normalize_file(representative.file),
-            representative.line,
-        )
-    else:
-        identity = (
-            "runtime",
-            representative.cwe,
-            representative.route,
-            representative.method,
-            representative.param,
-        )
+    identity = dedupe_key(representative)
     digest = hashlib.sha256(_stable_json(identity).encode("utf-8")).hexdigest()
     return digest[:24]
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
 
+from common.record import dedupe_key
 from engine.correlate import Finding, correlate
 
 
@@ -183,12 +186,22 @@ class CorrelationTests(unittest.TestCase):
         self.assertEqual(len(issue.dast_findings), 2)
 
     def test_runtime_only_fingerprint_uses_cwe_route_method_and_parameter(self) -> None:
-        first = correlate([finding("dast")])[0]
+        dast = finding("dast")
+        first = correlate([dast])[0]
         second = correlate([finding("dast")])[0]
         third = correlate([finding("dast", method="POST")])[0]
+        expected = hashlib.sha256(
+            json.dumps(
+                dedupe_key(dast),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()[:24]
 
         self.assertEqual(first.issue_key, second.issue_key)
         self.assertNotEqual(first.issue_key, third.issue_key)
+        self.assertEqual(first.issue_key, expected)
 
     def test_input_validation_rejects_malformed_trace(self) -> None:
         malformed_trace = record(
