@@ -25,11 +25,17 @@ def build_coverage_report(
     probes = [finding for finding in findings if finding.source == "dast"]
 
     by_cwe: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    # A ground-truth vulnerable sink marked safe_pattern or tested_negative is a
+    # wrong suppression: count per CWE so the rule "above zero -> drop the CWE from
+    # export.suppress_cwes" can be applied and audited (architecture Measurement).
+    wrong_suppression: dict[int, int] = defaultdict(int)
     for pair in pairs:
         cwe = int(pair["cwe"])
         match = _matching_static(static, pair)
         if match is not None:
             result = {"found": True}
+            if match.status in {"safe_pattern", "tested_negative"}:
+                wrong_suppression[cwe] += 1
         else:
             tag = _miss_tag(static, pair, skipped)
             result = {
@@ -80,6 +86,9 @@ def build_coverage_report(
             "accurate_hits": accurate,
         },
         "header_propagation_rate": header_propagation_rate,
+        "wrong_suppression_count": {
+            f"CWE-{cwe}": wrong_suppression.get(cwe, 0) for cwe in sorted(by_cwe)
+        },
         "skipped_by_type": [
             {"route": route, "method": method, "param": param}
             for route, method, param in sorted(skipped)

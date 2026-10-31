@@ -186,6 +186,57 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["attribution_rate"], 0.9)
         self.assertEqual(report["attribution_accuracy"], 1.0)
         self.assertEqual(report["skipped_by_type"][0]["param"], "page")
+        self.assertEqual(report["wrong_suppression_count"]["CWE-89"], 0)
+
+    def test_wrong_suppression_count_flags_a_vulnerable_sink_marked_safe(self) -> None:
+        # A ground-truth vulnerable sink that the pipeline labelled tested_negative
+        # (e.g. union/blind SQLi, which the error-based oracle cannot confirm) must
+        # be counted, so the CWE can be dropped from export.suppress_cwes.
+        negative = Finding.from_dict(
+            {
+                "run_id": "test-run",
+                "source": "sast",
+                "provenance": "own",
+                "cwe": 89,
+                "type": "SQL Injection",
+                "file": "src/Blind.java",
+                "line": 93,
+                "sink_id": {
+                    "file": "src/Blind.java",
+                    "enclosing_method": "Blind.run",
+                    "start_line": 93,
+                    "start_col": 2,
+                },
+                "entry_paths": [
+                    {
+                        "route": "/blind",
+                        "method": "GET",
+                        "hops": 0,
+                        "call_chain": [{"method": "Blind.get", "file": "src/Blind.java", "line": 3}],
+                    }
+                ],
+                "arg_shape": "dynamic",
+                "candidate_params": ["id"],
+                "status": "tested_negative",
+                "evidence": [{"type": "PATH", "detail": {}}],
+            }
+        )
+        report = build_coverage_report(
+            [negative],
+            expected_pairs={
+                "pairs": [
+                    {
+                        "route": "/blind",
+                        "method": "GET",
+                        "params": ["id"],
+                        "cwe": 89,
+                        "file": "src/Blind.java",
+                        "line": 93,
+                    }
+                ]
+            },
+        )
+        self.assertEqual(report["wrong_suppression_count"]["CWE-89"], 1)
 
     def test_attribution_accuracy_is_unknown_without_expected_pairs(self) -> None:
         probe = Finding.from_dict(
