@@ -13,6 +13,10 @@ services:
     # The bare image, pinned. zap.version in docs/architecture.md tracks this digest.
     image: ghcr.io/zaproxy/zaproxy@sha256:99575ac0542e9b424177589d70720c0426ca410005812d3c10bd16370bbb4f54
     network_mode: host
+    # The image bakes in ZAP_PORT=8080 and its built-in health check curls it.
+    # We run ZAP on ZAP_PORT, so set the env var to match or the check fails.
+    environment:
+      ZAP_PORT: "${ZAP_PORT:-8090}"
     command:
       - zap.sh
       - -daemon
