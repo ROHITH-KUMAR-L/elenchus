@@ -26,6 +26,7 @@ class _PipelineOutput:
     attribution_rate: float | None = None
     header_propagation_rate: float | None = None
     skipped_by_type: tuple[tuple[str, str, str], ...] = ()
+    index: Any = None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -49,6 +50,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             findings = [record.with_run_id(run_id) for record in records]
             pipeline_output = _PipelineOutput(findings)
         issues = correlate(findings, config)
+        if config["backguided.enabled"] and pipeline_output.index is not None:
+            from engine.correlate.back_guided import apply_back_guided
+            from producers.sast.sink_finder import load_catalogue
+
+            issues = apply_back_guided(issues, pipeline_output.index, load_catalogue(), config)
         findings = _apply_conflict_resolution(findings, issues)
         expected_pairs = _load_expected_pairs(args.expected_pairs)
         coverage = build_coverage_report(
@@ -232,6 +238,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
         attribution_rate=result.attribution_rate,
         header_propagation_rate=result.header_propagation_rate,
         skipped_by_type=skipped,
+        index=index,
     )
 
 
