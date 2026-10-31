@@ -101,3 +101,17 @@ ORACLES: dict[int, Oracle] = {
 
 def oracle_for(cwe: int) -> Oracle | None:
     return ORACLES.get(cwe)
+
+
+def sql_boolean(baseline: Response, true_probe: Response, false_probe: Response) -> bool:
+    """Boolean-based SQL injection: the true-condition payload answers like the
+    baseline, and the false-condition payload answers differently.
+
+    It needs three responses, so it is not in ORACLES. Wiring it into the
+    coordinator means sending a true and a false replay pair per candidate.
+    """
+    if baseline.status != 200 or true_probe.status != 200 or false_probe.status != 200:
+        return False
+    if not baseline.body:
+        return False
+    return true_probe.body == baseline.body and false_probe.body != baseline.body

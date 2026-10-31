@@ -80,3 +80,25 @@ def test_registry_maps_sql_xss_and_redirect_and_leaves_command_injection_open():
     assert oracle_for(79) is xss_reflected
     assert oracle_for(601) is open_redirect
     assert oracle_for(78) is None  # timing signal not verified yet
+
+
+def test_boolean_sql_fires_when_true_matches_baseline_and_false_differs():
+    from probe.oracles import sql_boolean
+
+    baseline = Response(200, "", '{"isCarPresent": true}')
+    true_probe = Response(200, "", '{"isCarPresent": true}')
+    false_probe = Response(200, "", '{"isCarPresent": false}')
+    assert sql_boolean(baseline, true_probe, false_probe) is True
+
+
+def test_boolean_sql_does_not_fire_when_both_conditions_answer_alike():
+    from probe.oracles import sql_boolean
+
+    same = Response(200, "", '{"isCarPresent": true}')
+    assert sql_boolean(same, same, same) is False
+
+
+def test_boolean_sql_does_not_fire_on_a_non_200_baseline():
+    from probe.oracles import sql_boolean
+
+    assert sql_boolean(Response(401, "", ""), Response(200, "", ""), Response(200, "", "x")) is False
