@@ -23,7 +23,7 @@ from common.record import Finding, RouteEntry
 from common.vocabulary import type_name
 from probe.attribution import PROBE_HEADER, RULE_HEADER, attribute, request_values
 from probe.headers import HeaderFinding, check_response
-from probe.oracles import Response, oracle_for
+from probe.oracles import Response, oracle_for, sql_boolean
 from probe.preflight import ContextPath
 from probe.scheduler import run_two_pass
 from probe.seeds import build_seed
@@ -40,6 +40,13 @@ _SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "ANY"}
 _METHOD_RANK = {"GET": 0, "HEAD": 0, "OPTIONS": 0, "ANY": 0, "POST": 1, "PUT": 2, "PATCH": 2, "DELETE": 3}
 # A destructive SQL verb in the seed pushes the job last within its risk rank.
 _DESTRUCTIVE_SQL = re.compile(r"\b(DROP|DELETE|TRUNCATE|UPDATE|ALTER|INSERT)\b", re.IGNORECASE)
+# Boolean-based blind SQL: (true-suffix, false-suffix) appended to the seed value.
+# The true branch should answer like the baseline, the false branch differently.
+_BOOLEAN_TEMPLATES = (
+    ("' AND '1'='1", "' AND '1'='2"),
+    (" AND 1=1", " AND 1=2"),
+    ("' AND '1'='1' -- ", "' AND '1'='2' -- "),
+)
 
 
 def _is_state_changing(method: str) -> bool:
@@ -455,6 +462,11 @@ class Coordinator:
                 )
             ) is not None
         ]
+        # Boolean-based (blind) SQL that the error oracle could not confirm: try a
+        # true/false replay pair per SQL param the scan did not already confirm.
+        if 89 in job.cwes:
+            done = {param for (param, cwe) in candidates if cwe == 89}
+            findings.extend(self._confirm_boolean(run_id, job, seed, baseline, done))
         adequacy_rows = [
             row
             for cwe in job.cwes
@@ -639,6 +651,79 @@ class Coordinator:
         if seed.body:
             lines.append(f"Content-Length: {len(seed.body.encode())}")
         return "\r\n".join(lines) + "\r\n\r\n" + seed.body
+
+    def _confirm_boolean(
+        self, run_id: str, job: ProbeJob, seed: SeedRequest, baseline: Response, done: set[str]
+    ) -> list[Finding]:
+        """Confirm blind SQL on each query param the error oracle did not confirm,
+        with a true/false replay pair the project controls (sql_boolean)."""
+        from urllib.parse import parse_qsl, urlsplit
+
+        if baseline.status != 200 or not baseline.body:
+            return []  # sql_boolean needs a valid, non-empty baseline to compare.
+        findings: list[Finding] = []
+        params = parse_qsl(urlsplit(seed.url).query, keep_blank_values=True)
+        attempts = self.config["replay.count"]
+        for param, value in params:
+            if param in done:
+                continue
+            for true_suffix, false_suffix in _BOOLEAN_TEMPLATES:
+                fired = 0
+                for _ in range(attempts):
+                    true_resp = _response(
+                        self.api.send_request(
+                            self._replay_request(seed, _Candidate(param, 89, value + true_suffix, "", "")),
+                            follow_redirects=False,
+                        )
+                    )
+                    false_resp = _response(
+                        self.api.send_request(
+                            self._replay_request(seed, _Candidate(param, 89, value + false_suffix, "", "")),
+                            follow_redirects=False,
+                        )
+                    )
+                    if sql_boolean(baseline, true_resp, false_resp):
+                        fired += 1
+                if fired >= self.config["replay.min_hits"]:
+                    findings.append(
+                        self._boolean_finding(run_id, job, param, value + true_suffix, attempts, fired)
+                    )
+                    break
+        return findings
+
+    def _boolean_finding(
+        self, run_id: str, job: ProbeJob, param: str, payload: str, attempts: int, fired: int
+    ) -> Finding:
+        single = job.hypothesis_ids[0] if len(job.hypothesis_ids) == 1 else None
+        return Finding.from_dict(
+            {
+                "run_id": run_id,
+                "source": "dast",
+                "provenance": "zap",
+                "cwe": 89,
+                "type": type_name(89),
+                "route": job.route,
+                "method": job.method,
+                "param": param,
+                "payload": payload,
+                "hypothesis_id": single,
+                "evidence": [
+                    {
+                        "type": "ORACLE",
+                        "detail": {
+                            "oracle": "sql_boolean",
+                            "canary_id": job.canary,
+                            "zap_job_id": job.job_id,
+                            "job_pass": job.job_pass,
+                            "hypothesis_ids": list(job.hypothesis_ids),
+                            "replays": attempts,
+                            "fired": fired,
+                        },
+                    }
+                ],
+                "severity": "high",
+            }
+        )
 
     def _replay_request(self, seed: SeedRequest, candidate: _Candidate) -> str:
         from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit

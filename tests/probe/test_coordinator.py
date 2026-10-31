@@ -357,3 +357,43 @@ def test_drift_after_a_state_changing_job_skips_the_rest():
     # The first POST runs and trips drift; the second is skipped, never run.
     assert outcomes["p1"] == "skipped_drift"
     assert fake.started == ["elenchus-run-p0"] or len(fake.started) == 1
+
+
+class BlindZap:
+    """A GET id route with no SQL error but a boolean-differential body: a true
+    condition answers like the baseline, a false condition differently."""
+
+    base_url = "http://127.0.0.1:8090"
+
+    def __init__(self):
+        self.replacer = {}
+
+    def set_option(self, *a): pass
+    def ensure_scan_policy(self, *a): pass
+    def create_context(self, name, regex): return "7"
+    def remove_context(self, name): pass
+    def replacer_rules(self): return [{"description": d} for d in self.replacer]
+    def add_replacer_request_header(self, description, header, value): self.replacer[description] = value
+    def remove_replacer_rule(self, description): self.replacer.pop(description, None)
+    def prime_site_tree(self, *a): pass
+
+    def send_request(self, raw_request, follow_redirects=False):
+        false_branch = "%3D2" in raw_request or "%3D%272" in raw_request or "%272" in raw_request
+        body = '{"car":false}' if false_branch else '{"car":true}'
+        return {"responseHeader": "HTTP/1.1 200 OK\r\n", "responseBody": body}
+
+    def start_scan(self, *a): return "11"
+    def stop_scan(self, scan_id): pass
+    def active_scan_status(self, scan_id): return 100
+    def scan_message_ids(self, scan_id): return []  # no error-based candidate
+    def message(self, message_id): return {}
+    def hosts(self): return ["127.0.0.1"]
+
+
+def test_blind_sql_is_confirmed_by_a_true_false_replay_pair():
+    fake = BlindZap()
+    result = run(fake)
+    sqli = [f for f in result.findings if f.cwe == 89]
+    assert len(sqli) == 1
+    assert sqli[0].detail("oracle") == "sql_boolean"
+    assert sqli[0].param == "id"
