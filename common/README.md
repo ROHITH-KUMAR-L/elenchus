@@ -1,14 +1,7 @@
 # common/
 
-**Owner:** joint (Person A and Person B). Changed only by joint agreement.
+**Owner:** joint.
 
-The shared contract. The only place both people touch.
+The shared contract: finding record, hypothesis, code index, contract logic and fixtures.
 
-| Path | Holds |
-|---|---|
-| `common/` | `record.py`: canonical `Finding` model and validation, `ScanTarget` (rejects non-localhost `base_url`), `RouteMap`, and contract logic `normalise_route()`, `dedupe_key()`, `route_key()`. Still to add: SARIF mapping, CWE/type ↔ VulnerableApp grader vocabulary map `[TODO: file names]`. |
-| `common/fixtures/` | Hand-made sample records. Both sides test against them. Person A writes them right after the schema freeze. |
-
-A schema change is a stop-the-world event. Agree it together, merge it, then both pull at once. See [CONTRIBUTING.md](../CONTRIBUTING.md).
-
-Do not edit this dir without the other person's agreement.
+Ownership and rules: see [docs/repo-structure.md](../docs/repo-structure.md).

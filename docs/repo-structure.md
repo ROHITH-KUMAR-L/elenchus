@@ -51,7 +51,7 @@ Stage 3 (hypotheses) is Person A's. Its code lives in `producers/hypotheses/` `[
 | `engine/report/` | Person B | Report, SARIF export, suppressed file |
 | `cli/` | Person B | Calls the stages in order |
 | `infra/` | Joint | Our stack's Docker definitions |
-| `docs/` | Per file | See [docs/README.md](README.md) |
+| `docs/` | Per file | See [Doc ownership](#doc-ownership) |
 | `tests/<component>/` | Component owner | Tests against `common/fixtures/` |
 
 ### HTTP probe code
@@ -61,6 +61,21 @@ The HTTP probe code is Person B's, not Person A's. An earlier version of this ma
 - Stages 0 and 4 are Person B's.
 - Until `probe/` exists, `producers/dast/` is Person B's.
 - When code starts, create `probe/` and move the stage 0 and stage 4 code there `[proposed]`. This pass does not create the directory.
+
+## Doc ownership
+
+Split by file. Never two people in one file.
+
+| File | Owner |
+|---|---|
+| `architecture.md` | Person A |
+| `finding-schema.md` | Person A drafts, Person B reviews |
+| `implementation-plan.md` | Person B |
+| `decisions.md` | Person B |
+| `repo-structure.md` | `[TODO: confirm owner]` |
+| `STATE.md` | Whoever saves state. Overwritten each time. |
+| `prd.md` | Organisers' spec. Read-only. |
+| Root `README.md`, `AGENTS.md` | Whoever is free, in their own small PR, never alongside code |
 
 ## The record-contract boundary
 
