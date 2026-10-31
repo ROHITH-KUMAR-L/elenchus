@@ -6,6 +6,7 @@ from engine.correlate.models import Issue
 
 
 def format_text(issues: list[Issue]) -> str:
+    issues = [issue for issue in issues if not issue.suppressed]
     if not issues:
         return "No issues found."
 

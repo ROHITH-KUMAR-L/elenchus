@@ -12,6 +12,7 @@ carries the job's hypotheses without any after-the-fact matching.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
@@ -31,6 +32,14 @@ from probe.seeds import build_seed
 _INJECTABLE_QUERY_AND_BODY = "3"
 _POLL_SECONDS = 0.5
 _BLOCKING_STATUSES = range(400, 600)
+_ADEQUACY_REJECTIONS = {400, 401, 403, 404, 422}
+_TYPE_REJECTION_STATUSES = {400, 422}
+_TYPE_REJECTABLE = {
+    "byte", "short", "int", "integer", "long", "float", "double",
+    "boolean", "uuid", "byte[]", "short[]", "int[]", "long[]",
+    "java.lang.byte", "java.lang.short", "java.lang.integer", "java.lang.long",
+    "java.lang.float", "java.lang.double", "java.lang.boolean", "java.util.uuid",
+}
 
 
 class ZapApiLike(Protocol):
@@ -59,9 +68,48 @@ class ProbeResult:
     jobs: list[ProbeJob]
     attribution_rate: float
     header_propagation_rate: float
+    adequacy: list[ProbeAdequacy] = field(default_factory=list)
     foreign_hosts: list[str] = field(default_factory=list)
     jobs_skipped: list[tuple[str, str]] = field(default_factory=list)  # (job_id, reason)
     stage_seconds: float = 0.0
+
+
+@dataclass(frozen=True)
+class ProbeAdequacy:
+    job_id: str
+    route: str
+    method: str
+    cwe: int
+    param: str
+    params_status: str
+    job_outcome: str
+    expected_rule_ids: tuple[str, ...]
+    observed_rule_ids: tuple[str, ...]
+    baseline_status: int | None
+    response_statuses: tuple[int | None, ...]
+    passed_validation: bool
+    outcome: str
+    sub_code: str | None = None
+    after_drift: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "job_id": self.job_id,
+            "route": self.route,
+            "method": self.method,
+            "cwe": self.cwe,
+            "param": self.param,
+            "params_status": self.params_status,
+            "job_outcome": self.job_outcome,
+            "expected_rule_ids": list(self.expected_rule_ids),
+            "observed_rule_ids": list(self.observed_rule_ids),
+            "baseline_status": self.baseline_status,
+            "response_statuses": list(self.response_statuses),
+            "passed_validation": self.passed_validation,
+            "outcome": self.outcome,
+            "sub_code": self.sub_code,
+            "after_drift": self.after_drift,
+        }
 
 
 def plan_directed_jobs(
@@ -158,7 +206,16 @@ class _Candidate:
 
 
 class Coordinator:
-    def __init__(self, api: ZapApiLike, config: Config, base_url: str, context: ContextPath) -> None:
+    def __init__(
+        self,
+        api: ZapApiLike,
+        config: Config,
+        base_url: str,
+        context: ContextPath,
+        *,
+        enum_types: frozenset[str] = frozenset(),
+        trace_parser: Callable[[str], list[dict[str, Any]]] | None = None,
+    ) -> None:
         self.api = api
         self.config = config
         self.base_url = base_url.rstrip("/")
@@ -168,11 +225,14 @@ class Coordinator:
         self._auth = _auth_header(config)
         self._sleep = time.sleep
         self._now = time.monotonic
+        self.enum_types = enum_types
+        self.trace_parser = trace_parser
 
     def run(self, run_id: str, jobs: list[ProbeJob], routes: tuple[RouteEntry, ...]) -> ProbeResult:
         entries = {(r.route, r.method): r for r in routes}
         context_id = self.api.create_context(f"elenchus-{run_id}", self._scope_regex())
         findings: list[Finding] = []
+        adequacy: list[ProbeAdequacy] = []
         totals = {"considered": 0, "attributed": 0, "with_header": 0, "messages": 0}
         # One finding per missing protection across the whole app (per_app dedupe).
         header_hits: dict[tuple[int, str], tuple[str, HeaderFinding]] = {}
@@ -194,12 +254,13 @@ class Coordinator:
                 # abort the run: record it as errored and move on, so the budget
                 # and the other jobs still hold.
                 try:
-                    outcome, job_findings, headers, stats = self._run_job(
-                        run_id, job, seed, context_id
+                    outcome, job_findings, headers, stats, job_adequacy = self._run_job(
+                        run_id, job, entry, seed, context_id
                     )
                 except RuntimeError:
                     return replace(job, seed_request=seed, outcome="errored")
                 findings.extend(job_findings)
+                adequacy.extend(job_adequacy)
                 for key in totals:
                     totals[key] += stats[key]
                 for header in headers:
@@ -211,6 +272,22 @@ class Coordinator:
             )
             executed = list(schedule.ran)
             executed.extend(replace(job, outcome="skipped_budget") for job, _ in schedule.skipped)
+            known_jobs = {item.job_id for item in adequacy}
+            for job in executed:
+                if job.job_id not in known_jobs:
+                    entry = entries[(job.route, job.method)]
+                    for cwe in job.cwes:
+                        adequacy.extend(
+                            _empty_adequacy(
+                                job,
+                                entry,
+                                cwe,
+                                "untested",
+                                self.rule_ids_by_cwe.get(cwe, ()),
+                                job.outcome or "untested",
+                                after_drift=job.after_drift,
+                            )
+                        )
             findings.extend(
                 self._header_finding(run_id, route, header)
                 for route, header in header_hits.values()
@@ -225,14 +302,20 @@ class Coordinator:
             jobs=executed,
             attribution_rate=(totals["attributed"] / considered) if considered else 1.0,
             header_propagation_rate=(totals["with_header"] / messages) if messages else 1.0,
+            adequacy=adequacy,
             foreign_hosts=foreign,
             jobs_skipped=[(job.job_id, reason) for job, reason in schedule.skipped],
             stage_seconds=round(self._now() - start, 3),
         )
 
     def _run_job(
-        self, run_id: str, job: ProbeJob, seed: SeedRequest, context_id: str
-    ) -> tuple[str, list[Finding], list[HeaderFinding], dict[str, int]]:
+        self,
+        run_id: str,
+        job: ProbeJob,
+        entry: RouteEntry,
+        seed: SeedRequest,
+        context_id: str,
+    ) -> tuple[str, list[Finding], list[HeaderFinding], dict[str, int], list[ProbeAdequacy]]:
         stats = {"considered": 0, "attributed": 0, "with_header": 0, "messages": 0}
         self._set_probe_header(job.canary)
         self.api.prime_site_tree(seed.url, seed.method, seed.body, seed.content_type)
@@ -242,7 +325,22 @@ class Coordinator:
         seed_path = _path_of(seed.url)
         baseline = _response(seed_message)
         if baseline.status in _BLOCKING_STATUSES:
-            return "all_blocked", [], [], stats
+            blocked_code = _blocked_sub_code(baseline.status)
+            rows = []
+            for cwe in job.cwes:
+                rows.extend(
+                    _empty_adequacy(
+                        job,
+                        entry,
+                        cwe,
+                        "blocked_by_validation",
+                        self.rule_ids_by_cwe.get(cwe, ()),
+                        "all_blocked",
+                        baseline.status,
+                        blocked_code,
+                    )
+                )
+            return "all_blocked", [], [], stats, rows
         # Header and cookie hardening is read off the clean baseline, never a
         # mutated probe response.
         headers = check_response(baseline)
@@ -254,13 +352,27 @@ class Coordinator:
         )
         rule_ids = sorted({r for cwe in job.cwes for r in self.rule_ids_by_cwe.get(cwe, [])})
         if not rule_ids:
-            return "finished", [], headers, stats
+            rows = []
+            for cwe in job.cwes:
+                rows.extend(
+                    _empty_adequacy(
+                        job,
+                        entry,
+                        cwe,
+                        "untested",
+                        self.rule_ids_by_cwe.get(cwe, ()),
+                        "finished",
+                        baseline.status,
+                    )
+                )
+            return "finished", [], headers, stats, rows
         policy = f"elenchus-{job.job_id}"
         self.api.ensure_scan_policy(policy, rule_ids, self.config[strength_key])
         scan_id = self.api.start_scan(seed.url, seed.method, seed.body, context_id, policy)
         outcome = self._wait_for_scan(scan_id)
 
         candidates: dict[tuple[str, int], _Candidate] = {}
+        trials: dict[tuple[str, int], list[tuple[str, int | None]]] = {}
         for message_id in self.api.scan_message_ids(scan_id):
             stats["messages"] += 1
             message = self.api.message(message_id)
@@ -281,9 +393,13 @@ class Coordinator:
             if found is None:
                 continue
             stats["attributed"] += 1
+            response = _response(message)
+            trials.setdefault((found.param, found.cwe), []).append(
+                (found.rule_id, response.status)
+            )
             oracle = oracle_for(found.cwe)
             attack = _attack_value(header, message, found.param)
-            if oracle is not None and oracle(baseline, _response(message), attack):
+            if oracle is not None and oracle(baseline, response, attack):
                 key = (found.param, found.cwe)
                 candidates.setdefault(
                     key,
@@ -293,10 +409,28 @@ class Coordinator:
         findings = [
             finding
             for candidate in candidates.values()
-            if (finding := self._verify(run_id, job, seed, seed_path, seed_values, baseline, candidate))
-            is not None
+            if (
+                finding := self._verify(
+                    run_id, job, seed, seed_path, seed_values, baseline, candidate
+                )
+            ) is not None
         ]
-        return outcome, findings, headers, stats
+        adequacy_rows = [
+            row
+            for cwe in job.cwes
+            for row in _parameter_adequacy(
+                job,
+                entry,
+                cwe,
+                self.rule_ids_by_cwe.get(cwe, ()),
+                trials,
+                outcome,
+                self.enum_types,
+                baseline.status,
+                job.after_drift,
+            )
+        ]
+        return outcome, findings, headers, stats, adequacy_rows
 
     def _verify(
         self, run_id, job, seed, seed_path, seed_values, baseline, candidate
@@ -471,3 +605,118 @@ def _path_of(url: str) -> str:
 
 def _is_loopback(host: str) -> bool:
     return host.casefold() in {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _blocked_sub_code(status: int | None) -> str:
+    if status in {400, 422}:
+        return "validation"
+    if status in {401, 403}:
+        return "auth"
+    if status == 404:
+        return "not_found"
+    if status is not None and 500 <= status < 600:
+        return "server_error"
+    return "other"
+
+
+def _empty_adequacy(
+    job: ProbeJob,
+    entry: RouteEntry,
+    cwe: int,
+    outcome: str,
+    expected_rule_ids: tuple[str, ...] | list[str],
+    job_outcome: str,
+    baseline_status: int | None = None,
+    sub_code: str | None = None,
+    after_drift: bool = False,
+) -> list[ProbeAdequacy]:
+    return [
+        ProbeAdequacy(
+            job_id=job.job_id,
+            route=job.route,
+            method=job.method,
+            cwe=cwe,
+            param=param.name,
+            params_status=entry.params_status,
+            job_outcome=job_outcome,
+            expected_rule_ids=tuple(sorted(set(expected_rule_ids))),
+            observed_rule_ids=(),
+            baseline_status=baseline_status,
+            response_statuses=(),
+            passed_validation=False,
+            outcome=outcome,
+            sub_code=sub_code,
+            after_drift=after_drift,
+        )
+        for param in entry.params
+    ]
+
+
+def _parameter_adequacy(
+    job: ProbeJob,
+    entry: RouteEntry,
+    cwe: int,
+    expected_rule_ids: list[str] | tuple[str, ...],
+    trials: dict[tuple[str, int], list[tuple[str, int | None]]],
+    job_outcome: str,
+    enum_types: frozenset[str],
+    baseline_status: int | None,
+    after_drift: bool,
+) -> list[ProbeAdequacy]:
+    expected = tuple(sorted(set(expected_rule_ids)))
+    rows = []
+    for param in entry.params:
+        attempts = trials.get((param.name, cwe), [])
+        observed = tuple(sorted({rule_id for rule_id, _ in attempts}))
+        statuses = tuple(status for _, status in attempts)
+        outcome = "untested"
+        sub_code = None
+        all_rules_seen = bool(expected) and set(expected).issubset(observed)
+        passed_validation = any(
+            status is not None and status not in _ADEQUACY_REJECTIONS
+            for status in statuses
+        )
+        if (
+            job_outcome == "finished"
+            and not after_drift
+            and baseline_status is not None
+            and baseline_status not in _ADEQUACY_REJECTIONS
+            and all_rules_seen
+            and statuses
+        ):
+            if passed_validation:
+                outcome = "adequate"
+            elif all(status in _TYPE_REJECTION_STATUSES for status in statuses) and (
+                _is_type_rejectable(param.java_type, enum_types)
+            ):
+                outcome = "type_rejected"
+            elif all(status in _ADEQUACY_REJECTIONS for status in statuses):
+                outcome = "blocked_by_validation"
+                sub_code = _blocked_sub_code(next(iter(statuses), None))
+        rows.append(
+            ProbeAdequacy(
+                job_id=job.job_id,
+                route=job.route,
+                method=job.method,
+                cwe=cwe,
+                param=param.name,
+                params_status=entry.params_status,
+                job_outcome=job_outcome,
+                expected_rule_ids=expected,
+                observed_rule_ids=observed,
+                baseline_status=baseline_status,
+                response_statuses=statuses,
+                passed_validation=passed_validation,
+                outcome=outcome,
+                sub_code=sub_code,
+                after_drift=after_drift,
+            )
+        )
+    return rows
+
+
+def _is_type_rejectable(java_type: str | None, enum_types: frozenset[str]) -> bool:
+    if java_type is None:
+        return False
+    normalized = java_type.strip().casefold()
+    return normalized in _TYPE_REJECTABLE or java_type in enum_types

@@ -128,6 +128,27 @@ def test_reproduced_hit_becomes_one_confirmed_finding_with_lineage():
     assert fake.removed_context == "elenchus-run"
 
 
+def test_probe_records_rule_and_validation_outcomes_for_each_parameter():
+    fake = FakeZap(scan_messages=[scan_message("id=2", error=False)], replay_bodies=[])
+    config = load_config(
+        overrides={"target.base_url": BASE, "zap.rule_map.89": ["40018"]},
+        environ={"ZAP_API_KEY": "k"},
+    )
+    coord = Coordinator(fake, config, BASE, ContextPath("/VulnerableApp", "config"))
+    jobs = plan_directed_jobs([hypothesis()], ROUTES, "run")
+
+    result = coord.run("run", jobs, ROUTES)
+
+    [row] = result.adequacy
+    assert row.job_id == "run-j0"
+    assert row.expected_rule_ids == ("40018",)
+    assert row.observed_rule_ids == ("40018",)
+    assert row.baseline_status == 200
+    assert row.response_statuses == (200,)
+    assert row.passed_validation is True
+    assert row.outcome == "adequate"
+
+
 def test_hit_that_does_not_reproduce_makes_no_finding():
     fake = FakeZap(
         scan_messages=[scan_message("id=1'")],
@@ -169,6 +190,9 @@ def test_blocked_baseline_skips_the_scan():
     assert result.findings == []
     assert result.jobs[0].outcome == "all_blocked"
     assert fake.started_scans == []
+    assert result.adequacy[0].outcome == "blocked_by_validation"
+    assert result.adequacy[0].sub_code == "auth"
+    assert result.adequacy[0].baseline_status == 403
 
 
 def test_foreign_host_in_history_is_reported():

@@ -82,7 +82,7 @@ def correlate(findings: Iterable[Finding], config: Mapping[str, Any] | None = No
 
     for index, finding in enumerate(static):
         if index not in linked_static:
-            issues.append(_code_only_issue(finding))
+            issues.append(_code_only_issue(finding, config))
 
     return sorted(issues, key=_issue_sort_key)
 
@@ -184,8 +184,24 @@ def _linked_issue(
     )
 
 
-def _code_only_issue(finding: Finding) -> Issue:
+def _code_only_issue(
+    finding: Finding, config: Mapping[str, Any] | None = None
+) -> Issue:
     status = finding.status if finding.status in _CODE_ONLY_STATUSES else "untested"
+    suppress_cwes = (
+        config.get("export.suppress_cwes", DEFAULTS["export.suppress_cwes"])
+        if config is not None
+        else DEFAULTS["export.suppress_cwes"]
+    )
+    suppressed = status in {"safe_pattern", "tested_negative"} and finding.cwe in suppress_cwes
+    if status == "no_http_path":
+        suppressible_injection_cwes = {22, 78, 79, 89, 601}
+        suppressed = (
+            config is not None
+            and bool(config.get("export.suppress_no_http_path", False))
+            and finding.cwe in suppressible_injection_cwes
+            and finding.unlinked_reason == "no_callers"
+        )
     return Issue(
         issue_key=_sink_key(finding),
         label="Code-only",
@@ -199,6 +215,7 @@ def _code_only_issue(finding: Finding) -> Issue:
         file=finding.file,
         line=finding.line,
         status=status,
+        suppressed=suppressed,
         link_reason=finding.unlinked_reason,
         sast_findings=(finding,),
     )

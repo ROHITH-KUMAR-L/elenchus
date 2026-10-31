@@ -54,7 +54,7 @@ The older engine and producers read this record but keep their older logic until
 | `param_location` | string \| null | Where the param is bound: `query`, `path`, `header`, `cookie`, `body` `[proposed values]`. | ZAP-backed probe coordinator, from the index |
 | `param_path` | string \| null | Path inside a structured value, e.g. a JSON field `[proposed meaning]`. | ZAP-backed probe coordinator |
 | `payload` | string \| null | ZAP-generated payload associated with the oracle-confirmed request. | ZAP-backed probe coordinator |
-| `evidence` | array | List of `{type, detail}`. Types: `PATH`, `ORACLE`, `TRACE`, `RESPONSE_TRACE`, `FAMILY`. Raw artefacts (code snippet, request, response excerpt, canary id, `zap_job_id`, `zap_scan_id`, `zap_message_id`, `zap_rule_id`, replay counts, replay-log reference, raw scanner severity) go inside `detail`. | All |
+| `evidence` | array | List of `{type, detail}`. Types: `PATH`, `ORACLE`, `TRACE`, `RESPONSE_TRACE`, `FAMILY`, `ADEQUACY`. Raw artefacts (code snippet, request, response excerpt, canary id, `zap_job_id`, `zap_scan_id`, `zap_message_id`, `zap_rule_id`, replay counts, replay-log reference, raw scanner severity) go inside `detail`. `ADEQUACY` records probe coverage; it is not an oracle verdict. | All |
 | `taint_trace` | array \| null | Optional source-to-sink path. Each step: `file`, `line`, `role`. Null in the Must plan. | Own flow engine (Could) |
 | `link_status` | `"unique"` \| `"ambiguous"` \| null | How many candidate sinks the link has. Set after an oracle fires. See [Linking](#linking-and-ambiguity). | Correlation |
 | `link_origin` | `"directed"` \| `"sweep"` \| `"back_guided"` \| null | How the link was produced. Orthogonal to `link_status`. Both are required once a link exists. | Correlation |
@@ -218,6 +218,7 @@ Evidence types `[proposed meanings]`:
 | `ORACLE` | A probe oracle fired. Detail holds oracle name, canary id, baseline status, replay-log reference. |
 | `TRACE` | The app log shows the payload reaching the sink. Optional. Not available in judging mode. |
 | `RESPONSE_TRACE` | A replay response holds a stack trace. Detail holds the generic frames from the adapter's parser and the matched method. Available in judging mode, only when the app leaks one. It proves the enclosing method, not the line. |
+| `ADEQUACY` | Probe-side coverage for a route, method, parameter, and CWE. Detail records `job_id`, `params_status`, `job_outcome`, `after_drift`, expected and observed ZAP rule IDs, baseline and mutated response statuses, `passed_validation`, and the per-parameter outcome. It supports `tested_negative` only when every parameter on every entry route has adequate evidence. |
 | `FAMILY` | The payload family that fired matches the CWE family of the sink |
 
 ## Statuses

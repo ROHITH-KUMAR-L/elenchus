@@ -3,18 +3,29 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import sys
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from common.config import load_config
-from common.record import ScanTarget
-from engine.correlate import Finding, Issue, correlate
-from engine.report import format_text, to_sarif
+from common.record import EvidenceEntry, Finding, ScanTarget
+from engine.correlate import Issue, correlate
+from engine.report import build_coverage_report, format_text, to_sarif
+
+
+@dataclass(frozen=True)
+class _PipelineOutput:
+    findings: list[Finding]
+    attribution_rate: float | None = None
+    header_propagation_rate: float | None = None
+    skipped_by_type: tuple[tuple[str, str, str], ...] = ()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -26,22 +37,45 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_id = args.run_id or uuid.uuid4().hex
         if args.command == "scan":
             config = load_config(overrides={"target.base_url": args.base_url})
-            findings = _run_pipeline(args, run_id, config)
+            pipeline_output = _run_pipeline(args, run_id, config)
+            findings = pipeline_output.findings
         else:
             config = load_config()
             records = _load_inputs(args.sast, args.dast)
             findings = [record.with_run_id(run_id) for record in records]
+            pipeline_output = _PipelineOutput(findings)
         issues = correlate(findings, config)
+        expected_pairs = _load_expected_pairs(args.expected_pairs)
+        coverage = build_coverage_report(
+            findings,
+            expected_pairs=expected_pairs,
+            supported_cwes=config.rule_map(),
+            skipped_by_type=pipeline_output.skipped_by_type,
+            attribution_rate=pipeline_output.attribution_rate,
+            header_propagation_rate=pipeline_output.header_propagation_rate,
+        )
+        output_dir = _run_output_directory(run_id)
+        suppressed = [issue for issue in issues if issue.suppressed]
+        primary_issues = [issue for issue in issues if not issue.suppressed]
+        _write_json(output_dir / "suppressed.json", {"issues": [i.to_dict() for i in suppressed]})
+        _write_json(output_dir / "coverage.json", coverage)
+        print(
+            f"suppressed_file={output_dir / 'suppressed.json'} "
+            f"coverage_file={output_dir / 'coverage.json'}",
+            file=sys.stderr,
+        )
         if not args.no_store:
             from engine.store import PostgresStore
 
             PostgresStore(args.database_url).save_run(run_id, findings, issues)
         if args.sarif_output == "-":
-            print(json.dumps(to_sarif(issues), indent=2, sort_keys=True))
+            sarif_issues = issues if config["export.include_suppressed"] else primary_issues
+            print(json.dumps(to_sarif(sarif_issues), indent=2, sort_keys=True))
         else:
-            _write_report(issues, args.output_format)
+            _write_report(primary_issues, args.output_format)
         if args.sarif_output and args.sarif_output != "-":
-            _write_json(Path(args.sarif_output), to_sarif(issues))
+            sarif_issues = issues if config["export.include_suppressed"] else primary_issues
+            _write_json(Path(args.sarif_output), to_sarif(sarif_issues))
         if args.ci and any(
             issue.label == "Confirmed"
             and issue.severity.casefold() in {"critical", "high"}
@@ -129,9 +163,14 @@ def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="return exit status 1 for Confirmed high or critical issues",
     )
+    parser.add_argument(
+        "--expected-pairs",
+        metavar="FILE",
+        help="optional YAML ground truth used only for the coverage report",
+    )
 
 
-def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> list[Finding]:
+def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _PipelineOutput:
     """Stages 0 to 4: index, static, hypotheses, preflight, ZAP probe.
 
     Static findings carry their own status (untested, no_http_path, ...); probe
@@ -141,7 +180,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> list[Fi
     from probe.oracles import ORACLES
     from probe.preflight import check_loopback, detect_context_path
     from producers.dast.zap_runner import ZapApi
-    from producers.hypotheses.builder import build_directed, build_sweep
+    from producers.hypotheses.builder import build_directed, build_sweep, skipped_by_type
     from producers.sast.code_index import build_code_index
     from producers.sast.static_stage import run_static
 
@@ -154,14 +193,158 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> list[Fi
     # the static stage missed. The two-pass scheduler runs these after directed.
     sweep_cwes = sorted(set(ORACLES) & set(config.rule_map()))
     sweep = build_sweep(index, sweep_cwes)
+    skipped = tuple(skipped_by_type(index))
     jobs = plan_directed_jobs(directed, index.routes, run_id) + plan_sweep_jobs(
         sweep, index.routes, run_id
     )
     context = detect_context_path(args.source_path, args.base_url)
-    coordinator = Coordinator(ZapApi.from_environment(), config, args.base_url, context)
+    coordinator = Coordinator(
+        ZapApi.from_environment(),
+        config,
+        args.base_url,
+        context,
+        enum_types=index.enum_types,
+    )
     result = coordinator.run(run_id, jobs, index.routes)
     _report_probe_telemetry(result)
-    return static_findings + result.findings
+    return _PipelineOutput(
+        _apply_adequacy(
+            static_findings + result.findings,
+            result.adequacy,
+            {
+                (route.route, route.method): tuple(param.name for param in route.params)
+                for route in index.routes
+            },
+        ),
+        attribution_rate=result.attribution_rate,
+        header_propagation_rate=result.header_propagation_rate,
+        skipped_by_type=skipped,
+    )
+
+
+def _apply_adequacy(
+    findings: list[Finding],
+    probe_rows: Sequence[Any],
+    route_params: Mapping[tuple[str, str], tuple[str, ...]],
+) -> list[Finding]:
+    """Attach probe outcomes and advance only static findings with complete evidence."""
+    rows = [item.to_dict() for item in probe_rows]
+    output = []
+    for finding in findings:
+        if finding.source != "sast" or not finding.entry_paths:
+            output.append(finding)
+            continue
+        route_keys = {
+            (path.route, path.method)
+            for path in finding.entry_paths
+        }
+        attached = [
+            row
+            for row in rows
+            if row["cwe"] == finding.cwe
+            and (row["route"], row["method"]) in route_keys
+            and row["param"] in route_params.get((row["route"], row["method"]), ())
+        ]
+        if not attached:
+            output.append(finding)
+            continue
+
+        evidence = finding.evidence + tuple(
+            EvidenceEntry("ADEQUACY", row) for row in attached
+        )
+        status = finding.status
+        unlinked_reason = finding.unlinked_reason
+        has_oracle_hit = any(
+            probe.source == "dast"
+            and probe.cwe == finding.cwe
+            and any(
+                path.route == probe.route
+                and path.method == probe.method
+                and probe.param in route_params.get((path.route, path.method), ())
+                for path in finding.entry_paths
+            )
+            and any(entry.type == "ORACLE" for entry in probe.evidence)
+            for probe in findings
+        )
+        if status == "untested" and not has_oracle_hit:
+            blocked = None
+            for row in attached:
+                route_key = (row["route"], row["method"])
+                param_rows = [
+                    item
+                    for item in attached
+                    if (item["route"], item["method"], item["param"])
+                    == (route_key[0], route_key[1], row["param"])
+                ]
+                if (
+                    row["outcome"] == "blocked_by_validation"
+                    and not any(
+                        item["outcome"] in {"adequate", "type_rejected"}
+                        for item in param_rows
+                    )
+                ):
+                    blocked = row
+                    break
+            if blocked is not None:
+                status = "blocked"
+                unlinked_reason = blocked["sub_code"] or "validation"
+            else:
+                complete = bool(route_keys)
+                for route_key in route_keys:
+                    params = route_params.get(route_key, ())
+                    if not params:
+                        complete = False
+                        break
+                    for param in params:
+                        param_rows = [
+                            row
+                            for row in attached
+                            if (row["route"], row["method"], row["param"])
+                            == (route_key[0], route_key[1], param)
+                        ]
+                        if not any(
+                            row["params_status"] == "complete"
+                            and row["job_outcome"] == "finished"
+                            and not row["after_drift"]
+                            and row["outcome"] in {"adequate", "type_rejected"}
+                            for row in param_rows
+                        ):
+                            complete = False
+                            break
+                    if not complete:
+                        break
+                if complete:
+                    status = "tested_negative"
+                    unlinked_reason = None
+        output.append(
+            replace(
+                finding,
+                evidence=evidence,
+                status=status,
+                unlinked_reason=unlinked_reason,
+            )
+        )
+    return output
+
+
+def _load_expected_pairs(path: str | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    import yaml
+
+    try:
+        value = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        raise ValueError(f"{path}: invalid expected-pairs YAML: {error}") from error
+    if not isinstance(value, dict) or not isinstance(value.get("pairs"), list):
+        raise ValueError(f"{path}: expected a YAML object with a pairs list")
+    return value
+
+
+def _run_output_directory(run_id: str) -> Path:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", run_id).strip(".")[:48] or "run"
+    suffix = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:10]
+    return Path("out") / f"{slug}-{suffix}"
 
 
 def _report_probe_telemetry(result: Any) -> None:

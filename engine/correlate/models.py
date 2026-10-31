@@ -42,6 +42,7 @@ class Issue:
     file: str | None = None
     line: int | None = None
     status: str | None = None
+    suppressed: bool = False
     link_reason: str | None = None
     sast_findings: tuple[Finding, ...] = ()
     dast_findings: tuple[Finding, ...] = ()
@@ -79,6 +80,7 @@ class Issue:
             "file": self.file,
             "line": self.line,
             "status": self.status,
+            "suppressed": self.suppressed,
             "link_reason": self.link_reason,
             "sast_findings": [finding.to_dict() for finding in self.sast_findings],
             "dast_findings": [finding.to_dict() for finding in self.dast_findings],

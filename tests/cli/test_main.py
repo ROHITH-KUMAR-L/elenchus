@@ -8,8 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.main import main
+from cli.main import _apply_adequacy, _PipelineOutput, main
 from common.record import Finding
+from probe.coordinator import ProbeAdequacy
+
+ROUTE_PARAMS = {("/redirect", "GET"): ("next",)}
 
 
 def sast_record() -> dict[str, object]:
@@ -48,7 +51,73 @@ def sast_record() -> dict[str, object]:
     }
 
 
+def adequate_row(
+    *, params_status: str = "complete", after_drift: bool = False
+) -> ProbeAdequacy:
+    return ProbeAdequacy(
+        job_id="j1",
+        route="/redirect",
+        method="GET",
+        cwe=601,
+        param="next",
+        params_status=params_status,
+        job_outcome="finished",
+        expected_rule_ids=("10028",),
+        observed_rule_ids=("10028",),
+        baseline_status=200,
+        response_statuses=(200,),
+        passed_validation=True,
+        outcome="adequate",
+        after_drift=after_drift,
+    )
+
+
 class CliTests(unittest.TestCase):
+    def test_adequacy_evidence_advances_complete_finding_to_tested_negative(self) -> None:
+        finding = Finding.from_dict(
+            {**sast_record(), "run_id": "adequacy-run", "status": "untested"}
+        )
+        adequacy = adequate_row()
+
+        [updated] = _apply_adequacy([finding], [adequacy], ROUTE_PARAMS)
+
+        self.assertEqual(updated.status, "tested_negative")
+        self.assertEqual(updated.evidence[-1].type, "ADEQUACY")
+        self.assertEqual(updated.evidence[-1].detail["observed_rule_ids"], ["10028"])
+
+    def test_adequacy_does_not_clear_a_positive_oracle_hit(self) -> None:
+        finding = Finding.from_dict(
+            {**sast_record(), "run_id": "adequacy-run", "status": "untested"}
+        )
+        probe = Finding.from_dict(
+            {
+                "run_id": "adequacy-run",
+                "source": "dast",
+                "provenance": "zap",
+                "cwe": 601,
+                "type": "Open redirect",
+                "route": "/redirect",
+                "method": "GET",
+                "param": "next",
+                "evidence": [{"type": "ORACLE", "detail": {"oracle": "redirect_location"}}],
+            }
+        )
+        adequacy = adequate_row()
+
+        [updated, _] = _apply_adequacy([finding, probe], [adequacy], ROUTE_PARAMS)
+
+        self.assertEqual(updated.status, "untested")
+
+    def test_adequacy_keeps_incomplete_or_drifted_routes_untested(self) -> None:
+        finding = Finding.from_dict(
+            {**sast_record(), "run_id": "adequacy-run", "status": "untested"}
+        )
+        adequacy = adequate_row(params_status="partial", after_drift=True)
+
+        [updated] = _apply_adequacy([finding], [adequacy], ROUTE_PARAMS)
+
+        self.assertEqual(updated.status, "untested")
+
     def test_scan_runs_the_pipeline_and_reports_its_findings(self) -> None:
         # The pipeline stages are exercised live in scripts/bs5_live_check.py;
         # here we patch the stage seam and check the CLI wires it to correlation.
@@ -59,7 +128,7 @@ class CliTests(unittest.TestCase):
             captured["run_id"] = run_id
             captured["source_path"] = args.source_path
             captured["base_url"] = args.base_url
-            return [sast]
+            return _PipelineOutput([sast])
 
         output = io.StringIO()
         with (
@@ -195,6 +264,43 @@ class CliTests(unittest.TestCase):
         report = json.loads(output.getvalue())
         self.assertEqual(result, 0)
         self.assertEqual(report["version"], "2.1.0")
+
+    def test_suppressed_findings_are_written_separately_and_excluded_from_primary(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            input_path = directory / "sast.json"
+            output_dir = directory / "run-output"
+            record = sast_record()
+            record["arg_shape"] = "constant"
+            record["status"] = "safe_pattern"
+            input_path.write_text(json.dumps([record]), encoding="utf-8")
+            output = io.StringIO()
+
+            with (
+                patch("cli.main._run_output_directory", return_value=output_dir),
+                contextlib.redirect_stdout(output),
+            ):
+                result = main(
+                    [
+                        "correlate",
+                        "--sast",
+                        str(input_path),
+                        "--no-store",
+                        "--output-format",
+                        "json",
+                        "--run-id",
+                        "suppression-test",
+                    ]
+                )
+
+            primary = json.loads(output.getvalue())
+            suppressed = json.loads((output_dir / "suppressed.json").read_text())
+            coverage = json.loads((output_dir / "coverage.json").read_text())
+            self.assertEqual(result, 0)
+            self.assertEqual(primary["issues"], [])
+            self.assertEqual(suppressed["issues"][0]["status"], "safe_pattern")
+            self.assertTrue(suppressed["issues"][0]["suppressed"])
+            self.assertEqual(coverage["recall_by_cwe"], {})
 
 
 if __name__ == "__main__":

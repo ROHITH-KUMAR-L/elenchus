@@ -259,7 +259,7 @@ ZAP is the required active-scan engine in practice and judging mode. Its passive
 
 ### Stage 5: Correlation
 
-Evidence types: `PATH`, `ORACLE`, `TRACE`, `RESPONSE_TRACE`, `FAMILY`. Definitions in [finding-schema.md](finding-schema.md#linking-and-ambiguity). `TRACE` exists only when the optional log tail runs. It is not available in judging mode.
+Evidence types: `PATH`, `ORACLE`, `TRACE`, `RESPONSE_TRACE`, `FAMILY`, `ADEQUACY`. Definitions in [finding-schema.md](finding-schema.md#linking-and-ambiguity). `TRACE` exists only when the optional log tail runs. It is not available in judging mode.
 
 After an oracle fires, hypotheses are grouped by `(route, param, CWE)`.
 
@@ -362,6 +362,8 @@ A negative result must prove the probe reached the code. `tested_negative` requi
 | `type_rejected` | The baseline was valid, every mutated request returned 400 or 422, and the declared Java type is numeric, boolean, UUID or enum |
 
 If every mutated request on any other param returns a rejection, the outcome is `blocked_by_validation`, sub-code `validation`.
+
+The coordinator records the per-route, per-param, per-CWE result as `ADEQUACY` evidence on the corresponding static finding. It includes expected and observed ZAP rule IDs and mutated response statuses. Stage 6 may assign `tested_negative` only if every parameter on every entry route has a completed, non-drifted job and an `adequate` or `type_rejected` outcome. Missing evidence is `untested`.
 
 A negative result is not proof that a query is parameterised. It is measured by `wrong_suppression_count`: if the count is above zero for a CWE, remove that CWE from `export.suppress_cwes`. See [Measurement](#measurement).
 
