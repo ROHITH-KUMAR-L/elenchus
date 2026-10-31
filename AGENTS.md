@@ -128,6 +128,17 @@ The organisers run the target. In judging mode:
 - Plain and direct. Short sentences. Tables over prose.
 - No inflated significance, no "not just X but Y", no vague attributions, no filler, no emoji.
 
+## Context handoff
+
+Context handoff. Before the context window runs out, write the current system state to docs/STATE.md. Do it when any of these happens: you get a context or token warning; auto-compaction is announced; you are about to start a large multi-file task; a milestone completes; the user says 'save state'. Also read docs/STATE.md at the start of every session, after AGENTS.md. Do not wait for the last moment. If unsure whether you are close to the limit, save.
+
+`docs/STATE.md` rules:
+
+- One file. Overwrite it each time. Never append a log.
+- Maximum 150 lines. Plain style.
+- Keep the ten sections in the order the file already uses.
+- Never mark anything passed or working unless it was run in this repo. State what was run.
+
 ## Docs
 
 | Doc | Content |
@@ -136,6 +147,7 @@ The organisers run the target. In judging mode:
 | [docs/architecture.md](docs/architecture.md) | Pipeline, judging mode, ambiguity, export, residual flaws, topology |
 | [docs/finding-schema.md](docs/finding-schema.md) | Internal finding record, hypothesis shape, SARIF mapping |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones M1 to M3, tiers, split, fixtures |
+| [docs/STATE.md](docs/STATE.md) | Current system state. Read at session start. Overwritten at each save. |
 | [docs/doc-update-tracker.md](docs/doc-update-tracker.md) | Stale docs and open questions from this revision |
 | [docs/decisions.md](docs/decisions.md) | Decisions. Stale until the code runs. |
 
