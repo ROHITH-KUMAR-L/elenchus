@@ -52,7 +52,8 @@ The cut follows the finding record.
 
 - **Person A builds producers.** Everything that writes a record. A owns all Java/framework parsing and all HTTP attack logic. A's job ends when a finding exists as a record.
 - **Person B builds consumers.** Everything that reads records. B never parses Java and never sends HTTP.
-- They meet only through the contract in `common/`. Never through shared code. No producer module imports engine code, and no engine module imports producer code.
+- They meet only through the contract in `common/`. Never through shared component code. No producer module imports engine code, and no engine module imports producer code.
+- **Named exception: contract logic.** `common/` may hold code both halves must compute identically: the record model, `ScanTarget`, `RouteMap`, `normalise_route(url, route_map)` and `dedupe_key(record)`. Both sides import it. Changes are stop-the-world, like the schema. See [decisions.md](decisions.md) D-15.
 
 ```
 producers/ (A) --writes--> record contract (common/) --read by--> engine/ (B)
@@ -70,7 +71,7 @@ producers/ (A) --writes--> record contract (common/) --read by--> engine/ (B)
 | Fixture | Purpose |
 |---|---|
 | One Confirmed pair (SAST + DAST) | Basic link |
-| Spring case: sink in a service class, outside the handler span | Target for Tier B |
+| Spring case: sink in a service class, outside the handler span, with `reached_via` set to the calling controller | Target for Tier B |
 | One Code-only | Unlinked SAST path |
 | One Runtime-only | Unlinked DAST path |
 | One decoy that must not link | Wrong-link guard |
@@ -80,7 +81,12 @@ producers/ (A) --writes--> record contract (common/) --read by--> engine/ (B)
 
 ## The cli/ integration seam
 
-- Each producer exposes a `run()`-style entry that returns records. Signature: `[TODO: confirm at kickoff]`
-- `cli/` calls those entries and passes the records to the engine.
+- Producer entries (D-16):
+  ```
+  route_map(target) -> RouteMap            # called first
+  run_sast(target, route_map) -> [Record]
+  run_dast(target, route_map) -> [Record]
+  ```
+- `cli/` builds `ScanTarget`, calls `route_map` once, passes the map to both scanners, then passes the map and all records to the engine.
 - This is the only place the two halves connect. It sits on B's side, so there is no shared orchestration file.
 - If A needs a producer entry to change shape, that is a contract change in `common/`, agreed jointly.
