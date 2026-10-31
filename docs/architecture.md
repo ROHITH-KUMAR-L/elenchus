@@ -48,25 +48,24 @@ The route map must handle dynamic segments (`/x/{id}` matched against `/x/5`) an
 
 SARIF appears only at the edges. Everything between them uses the internal finding record ([finding-schema.md](finding-schema.md)).
 
-```
-target source --> Semgrep (taint + secrets/crypto) --[SARIF in]--+
-target source --> route-map adapter ----------------------+      |
-                     | (seed URLs)                        |      v
-                     v                                    |   normaliser
-localhost app <-- ZAP active + passive                    |      |
-                     | alerts                             |      |
-                     v                                    |      |
-                  oracles (verdict) ----------------------|----->|
-                                                          |      v
-                                                          | internal finding record
-                                                          |      |
-                                                          v      v
-                                              correlation + merge <--> run store (Postgres)
-                                                          |
-                    +-------------------------------------+-------------------+
-                    v                                     v                   v
-          prioritised CLI report               [SARIF out] (B-6, CI)   grader JSON
-                                                                       (VulnerableApp only)
+```mermaid
+flowchart TD
+    src[Target source]
+    app[localhost app]
+    src --> semgrep["Semgrep (taint + secrets/crypto)"]
+    src --> rmap[Route-map adapter]
+    rmap -- seed URLs --> zap[ZAP active + passive]
+    zap -- HTTP --> app
+    zap -- alerts --> oracles["Oracles (verdict)"]
+    semgrep -- SARIF in --> norm[Normaliser]
+    oracles --> norm
+    norm --> rec[Internal finding record]
+    rec --> corr[Correlation + merge]
+    rmap -- route map --> corr
+    corr <--> store[("Run store (Postgres)")]
+    corr --> report[Prioritised CLI report]
+    corr -- SARIF out --> sarif["SARIF file (B-6, CI)"]
+    corr --> grader["Grader JSON (VulnerableApp only)"]
 ```
 
 Secrets/crypto pass output format (SARIF or tool JSON): `[TODO: confirm with tool choice]`
@@ -110,21 +109,23 @@ Whether the oracle replays every ZAP alert or only checks ZAP's own evidence: `[
 
 Our stack and the target app are separate. They share no Docker network and no volume. The only bridge is the scanner's HTTP calls to `localhost:<port>`.
 
-```
-+----------------------------- host machine -------------------------------+
-|                                                                          |
-|  sastdast-net [proposed]               target's own network              |
-|  +--------------------------------+    (target's own Docker Compose)     |
-|  | sastdast-postgres [proposed]   |    +----------------------------+    |
-|  |   volume: sastdast-pgdata      |    | target app                 |    |
-|  |            [proposed]          |    | (organisers' or            |    |
-|  | CLI tool [placement: TODO]     |    |  VulnerableApp)            |    |
-|  +---------------+----------------+    +-------------+--------------+    |
-|                  |                                   |                   |
-|                  |  HTTP to localhost:<port>         | published port    |
-|                  +---------------> host <------------+                   |
-|                                                                          |
-+--------------------------------------------------------------------------+
+```mermaid
+flowchart LR
+    subgraph host[Host machine]
+        subgraph ours["sastdast-net [proposed]"]
+            cli["CLI tool [placement: TODO]"]
+            pg[("sastdast-postgres [proposed]")]
+            vol[/"volume: sastdast-pgdata [proposed]"/]
+            cli --> pg
+            pg --- vol
+        end
+        port(("localhost:port"))
+        subgraph theirs["Target's own network (own Docker Compose)"]
+            target["Target app (organisers' or VulnerableApp)"]
+        end
+        cli -- HTTP, scanner only --> port
+        port -- published port --> target
+    end
 ```
 
 | Item | Proposed name | Purpose |

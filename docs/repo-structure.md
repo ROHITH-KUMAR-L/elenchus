@@ -55,12 +55,12 @@ The cut follows the finding record.
 - They meet only through the contract in `common/`. Never through shared component code. No producer module imports engine code, and no engine module imports producer code.
 - **Named exception: contract logic.** `common/` may hold code both halves must compute identically: the record model, `ScanTarget`, `RouteMap`, `normalise_route(url, route_map)` and `dedupe_key(record)`. Both sides import it. Changes are stop-the-world, like the schema. See [decisions.md](decisions.md) D-15.
 
-```
-producers/ (A) --writes--> record contract (common/) --read by--> engine/ (B)
-                                    ^
-                                    |
-                         cli/ (B) calls producers' run() entries,
-                         passes records to engine
+```mermaid
+flowchart LR
+    prod["producers/ (Person A)"] -- writes --> contract["Record contract (common/)"]
+    contract -- read by --> eng["engine/ (Person B)"]
+    cli["cli/ (Person B)"] -- "calls route_map, run_sast, run_dast" --> prod
+    cli -- passes route map + records --> eng
 ```
 
 ## Fixtures first
