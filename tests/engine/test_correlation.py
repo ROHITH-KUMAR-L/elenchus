@@ -16,19 +16,20 @@ def record(
     method: str | None = "GET",
     file: str | None = None,
     line: int | None = None,
-    param: str | None = "id",
+    param: str | None = None,
+    candidate_params: list[str] | None = None,
     trace: list[dict[str, object]] | None = None,
-    evidence: dict[str, object] | None = None,
-    handler_file: str | None = None,
-    handler_line_start: int | None = None,
-    handler_line_end: int | None = None,
-    reached_via: list[dict[str, object]] | None = None,
+    evidence: list[dict[str, object]] | None = None,
+    entry_paths: list[dict[str, object]] | None = None,
     severity: str = "high",
     wasc_id: int | None = None,
 ) -> dict[str, object]:
+    if source == "dast" and param is None and cwe != 693:
+        param = "id"
     return {
         "run_id": "test-run",
         "source": source,
+        "provenance": "own" if source == "sast" else "zap",
         "cwe": cwe,
         "type": "SQL injection",
         "route": route,
@@ -36,19 +37,21 @@ def record(
         "file": file,
         "line": line,
         "param": param,
+        "candidate_params": candidate_params,
         "payload": "1'" if source == "dast" else None,
-        "handler_file": handler_file,
-        "handler_line_start": handler_line_start,
-        "handler_line_end": handler_line_end,
-        "reached_via": reached_via,
-        "evidence": evidence or {},
+        "entry_paths": entry_paths,
+        "evidence": evidence or [],
         "taint_trace": trace,
-        "label": None,
-        "confidence": None,
-        "risk_score": None,
         "severity": severity,
         "wasc_id": wasc_id,
     }
+
+
+def entry_path(hops: int) -> list[dict[str, object]]:
+    chain = [{"method": "OrderController.get", "file": "src/OrderController.java", "line": 39}]
+    if hops:
+        chain.append({"method": "OrderService.find", "file": "src/OrderService.java", "line": 80})
+    return [{"route": "/orders/{id}", "method": "GET", "hops": hops, "call_chain": chain}]
 
 
 def finding(source: str, **kwargs: object) -> Finding:
@@ -61,9 +64,7 @@ class CorrelationTests(unittest.TestCase):
             "sast",
             file="src/OrderController.java",
             line=25,
-            handler_file="src/OrderController.java",
-            handler_line_start=20,
-            handler_line_end=30,
+            entry_paths=entry_path(0),
         )
         dast = finding("dast")
 
@@ -80,15 +81,7 @@ class CorrelationTests(unittest.TestCase):
             line=88,
             route=None,
             method=None,
-            reached_via=[
-                {
-                    "route": "/orders/{id}",
-                    "method": "GET",
-                    "handler_file": "src/OrderController.java",
-                    "handler_line_start": 39,
-                    "handler_line_end": 47,
-                }
-            ],
+            entry_paths=entry_path(1),
             trace=[
                 {"file": "src/OrderController.java", "line": 42, "role": "source"},
                 {"file": "src/OrderService.java", "line": 88, "role": "sink"},
@@ -119,7 +112,7 @@ class CorrelationTests(unittest.TestCase):
                 file="src/Orders.java",
                 line=90,
                 cwe=79,
-                param="code-param",
+                candidate_params=["code-param"],
             ),
             finding("dast", cwe=79, param="other"),
         ]
@@ -149,14 +142,14 @@ class CorrelationTests(unittest.TestCase):
             cwe=693,
             route="/first",
             param=None,
-            evidence={"header_name": "X-Frame-Options"},
+            evidence=[{"type": "ORACLE", "detail": {"header_name": "X-Frame-Options"}}],
         )
         second = finding(
             "dast",
             cwe=693,
             route="/second",
             param=None,
-            evidence={"header_name": "x-frame-options"},
+            evidence=[{"type": "ORACLE", "detail": {"header_name": "x-frame-options"}}],
         )
 
         [issue] = correlate([first, second])

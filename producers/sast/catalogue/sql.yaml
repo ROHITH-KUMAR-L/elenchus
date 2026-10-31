@@ -1,0 +1,73 @@
+# Sink catalogue: SQL injection (CWE-89).
+#
+# Every entry names the public API it came from. Nothing here names a class,
+# route or module of a test app. Anchor entries on the lowest public API, so a
+# wrapper in the target's source is still found through the sink inside it.
+#
+# receiver_types  Declared types that match, by simple name. A project type that
+#                 extends one of these matches too.
+# methods         Method names that match.
+# sink_arg        Position of the argument that carries the SQL text.
+# lambda_of       The receiver may be a lambda param of a call on one of these
+#                 types. The lambda's declared functional type gives the receiver
+#                 its type, so this is still a resolved match, not a name match.
+cwe: 89
+type: SQL Injection
+severity: high
+sanitisers: []
+entries:
+  - id: jdbc-statement
+    api: java.sql.Statement
+    kind: call
+    receiver_types: [Statement, PreparedStatement, CallableStatement]
+    methods: [execute, executeQuery, executeUpdate, executeLargeUpdate, addBatch]
+    sink_arg: 0
+  - id: jdbc-connection
+    api: java.sql.Connection
+    kind: call
+    receiver_types: [Connection]
+    methods: [prepareStatement, prepareCall, nativeSQL]
+    sink_arg: 0
+    lambda_of: [JdbcTemplate, JdbcOperations]
+  - id: spring-jdbc-template
+    api: org.springframework.jdbc.core.JdbcOperations
+    kind: call
+    receiver_types: [JdbcTemplate, JdbcOperations]
+    methods:
+      - query
+      - queryForObject
+      - queryForList
+      - queryForMap
+      - queryForRowSet
+      - queryForStream
+      - update
+      - execute
+      - batchUpdate
+    sink_arg: 0
+  - id: spring-named-jdbc-template
+    api: org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations
+    kind: call
+    receiver_types: [NamedParameterJdbcTemplate, NamedParameterJdbcOperations]
+    methods:
+      - query
+      - queryForObject
+      - queryForList
+      - queryForMap
+      - queryForRowSet
+      - queryForStream
+      - update
+      - execute
+      - batchUpdate
+    sink_arg: 0
+  - id: jpa-entity-manager
+    api: jakarta.persistence.EntityManager
+    kind: call
+    receiver_types: [EntityManager]
+    methods: [createQuery, createNativeQuery]
+    sink_arg: 0
+  - id: hibernate-session
+    api: org.hibernate.Session
+    kind: call
+    receiver_types: [Session, StatelessSession]
+    methods: [createQuery, createNativeQuery, createSQLQuery, createMutationQuery, createNativeMutationQuery]
+    sink_arg: 0

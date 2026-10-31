@@ -1,0 +1,44 @@
+{
+  "description": "Row 7, second variant. A sweep hit with no static finding.",
+  "findings": [
+    {
+      "run_id": "fixture",
+      "source": "dast",
+      "provenance": "zap",
+      "cwe": 89,
+      "type": "SQL Injection",
+      "route": "/api/search",
+      "method": "GET",
+      "hypothesis_id": "h-sweep-q",
+      "candidate_params": [
+        "id",
+        "sort"
+      ],
+      "param": "q",
+      "param_location": "query",
+      "payload": "1'",
+      "evidence": [
+        {
+          "type": "ORACLE",
+          "detail": {
+            "oracle": "db_error",
+            "canary_id": "elx-fixture",
+            "zap_job_id": "j-1",
+            "zap_scan_id": "1",
+            "zap_message_id": "2",
+            "zap_rule_id": "40018",
+            "replays": 3,
+            "fired": 3,
+            "baseline_status": 200,
+            "replay_log": "[fixture]"
+          }
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "label": "Runtime-only",
+    "link_status": null,
+    "link_origin": null
+  }
+}

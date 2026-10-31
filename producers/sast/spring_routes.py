@@ -37,8 +37,39 @@ MAPPING_ANNOTATIONS = {
     "PatchMapping": "PATCH",
 }
 
-PARAM_ANNOTATIONS = {"RequestParam": "query", "PathVariable": "path"}
+PARAM_ANNOTATIONS = {
+    "RequestParam": "query",
+    "PathVariable": "path",
+    "RequestHeader": "header",
+    "CookieValue": "cookie",
+}
+BODY_ANNOTATIONS = {"RequestBody", "ModelAttribute", "RequestPart"}
+MAP_TYPES = {"Map", "MultiValueMap", "HashMap", "LinkedHashMap", "HttpHeaders"}
 MAP_PARAM_GETTERS = {"get", "getOrDefault", "getFirst", "containsKey"}
+# Handler arguments Spring supplies itself. They carry no client param of their own.
+FRAMEWORK_ARGUMENT_TYPES = {
+    "HttpServletResponse", "HttpSession", "Model", "ModelMap", "ModelAndView", "BindingResult",
+    "Errors", "Principal", "Authentication", "Locale", "TimeZone", "SessionStatus",
+    "RedirectAttributes", "UriComponentsBuilder", "HttpMethod", "OutputStream", "Writer",
+}
+# Arguments that expose the raw request: their params cannot all be listed statically.
+RAW_REQUEST_TYPES = {
+    "RequestEntity", "HttpEntity", "WebRequest", "NativeWebRequest", "ServletRequest",
+    "ServerHttpRequest", "ServerWebExchange", "InputStream", "Reader",
+}
+REQUEST_TYPES = {"HttpServletRequest"}
+# Reading these from a request cannot be listed as named params.
+OPAQUE_REQUEST_CALLS = {
+    "getParameterMap", "getParameterNames", "getInputStream", "getReader", "getCookies",
+    "getHeaderNames", "getQueryString", "getParts",
+}
+SIMPLE_VALUE_TYPES = {
+    "String", "CharSequence", "int", "Integer", "long", "Long", "short", "Short", "byte", "Byte",
+    "boolean", "Boolean", "double", "Double", "float", "Float", "char", "Character", "BigDecimal",
+    "BigInteger", "UUID", "Date", "LocalDate", "LocalDateTime", "Instant", "List", "Set",
+    "Collection", "Optional",
+}
+MAX_DTO_DEPTH = 3
 TYPE_DECLARATIONS = ("class_declaration", "interface_declaration", "enum_declaration", "record_declaration")
 ANY_METHOD = "ANY"
 
@@ -49,7 +80,7 @@ def _text(node):
 
 def _simple_name(name):
     """Last segment of a possibly qualified name, without generics."""
-    return re.sub(r"<.*>", "", name).split(".")[-1].strip()
+    return re.sub(r"<.*>", "", name, flags=re.DOTALL).split(".")[-1].strip()
 
 
 def _line_span(node):
@@ -193,20 +224,59 @@ def _index_type(index, decl, rel):
                 supertypes.add(_simple_name(_text(ident)))
     fields = {}
     methods = {}
+    bound_fields = {}  # Client-visible name -> declared type, for DTO binding.
+    if decl.type == "record_declaration":
+        for component in _children(decl.child_by_field_name("parameters"), "formal_parameter"):
+            component_name = _text(component.child_by_field_name("name"))
+            component_type = _simple_name(_text(component.child_by_field_name("type")))
+            fields[component_name] = component_type
+            bound_fields[_bound_name(index, component, component_name, name)] = component_type
     body = decl.child_by_field_name("body")
     for member in body.named_children if body is not None else []:
         if member.type == "field_declaration":
             field_type = _simple_name(_text(member.child_by_field_name("type")))
+            modifiers = " ".join(_text(m) for m in _children(member, "modifiers")).split()
+            is_bound = not {"static", "transient"} & set(modifiers) and not any(
+                a == "JsonIgnore" for a, _ in _annotations(member)
+            )
             for declarator in _children(member, "variable_declarator"):
-                fields[_text(declarator.child_by_field_name("name"))] = field_type
+                field_name = _text(declarator.child_by_field_name("name"))
+                fields[field_name] = field_type
+                if is_bound:
+                    bound_fields[_bound_name(index, member, field_name, name)] = field_type
         elif member.type == "method_declaration":
             start, end = _line_span(member)
             methods.setdefault(_text(member.child_by_field_name("name")), []).append(
-                {"file": rel, "line_start": start, "line_end": end, "node": member}
+                {
+                    "file": rel,
+                    "line_start": start,
+                    "line_end": end,
+                    "node": member,
+                    "return_type": _simple_name(_text(member.child_by_field_name("type"))),
+                }
             )
     index.types.setdefault(name, []).append(
-        {"name": name, "kind": decl.type, "file": rel, "decl": decl, "supertypes": supertypes, "fields": fields, "methods": methods}
+        {
+            "name": name,
+            "kind": decl.type,
+            "file": rel,
+            "decl": decl,
+            "supertypes": supertypes,
+            "fields": fields,
+            "bound_fields": bound_fields,
+            "methods": methods,
+        }
     )
+
+
+def _bound_name(index, node, default, owner):
+    """A field's name on the wire: @JsonProperty when present, else the field name."""
+    for name, args_node in _annotations(node):
+        if name == "JsonProperty":
+            values = index.resolve_strings(_annotation_args(args_node).get("value"), owner)
+            if values:
+                return values[0]
+    return default
 
 
 def _index_meta_annotation(index, decl):
@@ -260,7 +330,8 @@ def build_index(files):
             _index_type(index, decl, rel)
     # Meta-annotations can stack; repeat until nothing new is registered.
     annotation_decls = [d for _, d in decls if d.type == "annotation_type_declaration"]
-    while any([_index_meta_annotation(index, d) for d in annotation_decls]):
+    # A list, not a generator: every declaration must register on each pass.
+    while any([_index_meta_annotation(index, d) for d in annotation_decls]):  # noqa: C419
         pass
     return index
 
@@ -304,32 +375,138 @@ def _walk(node, kind):
         stack.extend(current.named_children)
 
 
-def _params(index, method, owner):
+def _dto_params(index, type_name, source, body_format, prefix="", depth=0, seen=()):
+    """Bound params of a DTO, and whether all of them could be read from source."""
+    if type_name in SIMPLE_VALUE_TYPES:
+        return [_param(prefix, source, type_name, body_format)] if prefix else [], bool(prefix)
+    infos = [t for t in index.types.get(type_name, []) if t["kind"] != "interface_declaration"]
+    if len(infos) != 1 or depth >= MAX_DTO_DEPTH or type_name in seen:
+        return [], False
+    info = infos[0]
+    if info["kind"] == "enum_declaration":
+        return ([_param(prefix, source, type_name, body_format)], True) if prefix else ([], False)
     params = []
+    complete = True
+    bound = dict(info["bound_fields"])
+    for parent in info["supertypes"]:
+        parents = index.types.get(parent)
+        if parents:
+            bound = {**parents[0]["bound_fields"], **bound}
+    for name, declared in sorted(bound.items()):
+        nested, ok = _dto_params(
+            index, declared, source, body_format, f"{prefix}{name}" if not prefix else f"{prefix}.{name}",
+            depth + 1, (*seen, type_name),
+        )
+        params += nested
+        complete = complete and ok
+    return params, complete
+
+
+def _param(name, source, java_type, body_format=None):
+    return {"name": name, "source": source, "java_type": java_type, "body_format": body_format}
+
+
+def _params(index, method, owner, annotated=None, http_method=ANY_METHOD):
+    """(params, params_status) for one handler.
+
+    annotated is the declaration carrying the annotations, when a controller
+    inherits its mapping from a supertype's method.
+    """
+    params = []
+    complete = True
     map_params = set()
-    for formal in _children(method.child_by_field_name("parameters"), "formal_parameter"):
+    request_params = set()
+    formals = _children(method.child_by_field_name("parameters"), "formal_parameter")
+    annotated_formals = (
+        _children(annotated.child_by_field_name("parameters"), "formal_parameter")
+        if annotated is not None
+        else formals
+    )
+    for position, formal in enumerate(formals):
         param_name = _text(formal.child_by_field_name("name"))
-        param_type = _simple_name(_text(formal.child_by_field_name("type")))
-        for ann, args_node in _annotations(formal):
-            if ann not in PARAM_ANNOTATIONS:
-                continue
-            if param_type in ("Map", "MultiValueMap", "HashMap"):
+        full_type = _text(formal.child_by_field_name("type"))
+        param_type = _simple_name(full_type)
+        annotation_owner = (
+            annotated_formals[position] if position < len(annotated_formals) else formal
+        )
+        annotations = _annotations(formal) or _annotations(annotation_owner)
+        names = {a for a, _ in annotations}
+        location = next((PARAM_ANNOTATIONS[a] for a in names if a in PARAM_ANNOTATIONS), None)
+        if location is not None:
+            if param_type in MAP_TYPES:
                 map_params.add(param_name)
                 continue
-            args = _annotation_args(args_node)
-            names = index.resolve_strings(args.get("name") or args.get("value"), owner)
-            params.append({"name": names[0] if names else param_name, "source": PARAM_ANNOTATIONS[ann]})
+            args = next(args_node for a, args_node in annotations if a in PARAM_ANNOTATIONS)
+            attributes = _annotation_args(args)
+            bound = index.resolve_strings(attributes.get("name") or attributes.get("value"), owner)
+            params.append(_param(bound[0] if bound else param_name, location, param_type))
+        elif names & BODY_ANNOTATIONS:
+            is_json = "RequestBody" in names
+            source = "query" if not is_json and http_method == "GET" else "body"
+            body_format = None if source == "query" else "json" if is_json else "form"
+            if param_type in SIMPLE_VALUE_TYPES or param_type in MAP_TYPES:
+                complete = False  # A raw body has no named fields to read.
+                continue
+            nested, ok = _dto_params(index, param_type, source, body_format)
+            params += nested
+            complete = complete and ok
+        elif param_type in REQUEST_TYPES:
+            request_params.add(param_name)
+        elif param_type in RAW_REQUEST_TYPES:
+            complete = False
+        elif param_type in FRAMEWORK_ARGUMENT_TYPES:
+            continue
+        elif param_type in SIMPLE_VALUE_TYPES:
+            # No annotation: Spring binds a simple type from the query by its name.
+            params.append(_param(param_name, "query", param_type))
+        else:
+            # No annotation on a complex type: Spring binds it as a model attribute.
+            source = "query" if http_method == "GET" else "body"
+            body_format = None if source == "query" else "form"
+            nested, ok = _dto_params(index, param_type, source, body_format)
+            params += nested
+            complete = complete and ok
+
     body = method.child_by_field_name("body")
     for call in _walk(body, "method_invocation") if body is not None else []:
         call_name = _text(call.child_by_field_name("name"))
         obj = call.child_by_field_name("object")
-        is_map_get = obj is not None and _text(obj) in map_params and call_name in MAP_PARAM_GETTERS
+        receiver = _text(obj) if obj is not None else None
+        arguments = call.child_by_field_name("arguments").named_children
+        is_map_get = receiver in map_params and call_name in MAP_PARAM_GETTERS
+        location = None
         if is_map_get or call_name == "getParameter":
-            arguments = call.child_by_field_name("arguments").named_children
-            for name in index.resolve_strings(arguments[0], owner) if arguments else []:
-                params.append({"name": name, "source": "query"})
+            location = "query"
+        elif receiver in request_params and call_name == "getHeader":
+            location = "header"
+        if location is not None:
+            names = index.resolve_strings(arguments[0], owner) if arguments else []
+            if names:
+                params += [_param(name, location, "String") for name in names]
+            else:
+                complete = False  # The key is computed at run time.
+        elif receiver in map_params or (
+            receiver in request_params and call_name in OPAQUE_REQUEST_CALLS
+        ):
+            complete = False
+        # Passing the whole map or request on hides what the callee reads.
+        for argument in arguments:
+            if argument.type == "identifier" and _text(argument) in map_params | request_params:
+                complete = False
+    if body is not None and map_params | request_params:
+        for loop in _walk(body, "enhanced_for_statement"):
+            value = loop.child_by_field_name("value")
+            if value is not None and _text(value) in map_params | request_params:
+                complete = False
     unique = {(p["name"], p["source"]): p for p in params}
-    return list(unique.values())
+    found = list(unique.values())
+    if complete:
+        status = "complete"
+    elif found:
+        status = "partial"
+    else:
+        status = "unknown"
+    return found, status
 
 
 def _direct_calls(index, method, owner_info, same_class_only):
@@ -376,42 +553,108 @@ def _calls(index, method, owner_info):
     return list(edges.values())
 
 
-def build_route_map(source_root):
-    """Route map for every Spring handler under source_root."""
-    root = Path(source_root)
-    index = build_index(_parse_files(root))
+def _supertype_chain(index, info, seen=None):
+    """The project supertypes of a type, nearest first."""
+    seen = seen if seen is not None else {info["name"]}
+    chain = []
+    for name in sorted(info["supertypes"]):
+        if name in seen:
+            continue
+        seen.add(name)
+        for parent in index.types.get(name, [])[:1]:
+            chain.append(parent)
+            chain += _supertype_chain(index, parent, seen)
+    return chain
+
+
+def _is_abstract(decl):
+    return any("abstract" in _text(m).split() for m in _children(decl, "modifiers"))
+
+
+def _handlers(index, info):
+    """(method node, annotation owner, mapping, body owner) for a controller.
+
+    A method may inherit its mapping from the supertype method it overrides, and
+    a concrete controller inherits handlers its abstract base declares.
+    """
+    chain = _supertype_chain(index, info)
+    found = {}
+    owners = [info, *chain]
+    for owner in owners:
+        for name, sites in owner["methods"].items():
+            for site in sites:
+                node = site["node"]
+                params_count = len(
+                    _children(node.child_by_field_name("parameters"), "formal_parameter")
+                )
+                key = (name, params_count)
+                existing = found.get(key)
+                has_body = node.child_by_field_name("body") is not None
+                mapping = _mapping(index, _annotations(node), owner["name"])
+                if existing is None:
+                    found[key] = {"node": node, "owner": owner, "annotated": node, "mapping": mapping}
+                    continue
+                if existing["mapping"] is None and mapping is not None:
+                    existing["mapping"] = mapping
+                    existing["annotated"] = node
+                if existing["node"].child_by_field_name("body") is None and has_body:
+                    existing["node"] = node
+                    existing["owner"] = owner
+    return [item for item in found.values() if item["mapping"] is not None]
+
+
+def _class_mapping(index, info):
+    for owner in [info, *_supertype_chain(index, info)]:
+        base = _mapping(index, _annotations(owner["decl"]), owner["name"])
+        if base is not None:
+            return base
+    return None
+
+
+def _build_entries(index):
     entries = []
     for infos in index.types.values():
         for info in infos:
             decl = info["decl"]
-            class_anns = _annotations(decl)
-            if not any(a in index.controller_meta for a, _ in class_anns):
+            if info["kind"] != "class_declaration" or _is_abstract(decl):
                 continue
-            base = _mapping(index, class_anns, info["name"])
+            chain = [info, *_supertype_chain(index, info)]
+            if not any(
+                a in index.controller_meta for owner in chain for a, _ in _annotations(owner["decl"])
+            ):
+                continue
+            base = _class_mapping(index, info)
             base_paths = base[0] if base else [""]
-            body = decl.child_by_field_name("body")
-            for method in _children(body, "method_declaration"):
-                mapping = _mapping(index, _annotations(method), info["name"])
-                if mapping is None:
-                    continue
-                paths, http_methods = mapping
+            for handler in _handlers(index, info):
+                method = handler["node"]
+                owner = handler["owner"]
+                paths, http_methods = handler["mapping"]
                 start, end = _line_span(method)
-                params = _params(index, method, info["name"])
-                calls = _calls(index, method, info)
+                calls = _calls(index, method, owner)
                 for base_path in base_paths:
                     for path in paths:
                         for http_method in http_methods:
+                            params, status = _params(
+                                index, method, owner["name"], handler["annotated"], http_method
+                            )
                             entries.append({
                                 "route": _join_route(base_path, path),
                                 "method": http_method,
-                                "file": info["file"],
-                                "func": f"{info['name']}.{_text(method.child_by_field_name('name'))}",
+                                "file": owner["file"],
+                                "func": f"{owner['name']}.{_text(method.child_by_field_name('name'))}",
                                 "line_start": start,
                                 "line_end": end,
                                 "params": params,
+                                "params_status": status,
+                                "route_origin": "source",
                                 "calls": calls,
                             })
     return sorted(entries, key=lambda e: (e["route"], e["method"]))
+
+
+def build_route_map(source_root):
+    """Route map for every Spring handler under source_root."""
+    return _build_entries(build_index(_parse_files(Path(source_root))))
 
 
 def route_map(target: ScanTarget) -> RouteMap:

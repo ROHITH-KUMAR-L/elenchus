@@ -277,7 +277,8 @@ def _seed_requests(target: ScanTarget, route_map: RouteMap) -> tuple[SeedRequest
             param.name: "1" for param in entry.params if param.source == "path"
         }
         path = _TEMPLATE_PARAM_PATTERN.sub(
-            lambda match: path_values.get(match.group(1), "1"), entry.route
+            lambda match: path_values.get(match.group(1), "1"),  # noqa: B023
+            entry.route,
         )
         url = f"{base_url}/{path.lstrip('/')}"
         query_params = [
@@ -411,23 +412,14 @@ def _alert_to_finding(
         {
             "run_id": target.run_id,
             "source": "dast",
+            "provenance": "zap",
             "cwe": cwe,
             "type": type_name(cwe),
             "route": route,
             "method": method,
-            "file": None,
-            "line": None,
             "param": param,
             "payload": payload,
-            "handler_file": None,
-            "handler_line_start": None,
-            "handler_line_end": None,
-            "reached_via": None,
-            "evidence": evidence,
-            "taint_trace": None,
-            "label": None,
-            "confidence": None,
-            "risk_score": None,
+            "evidence": [{"type": "ORACLE", "detail": evidence}],
             "severity": severity,
             "wasc_id": wasc_id,
         }

@@ -1,6 +1,6 @@
-# Internal finding record (DRAFT contract, revised)
+# Internal finding record
 
-Status: **DRAFT**. This revision describes the target state. The fields marked below are not in `common/record.py` yet. Changing the record is a contract change, flagged as such ([CONTRIBUTING.md](../CONTRIBUTING.md)).
+Status: implemented in `common/`, frozen by `BS1`. Values marked `[proposed]` may still be tuned. Changing the record is a contract change, flagged as such ([CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 Every component reads and writes this record. It is framework-agnostic: no Spring or JAX-RS field names.
 
@@ -10,7 +10,11 @@ SARIF 2.1.0 is the interchange format at the edges only: SARIF in from the optio
 
 Code in `common/` is canonical. This doc is the human-readable description. When they disagree, the code wins.
 
-[`common/record.py`](../common/record.py) implements the earlier record. The revised fields below are proposed. Updating `common/record.py`, the engine and the fixtures is a contract change, scheduled as build stage `BS1` ([implementation-plan.md](implementation-plan.md#build-stages)).
+[`common/record.py`](../common/record.py) implements the finding record. [`common/pipeline.py`](../common/pipeline.py) implements `Hypothesis`, `ProbeJob` and `CodeIndex`. [`common/config.py`](../common/config.py) implements the config keys. A test keeps its keys and defaults in step with the Config reference.
+
+`run_id`, `source`, `provenance`, `cwe`, `type` and `evidence` are required on every record. Every other field defaults to null, or false for the booleans. The record enforces these rules at load: a `sast` record cannot set `param`, `link_status` and `link_origin` are set together, and `suppressed` needs a suppressible status.
+
+The older engine and producers read this record but keep their older logic until their build stages rework them.
 
 ## What changed
 
@@ -83,7 +87,7 @@ A hypothesis is a pipeline object, not a finding. It lives in `common/` with the
 
 | Field | Meaning |
 |---|---|
-| `hypothesis_id` | Stable id `[proposed: hash of kind, route, method, cwe, sink_id]` |
+| `hypothesis_id` | Stable id: a hash of kind, route, method, cwe, sink_id and, for sweep only, its one param. Without the param, two sweep units on one route would collide. |
 | `kind` | `directed` or `sweep` |
 | `route`, `method` | Route under test |
 | `cwe` | Class to probe |
@@ -94,7 +98,7 @@ Directed hypotheses come from static findings with `arg_shape: dynamic`. Sweep h
 
 ## ProbeJob shape
 
-A probe job is a pipeline object, not a finding. It lives in `common/` with the record. Same freeze rules. Written before the scan starts. Job granularity depends on `BS0`.
+A probe job is a pipeline object, not a finding. It lives in `common/` with the record. Same freeze rules. Written before the scan starts. `BS0` settled job size as one job per `(route, method)`.
 
 | Field | Meaning |
 |---|---|
@@ -130,9 +134,9 @@ Derived output of stage 1. Replaces `RouteMap` as the stage-1 output `[proposed;
 | Part | Contents |
 |---|---|
 | Route table | Route template, method, handler file, function, line span, `route_origin` (`source` or `discovered`) |
-| Param bindings | Param name, location, Java type. `params_status` per route: `complete`, `partial` or `unknown`. |
-| Call graph | Method-to-method edges. Unresolved calls are flagged, never dropped. |
-| Sink inventory | Sink sites with `sink_id`, CWE, catalogue `kind` (`call`, `return_value`, `annotation`, `template`, `xml`) and `arg_shape` |
+| Param bindings | Param name, location, Java type, and `body_format` (`json` or `form`) for a body param. A nested body field has a dotted name. `params_status` per route: `complete`, `partial` or `unknown`. |
+| Call graph | One edge per call site and target: caller, callee, file, line, col, `receiver_type`, `resolved`, `callee_file`. `resolved` means the receiver type is known, in the source or not. `callee_file` is set when the callee's body is in the source. Unresolved calls are flagged, never dropped. |
+| Sink inventory | Sink sites with `sink_id` (the call site), `line` (the dangerous argument's line), CWE, catalogue `kind` (`call`, `return_value`, `annotation`, `template`, `xml`), `catalogue_entry`, `match_mode`, `arg_shape`, `type_name`, `severity` and `snippet` |
 
 ### Coverage report
 

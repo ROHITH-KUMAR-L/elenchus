@@ -1,0 +1,65 @@
+{
+  "description": "Row 4. A candidate param failed its baseline.",
+  "findings": [
+    {
+      "run_id": "fixture",
+      "source": "sast",
+      "provenance": "own",
+      "cwe": 89,
+      "type": "SQL Injection",
+      "route": "/api/orders/{id}",
+      "method": "GET",
+      "file": "src/main/java/com/example/shop/OrderService.java",
+      "line": 88,
+      "sink_id": {
+        "file": "src/main/java/com/example/shop/OrderService.java",
+        "enclosing_method": "OrderService.find",
+        "start_line": 88,
+        "start_col": 31
+      },
+      "arg_shape": "dynamic",
+      "entry_paths": [
+        {
+          "route": "/api/orders/{id}",
+          "method": "GET",
+          "hops": 1,
+          "call_chain": [
+            {
+              "method": "OrderController.get",
+              "file": "src/main/java/com/example/shop/OrderController.java",
+              "line": 40
+            },
+            {
+              "method": "OrderService.find",
+              "file": "src/main/java/com/example/shop/OrderService.java",
+              "line": 80
+            }
+          ]
+        }
+      ],
+      "hypothesis_id": "h-a",
+      "candidate_params": [
+        "id",
+        "sort"
+      ],
+      "match_mode": "strict",
+      "evidence": [
+        {
+          "type": "PATH",
+          "detail": {
+            "snippet": "stmt.executeQuery(\"SELECT * FROM orders WHERE id = \" + id)",
+            "catalogue_entry": "[fixture]"
+          }
+        }
+      ],
+      "severity": "high",
+      "status": "blocked",
+      "unlinked_reason": "id: blocked_by_validation (auth); sort: blocked_by_validation (auth)"
+    }
+  ],
+  "expected": {
+    "label": "Code-only",
+    "status": "blocked",
+    "suppressed": false
+  }
+}

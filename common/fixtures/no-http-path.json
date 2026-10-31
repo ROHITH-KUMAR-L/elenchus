@@ -1,0 +1,44 @@
+{
+  "description": "Row 5. The backward walk found no caller.",
+  "findings": [
+    {
+      "run_id": "fixture",
+      "source": "sast",
+      "provenance": "own",
+      "cwe": 89,
+      "type": "SQL Injection",
+      "route": null,
+      "method": null,
+      "file": "src/main/java/com/example/shop/OrderService.java",
+      "line": 88,
+      "sink_id": {
+        "file": "src/main/java/com/example/shop/OrderService.java",
+        "enclosing_method": "OrderService.find",
+        "start_line": 88,
+        "start_col": 31
+      },
+      "arg_shape": "dynamic",
+      "entry_paths": null,
+      "hypothesis_id": null,
+      "candidate_params": null,
+      "match_mode": "strict",
+      "evidence": [
+        {
+          "type": "PATH",
+          "detail": {
+            "snippet": "stmt.executeQuery(\"SELECT * FROM orders WHERE id = \" + id)",
+            "catalogue_entry": "[fixture]"
+          }
+        }
+      ],
+      "severity": "high",
+      "status": "no_http_path",
+      "unlinked_reason": "no_callers"
+    }
+  ],
+  "expected": {
+    "label": "Code-only",
+    "status": "no_http_path",
+    "suppressed": false
+  }
+}

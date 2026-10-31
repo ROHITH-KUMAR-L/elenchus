@@ -1,12 +1,12 @@
-"""SAST producer: Semgrep findings joined to the route map.
+"""Optional Semgrep adapter: findings joined to the route map.
 
-run_sast(target, route_map) runs our Semgrep rules, ingests the SARIF output,
-and returns canonical Finding records. Each finding is joined to the route map:
+Off by default. No pipeline stage may require it, so it is installed with
+`uv sync --extra semgrep`. run_sast(target, route_map) runs our Semgrep rules,
+ingests the SARIF output, and returns canonical Finding records:
 
-- The sink sits inside a handler: handler_* fields are set (Tier A input), and
-  route/method too when that handler serves exactly one route.
-- reached_via lists every route whose handler contains the sink or calls the
-  method that does (Tier B input, D-07).
+- entry_paths lists every route whose handler contains the sink or calls the
+  method that does. route and method are set only when exactly one path exists.
+- It never claims a param. candidate_params lists the params of those routes.
 - Taint findings that no route reaches are dropped: no URL can trigger them.
   Pattern findings (rules/java-pattern.yaml, e.g. hard-coded secrets) are kept
   without a route; they are Code-only by nature.
@@ -15,13 +15,12 @@ and returns canonical Finding records. Each finding is joined to the route map:
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
-from common.record import Finding, RouteEntry, RouteMap, ScanTarget
+from common.record import CallEdge, Finding, RouteEntry, RouteMap, ScanTarget
 from common.vocabulary import type_name
 
 RULES_DIR = Path(__file__).parent / "rules"
@@ -47,7 +46,7 @@ def run_sast(target: ScanTarget, route_map: RouteMap) -> list[Finding]:
 def _run_semgrep(source_path: str, rules: Path) -> dict[str, Any]:
     semgrep = shutil.which("semgrep")
     if semgrep is None:
-        raise RuntimeError("semgrep not found; run inside the project environment (uv run)")
+        raise RuntimeError("semgrep not found; install the optional adapter with `uv sync --extra semgrep`")
     completed = subprocess.run(
         [
             semgrep, "scan",
@@ -96,18 +95,24 @@ def _to_finding(
     line = location["region"]["startLine"]
     snippet = location["region"].get("snippet", {}).get("text", "").strip()
 
-    handlers = [e for e in route_map if e.file == file and e.line_start <= line <= e.line_end]
-    callers = [
-        e for e in route_map
-        if any(c.file == file and c.line_start <= line <= c.line_end for c in e.calls)
-    ]
-    reaching = list({(e.route, e.method, e.file, e.line_start): e for e in handlers + callers}.values())
-    if needs_route and not reaching:
+    paths: dict[tuple[str, str], dict[str, Any]] = {}
+    params: set[str] = set()
+    for entry in sorted(route_map, key=lambda e: (e.route, e.method)):
+        if entry.file == file and entry.line_start <= line <= entry.line_end:
+            paths[(entry.route, entry.method)] = _entry_path(entry, None)
+        else:
+            call = next(
+                (c for c in entry.calls if c.file == file and c.line_start <= line <= c.line_end),
+                None,
+            )
+            if call is None:
+                continue
+            paths.setdefault((entry.route, entry.method), _entry_path(entry, call))
+        params.update(p.name for p in entry.params)
+    if needs_route and not paths:
         return None
 
-    spans = {(e.file, e.line_start, e.line_end) for e in handlers}
-    handler = next(iter(spans)) if len(spans) == 1 else None
-    single_route = handlers[0] if len(handlers) == 1 else None
+    single_route = next(iter(paths)) if len(paths) == 1 else None
     rule_id = result["ruleId"].rsplit(".", 1)[-1]
     cwe = _rule_cwe(rule)
     level = result.get("level") or rule.get("defaultConfiguration", {}).get("level", "warning")
@@ -115,52 +120,36 @@ def _to_finding(
     return Finding.from_dict({
         "run_id": target.run_id,
         "source": "sast",
+        "provenance": "semgrep",
         "cwe": cwe,
         "type": type_name(cwe),
-        "route": single_route.route if single_route else None,
-        "method": single_route.method if single_route else None,
+        "route": single_route[0] if single_route else None,
+        "method": single_route[1] if single_route else None,
         "file": file,
         "line": line,
-        "param": _infer_param(reaching, snippet),
-        "payload": None,
-        "handler_file": handler[0] if handler else None,
-        "handler_line_start": handler[1] if handler else None,
-        "handler_line_end": handler[2] if handler else None,
-        "reached_via": [
+        "entry_paths": list(paths.values()) or None,
+        "candidate_params": sorted(params) if paths else None,
+        "evidence": [
             {
-                "route": e.route,
-                "method": e.method,
-                "handler_file": e.file,
-                "handler_line_start": e.line_start,
-                "handler_line_end": e.line_end,
+                "type": "PATH",
+                "detail": {
+                    "scanner": "semgrep",
+                    "rule_id": rule_id,
+                    "scanner_severity": level,
+                    "snippet": snippet,
+                },
             }
-            for e in sorted(reaching, key=lambda e: (e.route, e.method))
-        ] or None,
-        "evidence": {
-            "scanner": "semgrep",
-            "rule_id": rule_id,
-            "scanner_severity": level,
-            "snippet": snippet,
-        },
+        ],
         # Semgrep OSS emits no dataflow trace in SARIF or JSON for these rules.
         "taint_trace": None,
-        "label": None,
-        "confidence": None,
-        "risk_score": None,
         "severity": SEVERITY.get(level, "medium"),
-        "wasc_id": None,
     })
 
 
-def _infer_param(reaching: list[RouteEntry], snippet: str) -> str | None:
-    """Request param that most likely reaches the sink, or None if unsure.
-
-    The param guard in correlation needs this to match the DAST param. Use the
-    reaching routes' only param, else the one param named in the sink line.
-    """
-    names = sorted({p.name for e in reaching for p in e.params})
-    if len(names) == 1:
-        return names[0]
-    words = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", snippet))
-    named = [n for n in names if n in words]
-    return named[0] if len(named) == 1 else None
+def _entry_path(entry: RouteEntry, call: CallEdge | None) -> dict[str, Any]:
+    chain = [{"method": entry.func, "file": entry.file, "line": entry.line_start}]
+    if call is not None:
+        chain.append(
+            {"method": f"{call.type_name}.{call.method}", "file": call.file, "line": call.line_start}
+        )
+    return {"route": entry.route, "method": entry.method, "hops": len(chain) - 1, "call_chain": chain}

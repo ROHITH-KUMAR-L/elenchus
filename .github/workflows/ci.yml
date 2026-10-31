@@ -31,6 +31,10 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --all-groups
 
+      - name: Lint
+        run: uv run --locked ruff check .
+
+      # Semgrep is not installed here: the pipeline must pass without it.
       - name: Run tests
         run: uv run --locked pytest -q
 
@@ -50,3 +54,9 @@ jobs:
 
       - name: Build CLI container image
         run: docker build --file cli/Dockerfile --tag elenchus:ci .
+
+      - name: Verify CLI container
+        run: docker run --rm elenchus:ci --help
+
+      - name: Run optional Semgrep adapter tests
+        run: uv run --locked --extra semgrep pytest -q tests/producers/test_semgrep_runner.py

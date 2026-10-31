@@ -1,0 +1,29 @@
+{
+  "description": "Row 6. Own header check. No sink and no hypothesis, so never linked.",
+  "findings": [
+    {
+      "run_id": "fixture",
+      "source": "dast",
+      "provenance": "own",
+      "cwe": 693,
+      "type": "Security Misconfiguration",
+      "route": "/api/catalog",
+      "method": "GET",
+      "evidence": [
+        {
+          "type": "ORACLE",
+          "detail": {
+            "oracle": "missing_security_header",
+            "header_name": "x-frame-options"
+          }
+        }
+      ],
+      "severity": "low"
+    }
+  ],
+  "expected": {
+    "label": "Runtime-only",
+    "link_status": null,
+    "link_origin": null
+  }
+}

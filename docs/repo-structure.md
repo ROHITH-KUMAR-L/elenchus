@@ -24,7 +24,8 @@ The authoritative map of what lives where. Work is split by build stage, not by 
 │   ├── store/           Postgres persistence
 │   └── report/          report, SARIF export, suppressed file, coverage report
 ├── cli/                 the single integration seam
-├── infra/               our stack's Docker definitions
+├── infra/               our stack's Docker definitions, ZAP, the practice target
+├── scripts/             one-off checks, not pipeline code
 ├── docs/
 └── tests/
     ├── producers/
@@ -39,7 +40,7 @@ The authoritative map of what lives where. Work is split by build stage, not by 
 |---|---|---|
 | `common/` | Finding record, `Hypothesis`, `ProbeJob`, `ScanTarget`, `CodeIndex`, SARIF mapping, CWE/type ↔ grader vocabulary map, contract logic | `BS1` |
 | `common/fixtures/` | Hand-made sample records and the `expected_pairs` file `[proposed path: common/fixtures/expected_pairs/vulnerableapp.yaml]` | `BS1`, `BS2` |
-| `producers/sast/` | Stages 1 and 2, frame parser, back-guided search, flow engine, optional Semgrep adapter | `BS2`, `BS3` |
+| `producers/sast/` | Stages 1 and 2: `spring_routes.py`, `call_graph.py`, `code_index.py`, `sink_finder.py`, `static_stage.py`, `catalogue/`. Frame parser, back-guided search, flow engine, optional Semgrep adapter | `BS2`, `BS3` |
 | `producers/hypotheses/` `[proposed, not created]` | Stage 3: directed and sweep hypotheses | `BS3` |
 | `producers/dast/` | ZAP API client and active-scan integration; ZAP generates and sends payload requests | `BS4` |
 | `probe/` `[proposed, not created]` | Stage 0 preflight and stage 4 ZAP scan coordinator: scheduler, job records, baseline gates, request attribution, verification replay, differential oracles, probe header and canaries, state guard, replay log, header and cookie checks | `BS4` |
@@ -47,7 +48,9 @@ The authoritative map of what lives where. Work is split by build stage, not by 
 | `engine/store/` | Postgres persistence | `BS5` |
 | `engine/report/` | Report, SARIF export, suppressed file, coverage report | `BS5`, `BS7`, `BS8` |
 | `cli/` | Calls the stages in order | `BS5` |
-| `infra/` | Our stack's Docker definitions | Rare edits |
+| `infra/` | `compose.yaml` for Postgres and the CLI, `zap.compose.yaml` for ZAP, `vulnerableapp.compose.yaml` for the practice target. Images are pinned by digest. | `BS0` |
+| `scripts/` | One-off checks such as `bs0_zap_check.py`. Pipeline code never imports them. | `BS0` |
+| `.targets/` | Local checkouts of target apps. Ignored by git and Docker. | `BS0` |
 | `docs/` | See [Docs](#docs) | |
 | `tests/<component>/` | Tests against `common/fixtures/` | With each component |
 

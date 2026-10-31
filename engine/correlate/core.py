@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from typing import Iterable
+from collections.abc import Iterable
 
-from common.record import Finding, dedupe_key, normalize_file
+from common.record import Finding, dedupe_key
 from engine.correlate.models import (
     SEVERITY_ORDER,
     FindingCluster,
@@ -117,27 +117,19 @@ def _unambiguous_matches(
 
 
 def _match_tier(sast: Finding, dast: Finding) -> tuple[str, str] | None:
-    if sast.cwe != dast.cwe or sast.param != dast.param:
+    # Older tier logic, reading the revised record. Reworked to lineage in BS5.
+    if sast.cwe != dast.cwe:
+        return None
+    if sast.candidate_params is not None and dast.param not in sast.candidate_params:
         return None
 
+    for entry in sast.entry_paths or ():
+        if entry.route == dast.route and entry.method == dast.method:
+            if entry.hops == 0:
+                return "A", "Same CWE and route; the SAST sink is inside its handler."
+            return "B", "Same CWE and route; the SAST method is reached by this handler."
     if _same_route_and_method(sast, dast):
-        if (
-            sast.file is not None
-            and sast.line is not None
-            and sast.handler_file is not None
-            and sast.handler_line_start is not None
-            and sast.handler_line_end is not None
-            and _same_file(sast.file, sast.handler_file)
-            and sast.handler_line_start <= sast.line <= sast.handler_line_end
-        ):
-            return "A", "Same CWE and parameter; the SAST sink is inside its handler span."
-    if dast.route is not None and dast.method is not None and any(
-        edge.route == dast.route and edge.method == dast.method
-        for edge in sast.reached_via or ()
-    ):
-        return "B", "Same CWE and parameter; the SAST method is reached by this handler."
-    if _same_route_and_method(sast, dast):
-        return "C", "Same CWE, route, method, and parameter."
+        return "C", "Same CWE, route and method."
     return None
 
 
@@ -148,10 +140,6 @@ def _same_route_and_method(sast: Finding, dast: Finding) -> bool:
         and sast.route == dast.route
         and sast.method == dast.method
     )
-
-
-def _same_file(left: str, right: str) -> bool:
-    return normalize_file(left) == normalize_file(right)
 
 
 def _issue_key(sast: tuple[FindingCluster, ...], dast: tuple[FindingCluster, ...]) -> str:
