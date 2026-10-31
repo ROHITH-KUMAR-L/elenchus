@@ -111,7 +111,8 @@ ADR-style. Status: proposed unless marked otherwise. Nothing here is validated b
   - A shared volume with the target.
   - No persistent store. Then FR-6 re-run dedupe and B-5 have nothing to compare against.
 - **Note:** Persistence is our tool's own state. It does not change the localhost-only rule or CLI-only delivery (D-10).
-- **Open:** If the CLI or ZAP runs in a container, its `localhost` is the container, not the host. Placement: `[TODO: open question]`
+- **Resolved (placement):** The DAST-capable CLI runs on the host, so `localhost` is the host and the target app. Postgres stays in a container and publishes its port on `127.0.0.1` only. Because `sastdast-net` is internal, and Docker does not publish ports for containers only on internal networks, Postgres also joins a second bridge network, `sastdast-hostport`, used only for that loopback port. The containerised CLI remains for consuming record files.
+- **Rejected:** `host.docker.internal`. The target would have to be reachable beyond host loopback, which breaks the localhost-only assumption.
 
 ## D-15 Code in common/ is canonical; contract logic lives there too
 

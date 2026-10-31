@@ -7,8 +7,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
       - sastdast-pgdata:/var/lib/postgresql/data
+    # Loopback only, for the host-run CLI (D-14). Never bind 0.0.0.0.
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     networks:
       - sastdast-net
+      # Docker does not publish ports for containers only on internal networks.
+      - sastdast-hostport
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
@@ -39,6 +44,8 @@ networks:
   sastdast-net:
     name: sastdast-net
     internal: true
+  sastdast-hostport:
+    name: sastdast-hostport
 
 volumes:
   sastdast-pgdata:

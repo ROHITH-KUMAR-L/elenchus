@@ -6,7 +6,7 @@ The shared contract. The only place both people touch.
 
 | Path | Holds |
 |---|---|
-| `common/` | Canonical record model (`record.py` `[TODO: not written]`), `ScanTarget`, `RouteMap`, SARIF mapping, CWE/type ↔ VulnerableApp grader vocabulary map. Contract logic: `normalise_route(url, route_map)`, `dedupe_key(record)`. Other file names `[TODO]`. |
+| `common/` | `record.py`: canonical `Finding` model and validation, `ScanTarget` (rejects non-localhost `base_url`), `RouteMap`, and contract logic `normalise_route()`, `dedupe_key()`, `route_key()`. Still to add: SARIF mapping, CWE/type ↔ VulnerableApp grader vocabulary map `[TODO: file names]`. |
 | `common/fixtures/` | Hand-made sample records. Both sides test against them. Person A writes them right after the schema freeze. |
 
 A schema change is a stop-the-world event. Agree it together, merge it, then both pull at once. See [CONTRIBUTING.md](../CONTRIBUTING.md).
