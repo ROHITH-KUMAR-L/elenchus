@@ -443,11 +443,18 @@ def _code_only_issue(
     )
     suppressed = status in {"safe_pattern", "tested_negative"} and finding.cwe in suppress_cwes
     if status == "no_http_path":
-        suppressible_injection_cwes = {22, 78, 79, 89, 601}
+        suppressible_cwes = (
+            config.get(
+                "export.no_http_path_suppress_cwes",
+                DEFAULTS["export.no_http_path_suppress_cwes"],
+            )
+            if config is not None
+            else DEFAULTS["export.no_http_path_suppress_cwes"]
+        )
         suppressed = (
             config is not None
             and bool(config.get("export.suppress_no_http_path", False))
-            and finding.cwe in suppressible_injection_cwes
+            and finding.cwe in suppressible_cwes
             and finding.unlinked_reason == "no_callers"
         )
     return Issue(

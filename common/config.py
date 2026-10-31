@@ -69,6 +69,7 @@ DEFAULTS: dict[str, Any] = {
     "export.include_suppressed": False,
     "export.suppress_cwes": (79, 78, 601, 22),
     "export.suppress_no_http_path": False,
+    "export.no_http_path_suppress_cwes": (22, 78, 79, 89, 601),
     "export.count_multi_entry": None,
     "header.count_mode": "per_app",
 }

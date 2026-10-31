@@ -557,6 +557,7 @@ The single source for config names and default values. Other docs point here and
 | `export.include_suppressed` | [false] | Suppressed findings in the graded export |
 | `export.suppress_cwes` | [proposed: 79, 78, 601, 22] | CWEs whose `tested_negative` and `safe_pattern` findings may be suppressed. CWE-89 was removed after the live run suppressed four planted SQL injection sinks. Remove any CWE when `wrong_suppression_count` is above zero. |
 | `export.suppress_no_http_path` | [false] | Suppress eligible `no_http_path` findings |
+| `export.no_http_path_suppress_cwes` | [22, 78, 79, 89, 601] | CWEs eligible for `no_callers` suppression only. Secrets/crypto and unresolved walks are never eligible. |
 | `export.count_multi_entry` | [TODO: confirm at kickoff against the answer key] | How the export counts one sink reached from several routes |
 | `header.count_mode` | [per_app] | `per_app` or `per_url` `[TODO: confirm at kickoff against the answer key]` |
 

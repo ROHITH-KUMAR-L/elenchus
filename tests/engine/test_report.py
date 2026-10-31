@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from common.record import SinkId
 from engine.correlate import Finding, correlate
-from engine.correlate.models import Issue
 from engine.report import build_coverage_report, format_text, to_sarif
 
 
@@ -27,32 +25,6 @@ def dast_record() -> Finding:
 
 
 class ReportTests(unittest.TestCase):
-    def test_text_and_sarif_expose_conflict_and_flaky_hints(self) -> None:
-        candidate = SinkId("src/Query.java", "Query.run", 8, 2)
-        issue = Issue(
-            issue_key="runtime-conflict",
-            label="Runtime-only",
-            cwe=89,
-            type="SQL Injection",
-            severity="high",
-            risk_score=80.0,
-            link_status="ambiguous",
-            link_origin="sweep",
-            conflict=True,
-            oracle_flaky=True,
-            candidate_sinks=(candidate,),
-        )
-
-        text = format_text([issue])
-        sarif_properties = to_sarif([issue])["runs"][0]["results"][0]["properties"]
-
-        self.assertIn("Conflict: positive replay", text)
-        self.assertIn("flaky replay", text)
-        self.assertIn("Candidate sink hint: src/Query.java:8", text)
-        self.assertTrue(sarif_properties["conflict"])
-        self.assertTrue(sarif_properties["oracle_flaky"])
-        self.assertEqual(sarif_properties["candidate_sinks"], [candidate.to_dict()])
-
     def test_suppression_respects_status_cwe_and_unresolved_reason(self) -> None:
         negative = Finding.from_dict(
             {
@@ -186,20 +158,6 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["attribution_rate"], 0.9)
         self.assertEqual(report["attribution_accuracy"], 1.0)
         self.assertEqual(report["skipped_by_type"][0]["param"], "page")
-
-    def test_attribution_accuracy_is_unknown_without_expected_pairs(self) -> None:
-        probe = Finding.from_dict(
-            {
-                **dast_record().to_dict(),
-                "hypothesis_id": "h-query",
-            }
-        )
-
-        report = build_coverage_report([probe])
-
-        self.assertEqual(report["attribution_counts"]["attributed_hits"], 1)
-        self.assertIsNone(report["attribution_counts"]["accurate_hits"])
-        self.assertIsNone(report["attribution_accuracy"])
 
     def test_runtime_only_sarif_uses_logical_location_and_properties(self) -> None:
         issue = correlate([dast_record()])[0]

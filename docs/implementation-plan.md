@@ -133,8 +133,8 @@ If M1 cannot pass: cut to open redirect and error-based SQL injection, then fix 
 | Item | Detail |
 |---|---|
 | Build | Stage 6 status order, `safe_pattern`, the adequacy test, the suppressed file. The conflict rule. Ambiguity groups, the primary rule, `RESPONSE_TRACE` and the frame parser. The coverage report. |
-| Fixtures | Rows 8 and 9 below, and the [decoy test plan](#decoy-test-plan) |
-| Exit test | Every decoy and twin gets its required status. The suppressed file has real content. A live VulnerableApp run records `wrong_suppression_count` per CWE, with `export.suppress_cwes` updated, and the ambiguity rate. |
+| Validation | Use local VulnerableApp observations only for conflict, ambiguity and `RESPONSE_TRACE`. Do not create synthetic application records. If a case does not occur in the live run, record it as unverified. |
+| Exit test | Every observed decoy and twin gets its required status. The suppressed file has real content when findings are eligible. A live VulnerableApp run records `wrong_suppression_count` per CWE, with `export.suppress_cwes` updated, and the ambiguity rate. Report unavailable cases and metrics without treating them as passed. |
 
 ### `BS8`: Secrets, exports, measurement
 
@@ -215,8 +215,8 @@ Each at route granularity, with `candidate_params`.
 | 5 | `no_http_path` | Code-only with a reason | `BS1` |
 | 6 | Runtime-only header | Own header check, no correlation | `BS1` |
 | 7 | Sweep hit, two variants: matched to a static finding by route and CWE, and no match | `link_origin: sweep`, lower confidence. Stays Runtime-only when there is no match. | `BS1` |
-| 8 | Conflict: oracle hit on a `tested_negative` sink, two variants, and on a `constant` `safe_pattern` sink | Reproduces: `conflict: true`, un-suppressed. Does not reproduce: `oracle_flaky: true`, no link. Constant sink: stays `safe_pattern`, hit stays Runtime-only. | `BS7` |
-| 9 | `RESPONSE_TRACE`, three variants: frame in one candidate, frame in no known sink, no frame | Upgrade to `unique`, catalogue gap, no change | `BS7` |
+| 8 | Live conflict observation | Validate only if VulnerableApp naturally produces a positive oracle against negative evidence. Otherwise record unverified; do not synthesize fixture records. | `BS7` |
+| 9 | Live `RESPONSE_TRACE` observation | Validate only if VulnerableApp returns a parseable project stack trace. Otherwise record unverified; do not synthesize fixture records. | `BS7` |
 | 10 | Back-guided link, one candidate `[proposed]` | `link_origin: back_guided`, `match_mode: relaxed`, `unresolved_hops` | `BS10` |
 | 11 | Back-guided search, several candidates `[proposed]` | `link_status: ambiguous`, `candidate_sinks`, label stays Runtime-only | `BS10` |
 
