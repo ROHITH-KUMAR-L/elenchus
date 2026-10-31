@@ -112,7 +112,13 @@ Steps:
 4. Run a scan with the source path and localhost URL: `[TODO: CLI command]`
 5. Read the prioritised report: `[TODO]`
 
-## 7. Open-source scanners used
+## 7. Continuous integration
+
+GitHub Actions runs the test suite, checks the CLI entry point, builds the Python distributions, and builds the CLI container image on pushes to `main` and pull requests targeting `main`. The workflow can also be started manually from the Actions tab. It does not publish an image or deploy the CLI.
+
+Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+## 8. Open-source scanners used
 
 The challenge rules require this list. The correlation logic (route map join, tiers, merging, labelling, prioritisation) is our own work.
 
@@ -125,7 +131,7 @@ The challenge rules require this list. The correlation logic (route map join, ti
 
 Versions: `[TODO]`
 
-## 8. Metric targets
+## 9. Metric targets
 
 From the PRD. Good qualifies; Great stands out. No results measured yet.
 

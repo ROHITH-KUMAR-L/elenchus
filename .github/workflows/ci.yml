@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Run tests
+        run: uv run --locked pytest -q
+
+      - name: Verify CLI entry point
+        run: uv run --locked elenchus --help
+
+      - name: Build Python distributions
+        run: uv build
+
+      - name: Upload Python distributions
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: elenchus-python-distributions
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Build CLI container image
+        run: docker build --file cli/Dockerfile --tag elenchus:ci .
