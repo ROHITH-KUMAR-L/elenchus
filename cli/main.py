@@ -36,7 +36,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("--run-id must not be empty")
         run_id = args.run_id or uuid.uuid4().hex
         if args.command == "scan":
-            config = load_config(overrides={"target.base_url": args.base_url})
+            if not args.base_url:
+                raise ValueError("a target base URL is required: pass --base-url or set ELENCHUS_BASE_URL")
+            config = load_config(
+                overrides={"target.base_url": args.base_url, "judging.profile": args.judging}
+            )
             pipeline_output = _run_pipeline(args, run_id, config)
             findings = pipeline_output.findings
         else:
@@ -124,14 +128,19 @@ def _build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument("--source-path", required=True, help="target source directory")
     scan_parser.add_argument(
         "--base-url",
-        required=True,
-        help="target base URL; must resolve to localhost, 127.0.0.1, or ::1",
+        default=os.environ.get("ELENCHUS_BASE_URL"),
+        help="target base URL (or ELENCHUS_BASE_URL); must resolve to localhost, 127.0.0.1, or ::1",
     )
     scan_parser.add_argument(
         "--framework",
         choices=("spring-mvc",),
         default="spring-mvc",
         help="target framework adapter (default: spring-mvc)",
+    )
+    scan_parser.add_argument(
+        "--judging",
+        action="store_true",
+        help="judging profile: ZAP on, AI and Semgrep off, no target restarts",
     )
     scan_parser.add_argument("--run-id", help="run identifier (default: generated UUID)")
     _add_output_arguments(scan_parser)

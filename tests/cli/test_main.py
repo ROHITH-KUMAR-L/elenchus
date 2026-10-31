@@ -202,6 +202,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertIn("localhost", errors.getvalue())
 
+    def test_scan_requires_a_base_url_from_flag_or_env(self) -> None:
+        import os
+
+        errors = io.StringIO()
+        with (
+            contextlib.redirect_stderr(errors),
+            unittest.mock.patch.dict(os.environ, {}, clear=False),
+        ):
+            os.environ.pop("ELENCHUS_BASE_URL", None)
+            result = main(["scan", "--source-path", ".", "--no-store"])
+        self.assertEqual(result, 2)
+        self.assertIn("base URL is required", errors.getvalue())
+
+    def test_judging_flag_is_parsed(self) -> None:
+        from cli.main import _build_parser
+
+        args = _build_parser().parse_args(
+            ["scan", "--source-path", ".", "--base-url", "http://127.0.0.1:9090", "--judging"]
+        )
+        self.assertTrue(args.judging)
+        default = _build_parser().parse_args(
+            ["scan", "--source-path", ".", "--base-url", "http://127.0.0.1:9090"]
+        )
+        self.assertFalse(default.judging)
+
     def test_correlate_reads_records_writes_json_and_sarif(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)
