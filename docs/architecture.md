@@ -540,6 +540,7 @@ The single source for config names and default values. Other docs point here and
 | `probe.stage_budget_seconds.output` | [proposed: 20] | Stages 5 to 7. The stage budgets total 280 seconds, leaving 20 as margin under 5 minutes. |
 | `replay.count` | [3] | Replays of a candidate hit, and of a probe in the conflict rule |
 | `replay.min_hits` | [2] | Replays that must fire to count as reproduced |
+| `flow.enabled` | [false] | Own flow engine narrows candidate_params; off until it matches the offline Semgrep count |
 | `backguided.enabled` | [false] | Back-guided static search |
 | `backguided.max_unresolved_hops` | [3] | Unresolved calls the search may walk through |
 | `backguided.start_confidence` | [0.55] | Confidence of a unique back-guided match |

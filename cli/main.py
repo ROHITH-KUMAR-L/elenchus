@@ -206,7 +206,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
     target = ScanTarget(args.source_path, args.base_url, run_id, args.framework)
     index = build_code_index(args.source_path)
     static_findings = run_static(target, index)
-    directed = build_directed(static_findings, index)
+    directed = build_directed(static_findings, index, narrow=config["flow.enabled"])
     # Sweep the classes that have both a ZAP rule and a runtime oracle, for bugs
     # the static stage missed. The two-pass scheduler runs these after directed.
     sweep_cwes = sorted(set(ORACLES) & set(config.rule_map()))

@@ -182,6 +182,9 @@ class SinkSite:
     type_name: str = ""
     severity: str = ""
     snippet: str = ""
+    # Formal params of the enclosing method that reach the sink argument (own flow
+    # engine). Informational until flow.enabled gates the candidate_params narrowing.
+    reaching_params: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.kind not in SINK_KINDS:

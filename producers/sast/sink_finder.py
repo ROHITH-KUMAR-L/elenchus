@@ -16,6 +16,7 @@ import yaml
 from common.pipeline import SinkSite
 from common.record import SinkId
 from producers.sast.call_graph import MethodScope
+from producers.sast.flow import reaching_formals
 from producers.sast.spring_routes import SourceIndex, _children, _supertype_chain, _text, _walk
 
 CATALOGUE_DIR = Path(__file__).parent / "catalogue"
@@ -233,21 +234,21 @@ def find_sinks(index: SourceIndex, catalogue: Catalogue) -> list[SinkSite]:
                     matched = _sink_at_call(index, catalogue, scope, call)
                     if matched is not None:
                         site = _site(index, catalogue, scope, info, method_name,
-                                     literal_locals, call, matched, require_text=True)
+                                     literal_locals, member, call, matched, require_text=True)
                         if site is not None:
                             sites.append(site)
                 for creation in _walk(member, "object_creation_expression"):
                     matched = _sink_at_new(index, catalogue, scope, creation)
                     if matched is not None:
                         site = _site(index, catalogue, scope, info, method_name,
-                                     literal_locals, creation, matched, require_text=False)
+                                     literal_locals, member, creation, matched, require_text=False)
                         if site is not None:
                             sites.append(site)
     return sorted(sites, key=lambda s: (s.sink_id.file, s.sink_id.start_line, s.sink_id.start_col))
 
 
 def _site(
-    index, catalogue, scope, info, method_name, literal_locals, node, matched, *, require_text
+    index, catalogue, scope, info, method_name, literal_locals, member, node, matched, *, require_text
 ) -> SinkSite | None:
     """One SinkSite for a matched call or constructor, or None if its argument is
     not a text sink. A constructor (ProcessBuilder) takes a String[] or List, not a
@@ -282,6 +283,7 @@ def _site(
         type_name=entry.type_name,
         severity=entry.severity,
         snippet=" ".join(_text(argument).split())[:300],
+        reaching_params=tuple(sorted(reaching_formals(member, argument))),
     )
 
 

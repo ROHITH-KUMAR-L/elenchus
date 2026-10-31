@@ -52,6 +52,7 @@ DEFAULTS: dict[str, Any] = {
     "probe.stage_budget_seconds.output": 20,
     "replay.count": 3,
     "replay.min_hits": 2,
+    "flow.enabled": False,
     "backguided.enabled": False,
     "backguided.max_unresolved_hops": 3,
     "backguided.start_confidence": 0.55,
