@@ -17,6 +17,7 @@ Person A and Person B are role labels. Who is who: `[TODO: confirm at kickoff]`
 ├── producers/           PERSON A
 │   ├── sast/            stages 1 and 2: code index, sink finder, secrets/crypto pass,
 │   │                    route table, back-guided search, flow engine, Semgrep adapter (optional)
+│   ├── hypotheses/      stage 3 [proposed, not created]
 │   └── dast/            current ZAP runner. Ownership moves to PERSON B (see below)
 ├── probe/               PERSON B [proposed, not created]: stage 0 preflight, stage 4 probe engine
 ├── engine/              PERSON B
@@ -33,7 +34,7 @@ Person A and Person B are role labels. Who is who: `[TODO: confirm at kickoff]`
     └── cli/             PERSON B
 ```
 
-Stage 3 (hypotheses) is Person A's. Its subdirectory under `producers/` is `[TODO: decide]`.
+Stage 3 (hypotheses) is Person A's. Its code lives in `producers/hypotheses/` `[proposed, not created]`, next to the index and the sink catalogue.
 
 ## Owner per directory
 
@@ -41,7 +42,8 @@ Stage 3 (hypotheses) is Person A's. Its subdirectory under `producers/` is `[TOD
 |---|---|---|
 | `common/` | Joint | Finding record, `Hypothesis`, `ScanTarget`, `CodeIndex`, SARIF mapping, CWE/type ↔ grader vocabulary map, contract logic |
 | `common/fixtures/` | Person A writes. Person B reviews each fixture before the contract freeze. | Hand-made sample records and the `expected_pairs` file `[proposed path: common/fixtures/expected_pairs/vulnerableapp.yaml]` |
-| `producers/sast/` | Person A | Stages 1 to 3, back-guided search, flow engine, optional Semgrep adapter |
+| `producers/sast/` | Person A | Stages 1 and 2, back-guided search, flow engine, optional Semgrep adapter |
+| `producers/hypotheses/` `[proposed, not created]` | Person A | Stage 3: directed and sweep hypotheses |
 | `producers/dast/` | Person B | Current ZAP runner and its oracles. Becomes the optional passive pass. |
 | `probe/` `[proposed, not created]` | Person B | Stage 0 preflight, stage 4 probe engine: baseline gate, differential oracles, canary, replay log, header and cookie checks |
 | `engine/correlate/` | Person B | Stage 5 correlation, stage 6 verify, labels, scoring |

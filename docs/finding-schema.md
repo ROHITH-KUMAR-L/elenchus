@@ -19,7 +19,7 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `reached_via` (handler span, one hop) | `entry_paths`: `{route, method, hops, call_chain}` |
 | `param` filled from the route map or a taint source | `candidate_params` (all params of the route) and `param` (resolved by the oracle, nullable) |
 | `evidence` object | `evidence` list of `{type, detail}` |
-| `confidence` tier A / B / C | Deterministic function of the evidence present, `link_status` and `link_origin`. Reasons stored. Scale `[TODO: confirm at kickoff]`. |
+| `confidence` tier A / B / C | A float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands in config. Scoring weights also live in config. Reasons stored. |
 | `risk_score` from severity, exploit ease, confidence | Computed from config: CWE severity table, exploit factor, evidence-based link factor |
 | Dedupe key `(cwe, file, line)`, else `(cwe, route, method, param)` | `(sink_id, cwe)` `[proposed]`. See [Contract logic](#contract-logic). |
 | `taint_trace` from Semgrep | Kept, optional. Null in the Must plan. The own sink finder gives locations only. |
@@ -53,7 +53,7 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `link_origin` | `"directed"` \| `"sweep"` \| `"back_guided"` \| null | How the link was produced. Orthogonal to `link_status`. Both are required once a link exists. | Correlation |
 | `ambiguity_group_id` | string \| null | Shared by hypotheses in one `(route, param, CWE)` group of more than one. | Correlation |
 | `alternatives` | array \| null | `sink_id` of every other candidate in the group. Exported in the SAST grader payload. Not separate issues in the primary report. | Correlation |
-| `candidate_sinks` | array \| null | `sink_id` of each candidate when the back-guided search finds several. Hints only. No link is made. | Back-guided search |
+| `candidate_sinks` | array \| null | `sink_id` of each candidate when the back-guided search finds several, or of the sink in a conflict case below the confidence threshold. Hints only. No Confirmed link is made. | Back-guided search; correlation |
 | `match_mode` | `"strict"` \| `"relaxed"` \| null | How a sink was matched. `strict` is the default: a catalogue match with a resolved receiver type. `relaxed` means call name alone with the receiver type unresolved. Every back-guided match is `relaxed`. | Static stage; back-guided search |
 | `unresolved_hops` | integer \| null | Unresolved calls walked to reach the sink. At most 3. Back-guided search only. | Back-guided search |
 | `conflict` | boolean | True when a positive oracle hit overrode `tested_negative`. | Correlation |
@@ -66,7 +66,7 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `severity` | string \| null | Producer's severity claim. Shown in the report (FR-1). | Producer |
 | `wasc_id` | integer \| null | Passthrough for the VulnerableApp grader. Not used inside the engine. | ZAP alert, or own mapping |
 | `label` | `"Confirmed"` \| `"Code-only"` \| `"Runtime-only"` | FR-7 label. Set by correlation, not by producers. | Correlation |
-| `confidence` | `[TODO: scale]` \| null | Deterministic function of the evidence present, `link_status` and `link_origin`. | Correlation |
+| `confidence` | number (0 to 1) \| null | Deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands in config `[TODO: band names and cut points]`. | Correlation |
 | `confidence_reasons` | array \| null | Reasons behind `confidence` `[proposed field]`. | Correlation |
 | `risk_score` | number \| null | Our ranking number. Drives FR-9 ordering. Weights live in config. | Correlation |
 
@@ -137,9 +137,13 @@ Signatures `[TODO: ratify]`.
 
 The new key replaces `(sink_id, param)` because `param` is unknown for static-only findings.
 
-Findings with no `sink_id` (runtime-only, sweep hits with no static match, header findings) need a fallback key. The earlier record used `(cwe, route, method, param)` and `(cwe, header_name)`. Carry those over until decided. `[TODO: decide]`
+Findings with no `sink_id` use a fallback key:
 
-Header counting: does the answer key count a missing header per URL or per app? `[TODO: confirm at kickoff]`. Collapse to one per header for now.
+| Finding | Key |
+|---|---|
+| Secrets | `(cwe, file, line)` |
+| Runtime-only injection | `(cwe, normalised_route, method, param)` |
+| Header findings | `(cwe, header_name)` `[TODO: per URL or per app. Confirm at kickoff against the answer key.]` |
 
 ### Merge rule
 
@@ -165,7 +169,7 @@ A firing probe proves that route, param and CWE are exploitable. It does not pro
 | Back-guided search finds several sinks | `ambiguous` | `back_guided` | Label stays Runtime-only. `candidate_sinks` hold the hints. No Confirmed link is exported. |
 | Back-guided search finds none | null | null | Stays Runtime-only. `unlinked_reason` set. |
 | Header, cookie or info-leak finding | null | null | Never searched. Stays Runtime-only. |
-| Positive oracle hit on a `tested_negative` sink, reproduces in 2 of 3 replays | `ambiguous` | `sweep` | `conflict: true`. Un-suppressed. Labelled Confirmed at low confidence. Exported as Confirmed only at or above `backguided.min_confidence_to_confirm`. |
+| Positive oracle hit on a `tested_negative` sink, reproduces in 2 of 3 replays | `ambiguous` | `sweep` | `conflict: true`. Un-suppressed. At or above `backguided.min_confidence_to_confirm`: Confirmed. Below it: Runtime-only, sink listed in `candidate_sinks` as a hint, no Confirmed export. |
 | Same hit, does not reproduce | null | null | `tested_negative` kept. `oracle_flaky: true`. Hit stays Runtime-only. |
 
 Confidence is a deterministic function of the evidence present, `link_status` and `link_origin`. Weights live in config.
@@ -364,7 +368,7 @@ After correlation the two merge into one issue. The group `(/api/orders/{id}, id
     { "type": "ORACLE", "detail": { "oracle": "db_error", "canary_id": "elx-7c1e" } },
     { "type": "FAMILY", "detail": { "payload_family": "sqli-error", "cwe": 89 } }
   ],
-  "confidence": "[TODO: scale]",
+  "confidence": "[TODO: float 0 to 1]",
   "confidence_reasons": ["oracle fired", "one hypothesis in group", "path exists"],
   "risk_score": null
 }
@@ -400,7 +404,7 @@ A second SQL sink, `OrderRepository.load`, sits behind the same route. Both sink
     { "type": "ORACLE", "detail": { "oracle": "db_error", "canary_id": "elx-7c1e" } },
     { "type": "FAMILY", "detail": { "payload_family": "sqli-error", "cwe": 89 } }
   ],
-  "confidence": "[TODO: scale]",
+  "confidence": "[TODO: float 0 to 1]",
   "confidence_reasons": [
     "oracle fired",
     "2 hypotheses in group",
@@ -442,7 +446,7 @@ A sweep hit on `GET /api/reports/{id}` had no hypothesis. The handler calls `rep
                   "match_mode": "relaxed", "unresolved_hops": 1 } },
     { "type": "ORACLE", "detail": { "oracle": "db_error", "canary_id": "elx-9d20" } }
   ],
-  "confidence": "[TODO: scale]",
+  "confidence": "[TODO: float 0 to 1]",
   "confidence_reasons": [
     "oracle fired",
     "back-guided relaxed match",
@@ -481,7 +485,7 @@ The sink `OrderService.find` was marked `tested_negative`: every candidate param
       "detail": { "oracle": "db_error", "canary_id": "elx-31ab",
                   "replays": 3, "fired": 2, "oracle_flaky": false } }
   ],
-  "confidence": "[TODO: scale]",
+  "confidence": "[TODO: float 0 to 1]",
   "confidence_reasons": [
     "directed probes negative, positive hit on replay",
     "oracle fired in 2 of 3 replays"
@@ -489,6 +493,6 @@ The sink `OrderService.find` was marked `tested_negative`: every candidate param
 }
 ```
 
-The finding leaves the suppressed file and enters the primary report, labelled Confirmed at low confidence. It is exported as Confirmed only at or above `backguided.min_confidence_to_confirm` `[TODO: set value]`.
+The finding leaves the suppressed file and enters the primary report. This example is at or above `backguided.min_confidence_to_confirm` `[TODO: set value]`, so the label is Confirmed. Below that threshold the label would be Runtime-only, `conflict` would stay true, `link_status` would stay `ambiguous`, `sink_id` would be null, and the sink would be listed in `candidate_sinks` as a hint. No Confirmed link would be exported. The oracle hit is real, so it is not suppressed.
 
 If the hit had fired in fewer than 2 of 3 replays, the sink would keep `status: tested_negative`. The `ORACLE` entry would carry `"oracle_flaky": true`. No link would be made. The hit would stay Runtime-only.
