@@ -1,0 +1,27 @@
+# Hand-made pairs for measuring correct and wrong links on OWASP VulnerableApp.
+# Measurement only. This file never feeds scanner logic.
+#
+# file and line come from the app's own src/main/resources/scanner/sast/expectedIssues.csv.
+# route and params were read from the handler at source_commit. On a multi-line
+# call, the expected line is the sink argument's line, not the call's.
+target: VulnerableApp
+source_commit: 9f45cd51f456cd54654565b48c4752e50a57b331
+pairs:
+  - {route: /AuthenticationVulnerability/LEVEL_1, method: GET, params: [username, password], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java, line: 51}
+  - {route: /BlindSQLInjectionVulnerability/LEVEL_1, method: GET, params: [id], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/BlindSQLInjectionVulnerability.java, line: 93}
+  - {route: /BlindSQLInjectionVulnerability/LEVEL_2, method: GET, params: [id], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/BlindSQLInjectionVulnerability.java, line: 135}
+  - {route: /ErrorBasedSQLInjectionVulnerability/LEVEL_1, method: GET, params: [id], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java, line: 83}
+  - {route: /ErrorBasedSQLInjectionVulnerability/LEVEL_2, method: GET, params: [id], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java, line: 143}
+  - {route: /ErrorBasedSQLInjectionVulnerability/LEVEL_3, method: GET, params: [id], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java, line: 206}
+  - {route: /ErrorBasedSQLInjectionVulnerability/LEVEL_4, method: GET, params: [id], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java, line: 272}
+  - {route: /UnionBasedSQLInjectionVulnerability/LEVEL_1, method: GET, params: [id], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/UnionBasedSQLInjectionVulnerability.java, line: 85}
+  - {route: /UnionBasedSQLInjectionVulnerability/LEVEL_2, method: GET, params: [id], cwe: 89,
+     file: src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/UnionBasedSQLInjectionVulnerability.java, line: 115}
