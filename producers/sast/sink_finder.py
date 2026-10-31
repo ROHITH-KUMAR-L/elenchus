@@ -231,39 +231,65 @@ def find_sinks(index: SourceIndex, catalogue: Catalogue) -> list[SinkSite]:
                 literal_locals = _constant_locals(index, member, info["name"])
                 for call in _walk(member, "method_invocation"):
                     matched = _sink_at_call(index, catalogue, scope, call)
-                    if matched is None:
-                        continue
-                    entry, match_mode = matched
-                    arguments = [
-                        n for n in call.child_by_field_name("arguments").named_children
-                        if n.type != "comment"
-                    ]
-                    if len(arguments) <= entry.sink_arg:
-                        continue
-                    argument = arguments[entry.sink_arg]
-                    if argument.type in _NOT_A_TEXT_ARGUMENT:
-                        continue
-                    # A typed object, such as a CriteriaQuery, carries no query text.
-                    argument_type = scope.expression_type(argument)
-                    if argument_type is not None and argument_type not in _TEXT_TYPES:
-                        continue
-                    sites.append(
-                        SinkSite(
-                            sink_id=SinkId(
-                                info["file"],
-                                f"{info['name']}.{method_name}",
-                                call.start_point[0] + 1,
-                                call.start_point[1],
-                            ),
-                            cwe=entry.cwe,
-                            kind=entry.kind,
-                            arg_shape=arg_shape(index, argument, info["name"], literal_locals, catalogue, scope),
-                            catalogue_entry=entry.entry_id,
-                            match_mode=match_mode,
-                            line=argument.start_point[0] + 1,
-                            type_name=entry.type_name,
-                            severity=entry.severity,
-                            snippet=" ".join(_text(argument).split())[:300],
-                        )
-                    )
+                    if matched is not None:
+                        site = _site(index, catalogue, scope, info, method_name,
+                                     literal_locals, call, matched, require_text=True)
+                        if site is not None:
+                            sites.append(site)
+                for creation in _walk(member, "object_creation_expression"):
+                    matched = _sink_at_new(index, catalogue, scope, creation)
+                    if matched is not None:
+                        site = _site(index, catalogue, scope, info, method_name,
+                                     literal_locals, creation, matched, require_text=False)
+                        if site is not None:
+                            sites.append(site)
     return sorted(sites, key=lambda s: (s.sink_id.file, s.sink_id.start_line, s.sink_id.start_col))
+
+
+def _site(
+    index, catalogue, scope, info, method_name, literal_locals, node, matched, *, require_text
+) -> SinkSite | None:
+    """One SinkSite for a matched call or constructor, or None if its argument is
+    not a text sink. A constructor (ProcessBuilder) takes a String[] or List, not a
+    bare String, so the text-type guard applies only to plain calls."""
+    entry, match_mode = matched
+    arguments = [
+        n for n in node.child_by_field_name("arguments").named_children if n.type != "comment"
+    ]
+    if len(arguments) <= entry.sink_arg:
+        return None
+    argument = arguments[entry.sink_arg]
+    if argument.type in _NOT_A_TEXT_ARGUMENT:
+        return None
+    if require_text:
+        # A typed object, such as a CriteriaQuery, carries no query text.
+        argument_type = scope.expression_type(argument)
+        if argument_type is not None and argument_type not in _TEXT_TYPES:
+            return None
+    return SinkSite(
+        sink_id=SinkId(
+            info["file"],
+            f"{info['name']}.{method_name}",
+            node.start_point[0] + 1,
+            node.start_point[1],
+        ),
+        cwe=entry.cwe,
+        kind=entry.kind,
+        arg_shape=arg_shape(index, argument, info["name"], literal_locals, catalogue, scope),
+        catalogue_entry=entry.entry_id,
+        match_mode=match_mode,
+        line=argument.start_point[0] + 1,
+        type_name=entry.type_name,
+        severity=entry.severity,
+        snippet=" ".join(_text(argument).split())[:300],
+    )
+
+
+def _sink_at_new(index, catalogue, scope, creation) -> tuple[CatalogueEntry, str] | None:
+    """The catalogue entry a constructor call matches, by the created type."""
+    type_node = creation.child_by_field_name("type")
+    if type_node is None:
+        return None
+    simple = _text(type_node).split("<")[0].split("[")[0].strip().split(".")[-1]
+    entry = catalogue.find(_lineage(index, simple), "<init>")
+    return (entry, "strict") if entry is not None else None

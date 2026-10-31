@@ -137,10 +137,11 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> list[Fi
     Static findings carry their own status (untested, no_http_path, ...); probe
     findings carry ORACLE evidence and lineage. Correlation links the two.
     """
-    from probe.coordinator import Coordinator, plan_directed_jobs
+    from probe.coordinator import Coordinator, plan_directed_jobs, plan_sweep_jobs
+    from probe.oracles import ORACLES
     from probe.preflight import check_loopback, detect_context_path
     from producers.dast.zap_runner import ZapApi
-    from producers.hypotheses.builder import build_directed
+    from producers.hypotheses.builder import build_directed, build_sweep
     from producers.sast.code_index import build_code_index
     from producers.sast.static_stage import run_static
 
@@ -149,7 +150,13 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> list[Fi
     index = build_code_index(args.source_path)
     static_findings = run_static(target, index)
     directed = build_directed(static_findings, index)
-    jobs = plan_directed_jobs(directed, index.routes, run_id)
+    # Sweep the classes that have both a ZAP rule and a runtime oracle, for bugs
+    # the static stage missed. The two-pass scheduler runs these after directed.
+    sweep_cwes = sorted(set(ORACLES) & set(config.rule_map()))
+    sweep = build_sweep(index, sweep_cwes)
+    jobs = plan_directed_jobs(directed, index.routes, run_id) + plan_sweep_jobs(
+        sweep, index.routes, run_id
+    )
     context = detect_context_path(args.source_path, args.base_url)
     coordinator = Coordinator(ZapApi.from_environment(), config, args.base_url, context)
     result = coordinator.run(run_id, jobs, index.routes)

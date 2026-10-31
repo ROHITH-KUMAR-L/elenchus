@@ -8,7 +8,7 @@ a hit that does not reproduce becomes none; unattributable messages never link.
 from __future__ import annotations
 
 from common.config import load_config
-from common.pipeline import Hypothesis
+from common.pipeline import Hypothesis, SeedRequest
 from common.record import CallHop, RouteEntry, RouteParam, SinkId
 from probe.coordinator import Coordinator, plan_directed_jobs
 from probe.preflight import ContextPath
@@ -115,8 +115,9 @@ def test_reproduced_hit_becomes_one_confirmed_finding_with_lineage():
         replay_bodies=["JdbcSQLSyntaxErrorException", "JdbcSQLSyntaxErrorException", "ok"],
     )
     result = run(fake)
-    assert len(result.findings) == 1
-    finding = result.findings[0]
+    sqli = [f for f in result.findings if f.cwe == 89]
+    assert len(sqli) == 1
+    finding = sqli[0]
     assert (finding.source, finding.cwe, finding.param) == ("dast", 89, "id")
     assert finding.hypothesis_id == hypothesis().hypothesis_id
     assert finding.detail("fired") == 2
@@ -133,7 +134,7 @@ def test_hit_that_does_not_reproduce_makes_no_finding():
         replay_bodies=["ok", "ok", "ok"],  # oracle never fires on replay
     )
     result = run(fake)
-    assert result.findings == []
+    assert [f for f in result.findings if f.cwe == 89] == []
 
 
 def test_message_without_the_probe_header_is_dropped_from_attribution():
@@ -142,7 +143,7 @@ def test_message_without_the_probe_header_is_dropped_from_attribution():
         replay_bodies=["JdbcSQLSyntaxErrorException"] * 3,
     )
     result = run(fake)
-    assert result.findings == []
+    assert [f for f in result.findings if f.cwe == 89] == []
     assert result.header_propagation_rate == 0.0
 
 
@@ -152,7 +153,7 @@ def test_two_changed_params_do_not_attribute():
         replay_bodies=["JdbcSQLSyntaxErrorException"] * 3,
     )
     result = run(fake)
-    assert result.findings == []
+    assert [f for f in result.findings if f.cwe == 89] == []
     assert result.attribution_rate == 0.0  # one considered, none attributed
 
 
@@ -178,3 +179,58 @@ def test_foreign_host_in_history_is_reported():
     )
     result = run(fake)
     assert result.foreign_hosts == ["evil.example"]
+
+
+def test_header_findings_come_from_the_baseline():
+    # The fake baseline carries no security headers: one finding per missing
+    # protection, deduped per app.
+    fake = FakeZap(scan_messages=[scan_message("id=1'")], replay_bodies=["x"] * 3)
+    result = run(fake)
+    assert sorted(f.cwe for f in result.findings if f.cwe in (693, 1021)) == [693, 1021]
+
+
+def test_zero_budget_skips_every_job():
+    fake = FakeZap(scan_messages=[scan_message("id=1'")], replay_bodies=[])
+    config = load_config(
+        overrides={"target.base_url": BASE, "probe.stage_budget_seconds.zap_jobs": 0},
+        environ={"ZAP_API_KEY": "k"},
+    )
+    coord = Coordinator(fake, config, BASE, ContextPath("/VulnerableApp", "config"))
+    jobs = plan_directed_jobs([hypothesis()], ROUTES, "run")
+    result = coord.run("run", jobs, ROUTES)
+    assert [f for f in result.findings if f.cwe == 89] == []
+    assert len(result.jobs_skipped) == 1
+    assert result.jobs[0].outcome == "skipped_budget"
+    assert fake.started_scans == []
+
+
+def test_auth_header_is_carried_on_every_request(monkeypatch):
+    monkeypatch.setenv("ELX_TEST_TOKEN", "Bearer t")
+    config = load_config(
+        overrides={
+            "target.base_url": BASE,
+            "target.auth.header_name": "Authorization",
+            "target.auth.value_env": "ELX_TEST_TOKEN",
+        },
+        environ={"ZAP_API_KEY": "k"},
+    )
+    coord = Coordinator(FakeZap([], []), config, BASE, ContextPath("/VulnerableApp", "config"))
+    assert coord._auth == ("Authorization", "Bearer t")
+    raw = coord._raw(SeedRequest(url=f"{BASE}/x?id=1", method="GET"))
+    assert "Authorization: Bearer t" in raw
+
+
+def test_auth_header_requires_its_env_var():
+    config = load_config(
+        overrides={
+            "target.base_url": BASE,
+            "target.auth.header_name": "Authorization",
+            "target.auth.value_env": "ELX_MISSING_TOKEN",
+        },
+        environ={"ZAP_API_KEY": "k"},
+    )
+    try:
+        Coordinator(FakeZap([], []), config, BASE, ContextPath("/VulnerableApp", "config"))
+    except ValueError:
+        return
+    raise AssertionError("expected a ValueError when the auth env var is empty")

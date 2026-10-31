@@ -4,9 +4,12 @@ Each oracle takes the baseline response, the probe response and the attack value
 the replayed request carried. ZAP generates its own payloads, so an oracle cannot
 rely on a canary we planted: it checks the attack value itself.
 
-ORACLES maps CWE to its oracle. Command injection (78) has none yet: its signal
-is timing, and no timing source is verified. Blind and union SQL are also not
-built yet.
+ORACLES maps CWE to its oracle. Command injection (78) is confirmed by command
+output reflected in the response (differential, offline-testable). Its timing
+variant (`timing_slower`) is built but not registered: it needs a verified timing
+source (`probe.timing_repeats`), measured live. Blind and union SQL are also not
+built yet; boolean SQL (`sql_boolean`) is a three-response oracle, so it is not in
+ORACLES either.
 """
 
 from __future__ import annotations
@@ -38,6 +41,18 @@ _SQL_ERROR_PATTERNS = (
 _SQL_ERROR = re.compile("|".join(_SQL_ERROR_PATTERNS), re.IGNORECASE)
 _HTML_TYPE = re.compile(r"^content-type:\s*text/html", re.IGNORECASE | re.MULTILINE)
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+# Output signatures of the commands an OS-command-injection scanner runs (id,
+# cat /etc/passwd, ipconfig). A signature in the probe response but not the
+# baseline shows the injected command ran. ZAP owns the payload, so there is no
+# planted canary; these are the command's own output, not ours.
+_COMMAND_OUTPUT_PATTERNS = (
+    r"uid=\d+\([^)]+\)\s+gid=\d+\(",
+    r"\bgroups=\d+\(",
+    r"^root:.*:0:0:",
+    r"Windows IP Configuration",
+)
+_COMMAND_OUTPUT = re.compile("|".join(_COMMAND_OUTPUT_PATTERNS), re.IGNORECASE | re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -92,7 +107,14 @@ def open_redirect(baseline: Response, probe: Response, payload: str) -> bool:
     return urlsplit(baseline_location).hostname != host
 
 
+def command_output(baseline: Response, probe: Response, payload: str = "") -> bool:
+    """OS command injection: output of an injected command appears in the probe
+    response and not in the baseline."""
+    return bool(_COMMAND_OUTPUT.search(probe.body)) and not _COMMAND_OUTPUT.search(baseline.body)
+
+
 ORACLES: dict[int, Oracle] = {
+    78: command_output,
     79: xss_reflected,
     89: sql_error,
     601: open_redirect,
@@ -115,3 +137,14 @@ def sql_boolean(baseline: Response, true_probe: Response, false_probe: Response)
     if not baseline.body:
         return False
     return true_probe.body == baseline.body and false_probe.body != baseline.body
+
+
+def timing_slower(baseline_seconds: float, probe_seconds: float, threshold_seconds: float) -> bool:
+    """Time-based blind injection: the probe response is slower than the baseline
+    by at least threshold_seconds.
+
+    It compares elapsed times, not responses, so it is not an Oracle and is not in
+    ORACLES. Wiring it needs a verified timing source: `probe.timing_repeats`
+    requests with the median taken, measured live before it is trusted.
+    """
+    return (probe_seconds - baseline_seconds) >= threshold_seconds

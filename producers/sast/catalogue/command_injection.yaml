@@ -1,0 +1,31 @@
+# Sink catalogue: OS command injection (CWE-78).
+#
+# Every entry names the public API it came from. Nothing here names a class,
+# route or module of a test app. Anchored on the lowest public JDK API that runs
+# an external command, so a wrapper in the target's source is still found.
+#
+# ProcessBuilder's command is set through its constructor or its command(...)
+# method; both take the argument list. Runtime.exec runs a command line directly.
+cwe: 78
+type: Command Injection
+severity: high
+sanitisers: []
+entries:
+  - id: java-runtime-exec
+    api: java.lang.Runtime.exec
+    kind: call
+    receiver_types: [Runtime]
+    methods: [exec]
+    sink_arg: 0
+  - id: java-processbuilder-command
+    api: java.lang.ProcessBuilder.command
+    kind: call
+    receiver_types: [ProcessBuilder]
+    methods: [command]
+    sink_arg: 0
+  - id: java-processbuilder-new
+    api: java.lang.ProcessBuilder
+    kind: call
+    receiver_types: [ProcessBuilder]
+    methods: ["<init>"]
+    sink_arg: 0

@@ -1,6 +1,14 @@
 """The oracles are differential and deterministic."""
 
-from probe.oracles import Response, open_redirect, oracle_for, sql_error, xss_reflected
+from probe.oracles import (
+    Response,
+    command_output,
+    open_redirect,
+    oracle_for,
+    sql_error,
+    timing_slower,
+    xss_reflected,
+)
 
 OK = Response(200, "", '{"isCarPresent": true}')
 H2_ERROR = Response(
@@ -75,11 +83,31 @@ def test_redirect_needs_a_3xx_status():
     assert open_redirect(OK, probe, "https://evil.example/") is False
 
 
-def test_registry_maps_sql_xss_and_redirect_and_leaves_command_injection_open():
+def test_command_injection_fires_on_command_output_in_the_probe():
+    baseline = Response(200, "", "PING 1 (1.1.1.1): 56 data bytes")
+    probe = Response(200, "", "PING\nuid=0(root) gid=0(root) groups=0(root)")
+    assert command_output(baseline, probe) is True
+
+
+def test_command_injection_does_not_fire_without_command_output():
+    assert command_output(OK, OK) is False
+
+
+def test_command_injection_does_not_fire_when_the_baseline_already_shows_output():
+    both = Response(200, "", "uid=0(root) gid=0(root)")
+    assert command_output(both, both) is False
+
+
+def test_registry_maps_the_four_single_response_classes():
     assert oracle_for(89) is sql_error
     assert oracle_for(79) is xss_reflected
     assert oracle_for(601) is open_redirect
-    assert oracle_for(78) is None  # timing signal not verified yet
+    assert oracle_for(78) is command_output
+
+
+def test_timing_fires_only_past_the_threshold():
+    assert timing_slower(0.1, 5.3, 4.0) is True
+    assert timing_slower(0.1, 2.0, 4.0) is False
 
 
 def test_boolean_sql_fires_when_true_matches_baseline_and_false_differs():

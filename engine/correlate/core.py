@@ -48,18 +48,37 @@ def correlate(findings: Iterable[Finding], config: Mapping[str, Any] | None = No
     issues: list[Issue] = []
     linked_static: set[int] = set()
 
-    # Group probe hits by (route, param, CWE): several firing params on one sink
-    # are several evidence entries on one issue.
+    # Resolve candidate sinks per (route, param, CWE): the param decides which
+    # sinks on the route a hit can reach. But the issue identity is the sink, not
+    # the param, so hits that resolve to the same sink (e.g. username and password
+    # both reaching one auth query) are one issue with several evidence entries,
+    # per the (sink_id, cwe) dedupe key. Group by resolved identity, then build one
+    # issue per identity.
     probe_groups: dict[tuple[str | None, str | None, int], list[Finding]] = defaultdict(list)
     for probe in probes:
         probe_groups[(probe.route, probe.param, probe.cwe)].append(probe)
 
+    linked: dict[str, tuple[list[Finding], list[int]]] = {}
+    runtime: list[list[Finding]] = []
     for key, group in sorted(probe_groups.items(), key=lambda item: str(item[0])):
         route, param, cwe = key
         lineage = _lineage_ids(group)
         candidates = _candidate_sinks(static, route, param, cwe, lineage)
+        if not candidates:
+            runtime.append(group)
+            continue
         linked_static.update(candidates)
-        issues.append(_linked_issue(group, [static[i] for i in candidates], config))
+        identity = _sink_key(static[candidates[0]])
+        probes_acc, sinks_acc = linked.setdefault(identity, ([], []))
+        probes_acc.extend(group)
+        for index in candidates:
+            if index not in sinks_acc:
+                sinks_acc.append(index)
+
+    for probes_acc, sinks_acc in linked.values():
+        issues.append(_linked_issue(probes_acc, [static[i] for i in sinks_acc], config))
+    for group in runtime:
+        issues.append(_linked_issue(group, [], config))
 
     for index, finding in enumerate(static):
         if index not in linked_static:

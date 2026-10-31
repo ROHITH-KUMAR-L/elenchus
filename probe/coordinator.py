@@ -20,8 +20,10 @@ from common.pipeline import Hypothesis, ProbeJob, SeedRequest
 from common.record import Finding, RouteEntry
 from common.vocabulary import type_name
 from probe.attribution import PROBE_HEADER, RULE_HEADER, attribute, request_values
+from probe.headers import HeaderFinding, check_response
 from probe.oracles import Response, oracle_for
 from probe.preflight import ContextPath
+from probe.scheduler import run_two_pass
 from probe.seeds import build_seed
 
 # ZAP input-vector bitmask: query string (1) and POST data (2). The URL-path
@@ -58,6 +60,8 @@ class ProbeResult:
     attribution_rate: float
     header_propagation_rate: float
     foreign_hosts: list[str] = field(default_factory=list)
+    jobs_skipped: list[tuple[str, str]] = field(default_factory=list)  # (job_id, reason)
+    stage_seconds: float = 0.0
 
 
 def plan_directed_jobs(
@@ -89,6 +93,54 @@ def plan_directed_jobs(
     return jobs
 
 
+def plan_sweep_jobs(
+    hypotheses: list[Hypothesis], index_routes: tuple[RouteEntry, ...], run_id: str
+) -> list[ProbeJob]:
+    """One sweep ProbeJob per (route, method), covering the sweep hypotheses there.
+
+    Sweep jobs run after directed jobs, in the time the two-pass scheduler leaves.
+    Each carries every sweep CWE for its route, so one scan covers them together.
+    """
+    routes = {(r.route, r.method): r for r in index_routes}
+    grouped: dict[tuple[str, str], list[Hypothesis]] = {}
+    for hypothesis in hypotheses:
+        if hypothesis.kind == "sweep":
+            grouped.setdefault((hypothesis.route, hypothesis.method), []).append(hypothesis)
+    jobs = []
+    for index, ((route, method), group) in enumerate(sorted(grouped.items())):
+        entry = routes.get((route, method))
+        if entry is None:
+            continue
+        jobs.append(
+            ProbeJob(
+                job_id=f"{run_id}-s{index}",
+                route=route,
+                method=method,
+                job_pass="sweep",
+                hypothesis_ids=tuple(h.hypothesis_id for h in group),
+                cwes=tuple(sorted({h.cwe for h in group})),
+                seed_request=build_seed(entry, _route_base(entry, route)),
+                canary=f"elx-{run_id}-s{index}",
+            )
+        )
+    return jobs
+
+
+def _auth_header(config: Config) -> tuple[str, str] | None:
+    """The optional target auth header: a header name from config and a value read
+    from the environment variable config names. Credentials never sit in config."""
+    import os
+
+    name = config["target.auth.header_name"]
+    env = config["target.auth.value_env"]
+    if not name or not env:
+        return None
+    value = os.environ.get(env)
+    if not value:
+        raise ValueError(f"target.auth.header_name is set but {env} is empty in the environment")
+    return name, value
+
+
 def _route_base(entry: RouteEntry, route: str) -> str:
     # build_seed needs base_url; plan_directed_jobs is given routes only, so the
     # coordinator rebuilds seeds against the real base_url. This placeholder keeps
@@ -113,6 +165,7 @@ class Coordinator:
         self.context = context
         self.rule_cwes = {rule: cwe for cwe, rules in config.rule_map().items() for rule in rules}
         self.rule_ids_by_cwe = config.rule_map()
+        self._auth = _auth_header(config)
         self._sleep = time.sleep
         self._now = time.monotonic
 
@@ -120,12 +173,12 @@ class Coordinator:
         entries = {(r.route, r.method): r for r in routes}
         context_id = self.api.create_context(f"elenchus-{run_id}", self._scope_regex())
         findings: list[Finding] = []
-        executed: list[ProbeJob] = []
-        attributed = 0
-        considered = 0
-        with_header = 0
-        total_messages = 0
+        totals = {"considered": 0, "attributed": 0, "with_header": 0, "messages": 0}
+        # One finding per missing protection across the whole app (per_app dedupe).
+        header_hits: dict[tuple[int, str], tuple[str, HeaderFinding]] = {}
+        start = self._now()
         try:
+            self._set_auth_header()
             self.api.set_option("ascan", "InjectPluginIdInHeader", "Boolean", "true")
             self.api.set_option(
                 "ascan", "ThreadPerHost", "Integer", str(self.config["zap.thread_per_host"])
@@ -133,30 +186,45 @@ class Coordinator:
             self.api.set_option(
                 "ascan", "TargetParamsInjectable", "Integer", _INJECTABLE_QUERY_AND_BODY
             )
-            for job in jobs:
+
+            def run_one(job: ProbeJob) -> ProbeJob:
                 entry = entries[(job.route, job.method)]
                 seed = build_seed(entry, self.base_url)
-                outcome, job_findings, stats = self._run_job(run_id, job, seed, context_id)
-                executed.append(replace(job, seed_request=seed, outcome=outcome))
+                outcome, job_findings, headers, stats = self._run_job(run_id, job, seed, context_id)
                 findings.extend(job_findings)
-                considered += stats["considered"]
-                attributed += stats["attributed"]
-                with_header += stats["with_header"]
-                total_messages += stats["messages"]
+                for key in totals:
+                    totals[key] += stats[key]
+                for header in headers:
+                    header_hits.setdefault((header.cwe, header.header_name), (job.route, header))
+                return replace(job, seed_request=seed, outcome=outcome)
+
+            schedule = run_two_pass(
+                jobs, self.config["probe.stage_budget_seconds.zap_jobs"], self._now, run_one
+            )
+            executed = list(schedule.ran)
+            executed.extend(replace(job, outcome="skipped_budget") for job, _ in schedule.skipped)
+            findings.extend(
+                self._header_finding(run_id, route, header)
+                for route, header in header_hits.values()
+            )
             foreign = [host for host in self.api.hosts() if not _is_loopback(host)]
         finally:
+            self._clear_auth_header()
             self.api.remove_context(f"elenchus-{run_id}")
+        considered, messages = totals["considered"], totals["messages"]
         return ProbeResult(
             findings=findings,
             jobs=executed,
-            attribution_rate=(attributed / considered) if considered else 1.0,
-            header_propagation_rate=(with_header / total_messages) if total_messages else 1.0,
+            attribution_rate=(totals["attributed"] / considered) if considered else 1.0,
+            header_propagation_rate=(totals["with_header"] / messages) if messages else 1.0,
             foreign_hosts=foreign,
+            jobs_skipped=[(job.job_id, reason) for job, reason in schedule.skipped],
+            stage_seconds=round(self._now() - start, 3),
         )
 
     def _run_job(
         self, run_id: str, job: ProbeJob, seed: SeedRequest, context_id: str
-    ) -> tuple[str, list[Finding], dict[str, int]]:
+    ) -> tuple[str, list[Finding], list[HeaderFinding], dict[str, int]]:
         stats = {"considered": 0, "attributed": 0, "with_header": 0, "messages": 0}
         self._set_probe_header(job.canary)
         self.api.prime_site_tree(seed.url, seed.method, seed.body, seed.content_type)
@@ -166,13 +234,21 @@ class Coordinator:
         seed_path = _path_of(seed.url)
         baseline = _response(seed_message)
         if baseline.status in _BLOCKING_STATUSES:
-            return "all_blocked", [], stats
+            return "all_blocked", [], [], stats
+        # Header and cookie hardening is read off the clean baseline, never a
+        # mutated probe response.
+        headers = check_response(baseline)
 
+        strength_key = (
+            "zap.attack_strength.directed"
+            if job.job_pass == "directed"
+            else "zap.attack_strength.sweep"
+        )
         rule_ids = sorted({r for cwe in job.cwes for r in self.rule_ids_by_cwe.get(cwe, [])})
         if not rule_ids:
-            return "finished", [], stats
+            return "finished", [], headers, stats
         policy = f"elenchus-{job.job_id}"
-        self.api.ensure_scan_policy(policy, rule_ids, self.config["zap.attack_strength.directed"])
+        self.api.ensure_scan_policy(policy, rule_ids, self.config[strength_key])
         scan_id = self.api.start_scan(seed.url, seed.method, seed.body, context_id, policy)
         outcome = self._wait_for_scan(scan_id)
 
@@ -212,7 +288,7 @@ class Coordinator:
             if (finding := self._verify(run_id, job, seed, seed_path, seed_values, baseline, candidate))
             is not None
         ]
-        return outcome, findings, stats
+        return outcome, findings, headers, stats
 
     def _verify(
         self, run_id, job, seed, seed_path, seed_values, baseline, candidate
@@ -277,11 +353,51 @@ class Coordinator:
         return "finished"
 
     def _set_probe_header(self, canary: str) -> None:
+        # The canary is "elx-...", so the probe rule is "elenchus-elx-...". Match
+        # that exact prefix, not "elenchus-", so the persistent auth rule survives.
         for rule in self.api.replacer_rules():
             description = rule.get("description", "")
-            if description.startswith("elenchus-"):
+            if description.startswith("elenchus-elx-"):
                 self.api.remove_replacer_rule(description)
         self.api.add_replacer_request_header(f"elenchus-{canary}", PROBE_HEADER, canary)
+
+    def _set_auth_header(self) -> None:
+        """A persistent Replacer rule so ZAP's own requests carry the auth header.
+        Seed and replay requests add it in _raw, since core/sendRequest bypasses
+        the Replacer."""
+        if self._auth is not None:
+            self.api.add_replacer_request_header("elenchus-auth", *self._auth)
+
+    def _clear_auth_header(self) -> None:
+        if self._auth is None:
+            return
+        for rule in self.api.replacer_rules():
+            if rule.get("description") == "elenchus-auth":
+                self.api.remove_replacer_rule("elenchus-auth")
+
+    def _header_finding(self, run_id: str, route: str, header: HeaderFinding) -> Finding:
+        return Finding.from_dict(
+            {
+                "run_id": run_id,
+                "source": "dast",
+                "provenance": "zap",
+                "cwe": header.cwe,
+                "type": type_name(header.cwe),
+                "route": route,
+                "method": "GET",
+                "evidence": [
+                    {
+                        "type": "ORACLE",
+                        "detail": {
+                            "oracle": "header_check",
+                            "header_name": header.header_name,
+                            "detail": header.detail,
+                        },
+                    }
+                ],
+                "severity": "low",
+            }
+        )
 
     def _scope_regex(self) -> str:
         import re
@@ -296,6 +412,8 @@ class Coordinator:
 
         host = urlsplit(seed.url).netloc
         lines = [f"{seed.method} {seed.url} HTTP/1.1", f"Host: {host}"]
+        if self._auth is not None:
+            lines.append(f"{self._auth[0]}: {self._auth[1]}")
         if seed.content_type:
             lines.append(f"Content-Type: {seed.content_type}")
         if seed.body:

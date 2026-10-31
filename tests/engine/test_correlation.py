@@ -135,6 +135,18 @@ class CorrelationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "share a run_id"):
             correlate([static(), other])
 
+    def test_two_params_on_one_sink_make_one_issue(self) -> None:
+        # Two params reaching one sink (e.g. username and password on an auth
+        # query) are one issue with both probes as evidence, not two issues that
+        # share a sink. Dedupe key is (sink_id, cwe).
+        sink = static(params=("username", "password"))
+        issues = correlate([sink, probe(param="username"), probe(param="password")])
+        self.assertEqual(len(issues), 1)
+        [issue] = issues
+        self.assertEqual(issue.label, "Confirmed")
+        self.assertEqual(len(issue.dast_findings), 2)
+        self.assertEqual({f.param for f in issue.dast_findings}, {"username", "password"})
+
 
 if __name__ == "__main__":
     unittest.main()
