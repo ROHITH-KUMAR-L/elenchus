@@ -17,7 +17,7 @@ from typing import Any
 from common.config import load_config
 from common.record import EvidenceEntry, Finding, ScanTarget
 from engine.correlate import Issue, correlate
-from engine.report import build_coverage_report, format_text, to_sarif
+from engine.report import build_coverage_report, format_comparison, format_text, to_sarif
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "compare":
+            return _run_compare(args)
         if args.run_id is not None and not args.run_id.strip():
             raise ValueError("--run-id must not be empty")
         run_id = args.run_id or uuid.uuid4().hex
@@ -126,6 +128,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="DAST JSON array or object containing a findings array; repeatable",
     )
     _add_output_arguments(correlate_parser)
+
+    compare_parser = commands.add_parser(
+        "compare",
+        help="compare two stored scan runs: new, fixed and still-open issues (B-5)",
+    )
+    compare_parser.add_argument("--base", required=True, metavar="RUN_ID", help="the earlier run")
+    compare_parser.add_argument(
+        "--current", required=True, metavar="RUN_ID", help="the later run"
+    )
+    compare_parser.add_argument(
+        "--database-url",
+        default=os.environ.get("DATABASE_URL"),
+        help="PostgreSQL connection string (or DATABASE_URL environment variable)",
+    )
+    compare_parser.add_argument(
+        "--output-format",
+        choices=("text", "json"),
+        default="text",
+        help="report format (default: text)",
+    )
 
     scan_parser = commands.add_parser(
         "scan",
@@ -362,6 +384,24 @@ def _apply_conflict_resolution(
         cleared.get((finding.sink_id, finding.cwe), finding)
         for finding in findings
     ]
+
+
+def _run_compare(args: argparse.Namespace) -> int:
+    """Read two stored runs and classify their issues (B-5)."""
+    from engine.compare import compare_runs
+    from engine.store import PostgresStore
+
+    store = PostgresStore(args.database_url)
+    base = store.read_run_issues(args.base)
+    current = store.read_run_issues(args.current)
+    comparison = compare_runs(
+        base, current, base_run_id=args.base, current_run_id=args.current
+    )
+    if args.output_format == "json":
+        print(json.dumps(comparison.to_dict(), indent=2, sort_keys=True))
+    else:
+        print(format_comparison(comparison))
+    return 0
 
 
 def _load_expected_pairs(path: str | None) -> dict[str, Any] | None:

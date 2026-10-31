@@ -310,6 +310,31 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(result, 1)
 
+    def test_compare_reads_two_runs_and_reports_changes(self) -> None:
+        runs = {
+            "run-a": [
+                {"issue_key": "a", "label": "Code-only", "cwe": 89, "type": "SQLi",
+                 "sink_id": {"file": "Gone.java", "enclosing_method": "G.m", "start_line": 9, "start_col": 1},
+                 "file": "Gone.java", "line": 9},
+            ],
+            "run-b": [
+                {"issue_key": "b", "label": "Confirmed", "cwe": 79, "type": "XSS",
+                 "sink_id": {"file": "New.java", "enclosing_method": "N.m", "start_line": 4, "start_col": 1},
+                 "file": "New.java", "line": 4},
+            ],
+        }
+
+        output = io.StringIO()
+        with (
+            patch("engine.store.PostgresStore.read_run_issues", lambda self, run_id: runs[run_id]),
+            contextlib.redirect_stdout(output),
+        ):
+            result = main(["compare", "--base", "run-a", "--current", "run-b", "--output-format", "json"])
+
+        report = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(report["counts"], {"new": 1, "fixed": 1, "still_open": 0})
+
     def test_missing_inputs_returns_an_error(self) -> None:
         errors = io.StringIO()
         with contextlib.redirect_stderr(errors):

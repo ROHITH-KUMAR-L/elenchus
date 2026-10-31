@@ -1,10 +1,8 @@
 # STATE
 
-Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothing is marked passed unless it was run in this repo.
-
 ## 1. Last updated
 
-2026-11-01. M1 and M2 cleared. `BS10a`-`d` done: path-traversal catalogue+oracle, blind/union SQL confirmed live via `sql_boolean`, back-guided and flow engine built (off by default). 317 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
+2026-11-01. M1 and M2 cleared. `BS10a`-`d` done. `BS10e` (scan comparison, B-5) done: `elenchus compare --base --current` reads two stored runs and classifies issues new/fixed/still-open by the dedupe key. 321 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
 
 ## 2. Architecture
 
@@ -59,7 +57,7 @@ Config names and default values live in the Config reference in `docs/architectu
 | M2 core | `BS6` to `BS9` | PASSED | M2 gate cleared 2026-11-01 (judging rehearsal, 3:35). Exit tests below. |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS10a`-`d` done (M3 Should list). `BS10e`-`j` next. Details: section 9.
+Current build stage: `BS10a`-`e` done (M3 Should list). `BS10f`-`j` next. Details: section 9.
 
 ## 5. Done
 
@@ -92,6 +90,7 @@ Current build stage: `BS10a`-`d` done (M3 Should list). `BS10e`-`j` next. Detail
 | `BS9` | **M2 gate:** `elenchus scan --judging --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store` | exit 0, wall 3:35 (<5 min). One command, judging profile (AI+Semgrep off, ZAP on, no restarts), context path detected. 5 Confirmed CWE-89, attribution 0.952, no foreign hosts, drift_detected False. Generality CI green. Static-only hold-out run not done (no hold-out repo provisioned). |
 
 | `BS10a-d` | **Live run:** `elenchus scan ... --expected-pairs`, ZAP 2.17.0, 317 tests pass | exit 0, wall 3:41. **9 Confirmed CWE-89** (ErrorBased LEVEL_1-4, Blind LEVEL_1-2 and Union LEVEL_1-2 via `sql_boolean`, AuthLoginService.java:51), all confidence 0.95. recall CWE-89 9/9, `wrong_suppression_count` CWE-89 = 0 (union/blind now Confirmed, not tested_negative), so 89 returned to `export.suppress_cwes`. ambiguity 0/9, attribution 0.957, no foreign hosts, no drift. probe stage 221s. Path-traversal oracle built+unit-tested but not Confirmed live (route not reached in budget / no passwd content elicited). back-guided and flow engine off by default, no effect on this run. |
+| `BS10e` | `uv run --locked pytest -q tests/engine/test_compare.py tests/cli/test_main.py` | 50 passed. Pure `compare_runs` + `PostgresStore.read_run_issues` + `compare` CLI. Fixture `common/fixtures/scans/scan-compare.json` has a fixed, a new and a still-open issue; suppressed issues excluded from both sides. Not run against a live Postgres this stage. |
 
 Not run: the updated CI workflow on GitHub.
 
@@ -105,7 +104,7 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS9` have passed (M1 and M2 cleared).
 
-1. `BS10e`-`j`: scan comparison, session manager, ZAP passive ingestion, preflight extras, AI harness, advisory AI. 2. `BS11`: Could list
+1. `BS10f`-`j`: session manager, ZAP passive ingestion, preflight extras, AI harness, advisory AI. 2. `BS11`: Could list
 
 Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
@@ -139,8 +138,8 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-`BS10a`-`d` done (path traversal, blind/union SQL, back-guided, flow engine). `BS10e`-`j` next, in order:
-1. BS10e scan comparison (new/fixed/open from two stored runs via dedupe key). BS10g ZAP passive ingestion (advisory). BS10h preflight extras. BS10f session manager (auth-gated routes; reuse the `target.auth` replacer seam).
+`BS10a`-`e` done (path traversal, blind/union SQL, back-guided, flow engine, scan comparison). `BS10f`-`j` next, in order:
+1. BS10f session manager (auth-gated routes; reuse the `target.auth` replacer seam). BS10g ZAP passive ingestion (advisory). BS10h preflight extras.
 2. BS10i AI with/without harness (OpenAI-compatible, env in `.env.example`; off by default and in judging). BS10j advisory AI (fix text, link explanations, DTO seeds) each behind a with/without run.
 
 Gates and carry-overs: Semgrep yardstick count (unfitted) not recorded — gates `flow.enabled` on (BS10d) and is a BS11 item. `timing_slower` built, unwired (needs `probe.timing_repeats` + live baseline). Path-traversal oracle not yet Confirmed live. `target.auth.*` wired; app login need unknown. M2 margin ~80s.

@@ -75,6 +75,29 @@ class PostgresStore:
         except psycopg.Error as error:
             raise RuntimeError(f"PostgreSQL persistence failed: {error}") from error
 
+    def read_run_issues(self, run_id: str) -> list[dict[str, Any]]:
+        """The stored issue records for one run, for scan comparison (B-5)."""
+        try:
+            import psycopg
+        except ImportError as error:
+            raise RuntimeError(
+                "PostgreSQL support requires the project dependencies; install with `uv sync`"
+            ) from error
+        try:
+            connection = (
+                psycopg.connect(self._conninfo) if self._conninfo else psycopg.connect()
+            )
+            with connection, connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM scan_runs WHERE run_id = %s", (run_id,))
+                if cursor.fetchone() is None:
+                    raise RuntimeError(f"no stored run with run_id {run_id!r}")
+                cursor.execute(
+                    "SELECT record FROM issue_runs WHERE run_id = %s", (run_id,)
+                )
+                return [row[0] for row in cursor.fetchall()]
+        except psycopg.Error as error:
+            raise RuntimeError(f"PostgreSQL read failed: {error}") from error
+
     def _save_run_transaction(
         self,
         run_id: str,

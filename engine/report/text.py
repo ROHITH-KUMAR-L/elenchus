@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from engine.compare import ScanComparison
 from engine.correlate.models import Issue
 
 
@@ -52,4 +53,27 @@ def format_text(issues: list[Issue]) -> str:
         if issue.link_reason:
             lines.append(f"   Link: {issue.link_reason}")
         lines.append(f"   Issue key: {issue.issue_key}")
+    return "\n".join(lines)
+
+
+def format_comparison(comparison: ScanComparison) -> str:
+    """Scan comparison (B-5): new, fixed and still-open issues between two runs."""
+    counts = {change: len(comparison.of(change)) for change in ("new", "fixed", "still_open")}
+    lines = [
+        f"Comparing run {comparison.base_run_id or '?'} -> {comparison.current_run_id or '?'}",
+        f"New: {counts['new']} | Fixed: {counts['fixed']} | Still open: {counts['still_open']}",
+    ]
+    headings = {"new": "New issues", "fixed": "Fixed issues", "still_open": "Still open"}
+    for change, heading in headings.items():
+        entries = comparison.of(change)
+        if not entries:
+            continue
+        lines.append("")
+        lines.append(f"{heading}:")
+        for entry in entries:
+            location = f"{entry.file}:{entry.line}" if entry.file and entry.line else (entry.route or "application-wide")
+            label = entry.label
+            if entry.previous_label:
+                label = f"{entry.previous_label} -> {entry.label}"
+            lines.append(f"  - {label} | CWE-{entry.cwe} {entry.type} | {location}")
     return "\n".join(lines)
