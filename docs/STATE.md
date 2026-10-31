@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-11-01. `BS7` passed. `BS8` code complete (secrets/crypto pass, benchmark raw+supported, ambiguity and wrong_suppression metrics) and measured on VulnerableApp; 301 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
+2026-11-01. `BS9` passed and **M2 cleared**: judging-profile rehearsal ran in 3:35 (<5 min). State guard, generality CI and catalogue freeze in place. 307 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
 
 ## 2. Architecture
 
@@ -56,10 +56,10 @@ Config names and default values live in the Config reference in `docs/architectu
 | Milestone | Build stages | Status | Evidence |
 |---|---|---|---|
 | M1 spine | `BS0` to `BS5` | PASSED | M1 gate cleared on 2026-11-01. Exit tests below. |
-| M2 core | `BS6` to `BS9` | in progress | `BS6`-`BS8` passed; `BS9` not started |
+| M2 core | `BS6` to `BS9` | PASSED | M2 gate cleared 2026-11-01 (judging rehearsal, 3:35). Exit tests below. |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS8` passed (secrets/crypto pass, exports, measurement baseline). `BS9` is next (M2 gate). Details: section 9.
+Current build stage: `BS9` passed, M2 cleared. `BS10` (M3, Should list) is next. Details: section 9.
 
 ## 5. Done
 
@@ -88,6 +88,9 @@ Current build stage: `BS8` passed (secrets/crypto pass, exports, measurement bas
 | `BS8` | `uv run --locked pytest -q`, `ruff check .` | 301 passed, ruff clean. New: own secrets/weak-crypto pass (CWE-798/327/330, `secrets.yaml`) emitting Code-only findings; `benchmark` rescored against our own producers with raw+supported; `ambiguity` and `wrong_suppression_count` added to coverage; SARIF verified. |
 | `BS8` | **Measurement baseline** (`python -m producers.benchmark sast` + live `elenchus scan ... --expected-pairs`) | Benchmark over the full 105-row CSV: supported 11/22 (50%), raw 11/105 (10%); CWE-89 9/9, CWE-77 2/2, CWE-327 0/5 and CWE-330 0/6 (VulnerableApp hides weak crypto behind custom wrappers; our pass anchors on JDK APIs) — baseline, no target required. Live coverage (expected_pairs = CWE-89): recall 9/9, attribution_rate 0.953, accuracy 1.0, ambiguity 0/5 = 0.0, `wrong_suppression_count` CWE-89 = 4, header_propagation 1.0, probe stage 170s. Export defaults kept: `include_alternatives` on, `suppress_no_http_path` off (measured impact = 1 `no_callers` CWE-89 sink). |
 
+| `BS9` | `uv run --locked pytest -q`, `ruff check .` | 307 passed, ruff clean. New: state guard (risk-ordered jobs, GET-sample drift detection, stop state-changing jobs on drift → `skipped_drift`, `drift_detected`); `--judging` + `ELENCHUS_BASE_URL`; generality CI test (bans the app package in detection code/config, app names in detection YAML); catalogue freeze (`catalogue/freeze.json`). Forced-drift unit test passes. |
+| `BS9` | **M2 gate:** `elenchus scan --judging --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store` | exit 0, wall 3:35 (<5 min). One command, judging profile (AI+Semgrep off, ZAP on, no restarts), context path detected. 5 Confirmed CWE-89, attribution 0.952, no foreign hosts, drift_detected False. Generality CI green. Static-only hold-out run not done (no hold-out repo provisioned). |
+
 Not run: the updated CI workflow on GitHub.
 
 Older code still running on the new record with its older logic: tier correlation (reworked in `BS5`), alert-driven ZAP runner (`BS4`), `elenchus scan` (`BS5`), which still needs the Semgrep extra.
@@ -98,10 +101,9 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 ## 6. Not done, in dependency order
 
-The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS8` have passed.
+The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS9` have passed (M1 and M2 cleared).
 
-1. `BS9`: judging mode and generality (M2 gate)
-2. `BS10`: Should list (M3). 3. `BS11`: Could list
+1. `BS10`: Should list (M3). 2. `BS11`: Could list
 
 Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
@@ -135,15 +137,13 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-`BS8` passed (secrets/crypto pass, benchmark raw+supported, measurement baseline). `BS9` is next (M2 gate).
+`BS9` passed, M1 and M2 cleared. `BS10` (M3, Should list) is next, in order:
+1. Path traversal (CWE-22): catalogue entries, hypotheses, file-content oracle.
+2. Back-guided static search (relaxed, off until measured against `expected_pairs`).
+3. Own flow engine (narrows `candidate_params`); gate = matches offline Semgrep count.
+4. Scan comparison (new/fixed/open) from stored runs; session manager; ZAP passive ingestion; AI harness then advisory AI.
 
-BS9 scope:
-1. State guard: risk-order jobs (GET, POST, PUT/PATCH, DELETE; destructive-SQL-literal routes last), re-check GET routes after each state-changing job, stop on drift and mark the rest `skipped_drift`. Only the `after_drift` plumbing exists. Forced-drift test.
-2. `judging.profile` enforcement: one command, `--target`/env only, context path detected, no restarts, under 5 minutes. Config forces AI/Semgrep off and requires ZAP already.
-3. Generality CI test: ban any test-app route/class/module name in `producers/` and the catalogue.
-4. Catalogue freeze marker; post-freeze changes logged as fitted. M2 risk: probe stage ~170-220s against the 170s deadline; tune `probe.max_job_seconds`/budgets so the whole run stays under 5 minutes.
-
-Carried over: wire a union/blind SQL oracle (`sql_boolean` built) so CWE-89 can return to `export.suppress_cwes`; register `timing_slower`; live-check command-injection/XSS/redirect oracles; `target.auth.*` wired, app login need unknown.
+Carried over (good BS10 fits): wire a union/blind SQL oracle (`sql_boolean` built) so CWE-89 can return to `export.suppress_cwes`; register `timing_slower`; live-check command-injection/XSS/redirect oracles on suitable routes; `target.auth.*` wired, app login need unknown. M2 margin is ~86s (3:35 of 5:00); tune budgets if a larger target needs it.
 
 ## 10. Resume instructions
 
