@@ -12,6 +12,7 @@ from common.record import Finding, normalize_file
 def build_coverage_report(
     findings: Sequence[Finding],
     *,
+    issues: Iterable[Any] = (),
     expected_pairs: Mapping[str, Any] | None = None,
     supported_cwes: Iterable[int] = (),
     skipped_by_type: Iterable[tuple[str, str, str]] = (),
@@ -75,6 +76,17 @@ def build_coverage_report(
     )
     accuracy = accurate / len(attributed) if attributed and accurate is not None else None
 
+    # Ambiguity rate: linked issues that stayed ambiguous, and how many a
+    # RESPONSE_TRACE resolved (architecture Measurement).
+    linked = [issue for issue in issues if getattr(issue, "link_status", None) is not None]
+    ambiguous = [issue for issue in linked if issue.link_status == "ambiguous"]
+    trace_resolved = sum(
+        1
+        for issue in linked
+        for finding in getattr(issue, "dast_findings", ())
+        if any(entry.type == "RESPONSE_TRACE" for entry in finding.evidence)
+    )
+
     return {
         "recall_by_cwe": recall_by_cwe,
         "raw_score": _score(detected, total),
@@ -88,6 +100,12 @@ def build_coverage_report(
         "header_propagation_rate": header_propagation_rate,
         "wrong_suppression_count": {
             f"CWE-{cwe}": wrong_suppression.get(cwe, 0) for cwe in sorted(by_cwe)
+        },
+        "ambiguity": {
+            "linked": len(linked),
+            "ambiguous": len(ambiguous),
+            "rate": (len(ambiguous) / len(linked)) if linked else None,
+            "response_trace_resolved": trace_resolved,
         },
         "skipped_by_type": [
             {"route": route, "method": method, "param": param}

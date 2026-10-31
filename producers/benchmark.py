@@ -18,8 +18,8 @@ from typing import Any, TypedDict
 
 from common.record import ScanTarget, normalize_file
 from common.vocabulary import to_grader_sast
-from producers.sast.semgrep_runner import run_sast
-from producers.sast.spring_routes import route_map
+from producers.sast.code_index import build_code_index
+from producers.sast.static_stage import run_static
 
 EXPECTED_CSV = "src/main/resources/scanner/sast/expectedIssues.csv"
 
@@ -78,7 +78,7 @@ def main(argv: list[str]) -> int:
         sys.exit("usage: python -m producers.benchmark sast <VulnerableApp root>")
     root = Path(argv[2])
     target = ScanTarget(str(root), "http://localhost:9090/VulnerableApp", "benchmark", "spring-mvc")
-    findings = run_sast(target, route_map(target))
+    findings = run_static(target, build_code_index(root))
     reported = to_grader_sast(findings)
     expected = load_expected(root)
     result = score_sast(expected, reported)
@@ -98,8 +98,14 @@ def main(argv: list[str]) -> int:
     in_scope = [c for c in reported_cwes if c in by_cwe]
     hit = sum(by_cwe[c][0] for c in in_scope)
     total = sum(by_cwe[c][1] for c in in_scope)
+    matched_all = len(result["matched"])
+    expected_all = len(expected)
+    print("\nScore:")
     if total:
-        print(f"  {'total':8} {hit:3}/{total:<3} ({100 * hit / total:.0f}%)")
+        print(f"  supported {hit:3}/{total:<3} ({100 * hit / total:.0f}%)  CWEs we report")
+    if expected_all:
+        pct = 100 * matched_all / expected_all
+        print(f"  raw       {matched_all:3}/{expected_all:<3} ({pct:.0f}%)  all ground-truth CWEs")
     print(f"\nReported but not in ground truth: {len(result['unmatched'])}")
     for cwe, count in sorted(Counter(u["cwe"] for u in result["unmatched"]).items()):
         print(f"  {cwe:8} {count}")

@@ -13,15 +13,17 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from common.pipeline import CodeIndex
+from common.pipeline import CodeIndex, SecretSite
 from common.record import RouteEntry
 from producers.sast.call_graph import build_call_graph
+from producers.sast.secrets import find_secrets
 from producers.sast.sink_finder import find_sinks, load_catalogue
 from producers.sast.spring_routes import _build_entries, _parse_files, build_index
 
 
 def build_code_index(source_root: str | Path) -> CodeIndex:
-    index = build_index(_parse_files(Path(source_root)))
+    files = _parse_files(Path(source_root))
+    index = build_index(files)
     return CodeIndex(
         routes=tuple(RouteEntry.from_dict(entry) for entry in _build_entries(index)),
         call_graph=build_call_graph(index),
@@ -30,6 +32,10 @@ def build_code_index(source_root: str | Path) -> CodeIndex:
             name
             for name, infos in index.types.items()
             if any(info["kind"] == "enum_declaration" for info in infos)
+        ),
+        secrets=tuple(
+            SecretSite(f.cwe, f.type_name, f.severity, f.file, f.line, f.rule, f.snippet)
+            for f in find_secrets(files)
         ),
     )
 

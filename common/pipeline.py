@@ -189,6 +189,19 @@ class SinkSite:
 
 
 @dataclass(frozen=True)
+class SecretSite:
+    """A hard-coded secret or weak-crypto site. Code-only, no route, no dataflow."""
+
+    cwe: int
+    type_name: str
+    severity: str
+    file: str
+    line: int
+    rule: str
+    snippet: str = ""
+
+
+@dataclass(frozen=True)
 class CodeIndex:
     """Stage 1 output. Unresolved calls stay in call_graph, flagged, never dropped."""
 
@@ -196,3 +209,4 @@ class CodeIndex:
     call_graph: tuple[CallGraphEdge, ...] = ()
     sinks: tuple[SinkSite, ...] = ()
     enum_types: frozenset[str] = frozenset()
+    secrets: tuple[SecretSite, ...] = ()

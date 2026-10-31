@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-11-01. BS7 remains in progress on `feat/bs7-negative-evidence-ambiguity-coverage`. Synthetic BS7 JSON fixtures and tests were removed. The current VulnerableApp run observed no conflict, ambiguity or response-trace cases; those remain unverified.
+2026-11-01. `BS7` passed. `BS8` code complete (secrets/crypto pass, benchmark raw+supported, ambiguity and wrong_suppression metrics) and measured on VulnerableApp; 301 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
 
 ## 2. Architecture
 
@@ -25,8 +25,7 @@ Config names and default values live in the Config reference in `docs/architectu
 - D1: back-guided search is Should, relaxed mode only, off until measured. Entry `run_back_guided`.
 - D2: a positive oracle versus a `tested_negative` sink is replayed (`replay.count`, `replay.min_hits`). Enough hits un-suppress it.
 - D3: `link_status` and `link_origin` are both required and orthogonal.
-- D4: build stages set the order. The own flow engine is Should, after M2.
-- D5: contract fields `match_mode`, `unresolved_hops`, `candidate_sinks`, `conflict`, `oracle_flaky`.
+- D4: build stages set the order; the own flow engine is Should, after M2. D5: contract fields `match_mode`, `unresolved_hops`, `candidate_sinks`, `conflict`, `oracle_flaky`.
 - R1: the adequacy logic and a suppressed file with real content are M2.
 - R2: stage 3 emits one Hypothesis record type for the directed and sweep sets.
 - R3: work is split by build stage, not by person. The module boundary between static code and probe or engine code stays. Proposed directories `probe/` and `producers/hypotheses/`. Neither exists.
@@ -36,8 +35,7 @@ Config names and default values live in the Config reference in `docs/architectu
 - R7: ZAP is the active probe engine, including judging mode. Project code owns orchestration, provenance, oracles and findings. AI never creates or deletes a finding, sets a verdict or decides a link.
 - F4: fallback dedupe keys. Secrets `(cwe, file, line)`. Runtime-only injection `(cwe, normalised_route, method, param)`. Headers `(cwe, header_name)`, per `header.count_mode`.
 - G1 to G4: confidence is a float from 0 to 1 with three bands in config. `confidence_reasons` is a list of `{factor, delta}`, written by the engine only.
-- Q1: JAX-RS stays Could. B-5 is Should, M3.
-- Q2: path traversal is Should, M3, the first item after M2.
+- Q1: JAX-RS stays Could; B-5 is Should, M3. Q2: path traversal is Should, M3, first after M2.
 - Q3: `handler_*` leave the record. `call_chain` items are `{method, file, line}`.
 - Q4: the base URL is a required input (`--target`). The context path is detected and never guessed silently.
 - Q5: `no_http_path` reason codes `no_callers` and `walk_unresolved`. Only `no_callers` in injection CWEs can be suppressed. Off until measured. Q6: `blocked_by_validation` is a per-param outcome with sub-codes; status assigned in a fixed order.
@@ -58,10 +56,10 @@ Config names and default values live in the Config reference in `docs/architectu
 | Milestone | Build stages | Status | Evidence |
 |---|---|---|---|
 | M1 spine | `BS0` to `BS5` | PASSED | M1 gate cleared on 2026-11-01. Exit tests below. |
-| M2 core | `BS6` to `BS9` | in progress | `BS6`, `BS7` passed; `BS8`-`BS9` not started |
+| M2 core | `BS6` to `BS9` | in progress | `BS6`-`BS8` passed; `BS9` not started |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS7` passed (merged to `main`, Wave-C proof restored and live exit run recorded). `BS8` is next. Details: section 9.
+Current build stage: `BS8` passed (secrets/crypto pass, exports, measurement baseline). `BS9` is next (M2 gate). Details: section 9.
 
 ## 5. Done
 
@@ -78,8 +76,7 @@ Current build stage: `BS7` passed (merged to `main`, Wave-C proof restored and l
 | `BS3` | Hypotheses on the same source | 11 directed, 239 sweep, 13 params skipped by type. Every `expected_pairs` entry has a directed hypothesis. |
 | `BS3` | `uv run --locked pytest -q`, `ruff check .` | 178 passed, 3 skipped. Ruff passed. |
 | `BS4` | `uv run --locked pytest -q tests/probe` | 38 passed: attribution (missing header, zero/two-param diffs unlinked), oracle, seeds, preflight, coordinator (reproduced hit links, non-reproducing makes no record, foreign host reported). |
-| `BS4` | `scripts/bs4_live_check.py` against live ZAP and VulnerableApp | 11 directed SQL jobs ran. 4 Confirmed error-based SQL findings (ErrorBased LEVEL_1 to LEVEL_4), each fired 3/3 on replay with unique lineage. attribution_rate 0.965, header_propagation_rate 1.0, no foreign hosts. Context path /VulnerableApp from config. |
-| `BS4` | `uv run --locked pytest -q`, `ruff check .` | 216 passed, 3 skipped. Ruff passed. |
+| `BS4` | `uv run --locked pytest -q`, `ruff check .`; live BS4 check (harness since superseded by `elenchus scan`) | 216 passed, 3 skipped, ruff clean. Live: 4 Confirmed error-based SQL (ErrorBased LEVEL_1-4), each 3/3 on replay, unique lineage, attribution_rate 0.965, no foreign hosts. |
 | `BS5` | `uv run --locked pytest -q` | 214 passed, 3 skipped (the drop from 216 is the old scan-wiring and tier tests replaced by lineage tests). Ruff passed. |
 | `BS5` | **M1 gate:** `uv run --locked elenchus scan --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store` | One command, live ZAP. 21 issues: 4 Confirmed error-based SQL (ErrorBased LEVEL_1 to LEVEL_4), all link_status unique, confidence 0.95, each matching expected_pairs on exact file and line; 17 Code-only; 0 Runtime-only. attribution_accuracy 4/4 = 1.0. |
 | `BS6` | `uv run --locked pytest -q`, `ruff check .` | 248 passed, ruff clean. New: command-injection oracle, boolean/timing SQL oracles, header/cookie checks, two-pass scheduler, correlation dedupe fix, auth-header wiring, sweep wiring. |
@@ -87,6 +84,9 @@ Current build stage: `BS7` passed (merged to `main`, Wave-C proof restored and l
 | `BS6` | **Live exit run:** `elenchus scan --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store`, sweep wired, ZAP 2.17.0 | exit 0, wall 3:37. 5 Confirmed CWE-89: ErrorBased LEVEL_1-4 on exact pair lines 83/143/206/272, and `AuthLoginService.java:51` as one issue (dedupe fix live, was 2). 18 Code-only, 2 Runtime-only headers (693, 1021). probe `stage_seconds` 216, 38 jobs attempted (36 finished, 1 all_blocked, 1 stopped_at_limit), 146 `skipped_budget`. attribution_rate 0.950, header_propagation 1.0, no foreign hosts. |
 | `BS7` | `uv run --locked pytest -q`, `uv run --locked ruff check .` | 292 passed, ruff clean. Commit `ac42054` had deleted the conflict (x3) and response-trace (x3) fixtures and every test exercising the conflict rule, response-trace frame parser, `oracle_flaky` and the ambiguity primary rule; restored from `ac42054^` (commit `4cf1685`), they pass unchanged, so the Wave-C logic is proven. Decoy static layer (`safe_pattern` vs dynamic twins, `no_http_path` reasons), adequacy->`tested_negative`, `type_rejected`, and a non-empty `suppressed.json` are all covered in CI. |
 | `BS7` | **Live exit run:** `elenchus scan ... --no-store --expected-pairs common/fixtures/expected_pairs/vulnerableapp.yaml`, ZAP 2.17.0 | exit 0, wall ~3:40. recall CWE-89 9/9 = 1.0, attribution_rate 0.950, attribution_accuracy 1.0 (8/8). `wrong_suppression_count` CWE-89 = 4 (the union/blind pairs marked `tested_negative`), so 89 stays out of `export.suppress_cwes`. 5 Confirmed CWE-89 (ErrorBased LEVEL_1-4 + `AuthLoginService.java:51`), 18 Code-only, 2 Runtime-only headers. 0 ambiguous, 0 suppressed, 0 flaky, no RESPONSE_TRACE: VulnerableApp has no same-route ambiguity or suppressible `safe_pattern` SQL, so those paths are proven by the CI fixtures, not live. probe `stage_seconds` 220. |
+
+| `BS8` | `uv run --locked pytest -q`, `ruff check .` | 301 passed, ruff clean. New: own secrets/weak-crypto pass (CWE-798/327/330, `secrets.yaml`) emitting Code-only findings; `benchmark` rescored against our own producers with raw+supported; `ambiguity` and `wrong_suppression_count` added to coverage; SARIF verified. |
+| `BS8` | **Measurement baseline** (`python -m producers.benchmark sast` + live `elenchus scan ... --expected-pairs`) | Benchmark over the full 105-row CSV: supported 11/22 (50%), raw 11/105 (10%); CWE-89 9/9, CWE-77 2/2, CWE-327 0/5 and CWE-330 0/6 (VulnerableApp hides weak crypto behind custom wrappers; our pass anchors on JDK APIs) — baseline, no target required. Live coverage (expected_pairs = CWE-89): recall 9/9, attribution_rate 0.953, accuracy 1.0, ambiguity 0/5 = 0.0, `wrong_suppression_count` CWE-89 = 4, header_propagation 1.0, probe stage 170s. Export defaults kept: `include_alternatives` on, `suppress_no_http_path` off (measured impact = 1 `no_callers` CWE-89 sink). |
 
 Not run: the updated CI workflow on GitHub.
 
@@ -98,11 +98,10 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 ## 6. Not done, in dependency order
 
-The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS7` have passed.
+The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS8` have passed.
 
-1. `BS8`: secrets, exports, measurement
-2. `BS9`: judging mode and generality (M2 gate)
-3. `BS10`: Should list (M3). 4. `BS11`: Could list
+1. `BS9`: judging mode and generality (M2 gate)
+2. `BS10`: Should list (M3). 3. `BS11`: Could list
 
 Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
@@ -115,11 +114,11 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 - Probe stage ran 216s against a 170s start-deadline: in-flight jobs (scan plus replays, `max_job_seconds` 30) finish past it. Total wall 3:37 under the 5-minute cap; tune budgets in BS8. A single ZAP timeout no longer aborts the run (wrapped in `ZapApi.call`; the job is recorded `errored`).
 - Routes whose handler reads every param have no param name to seed (`XSSWithHtmlTagInjection`). The sweep still probes their declared params. Generated-name seeding not built.
 - The answer key's line on a multi-line call is the argument's, not the call's. `BS3` and the command-injection catalogue follow it. Confirm at kickoff.
-- Adequacy marks union-based and blind SQLi sinks `tested_negative`: ZAP's CWE-89 rules run and get past validation, but the only confirming oracle is error-based (`sql_error`), so nothing fires. `coverage.py` now computes `wrong_suppression_count`; live CWE-89 = 4 (the union/blind `expected_pairs` sinks), so 89 stays out of `export.suppress_cwes` per the measurement rule and they stay visible as Code-only, not suppressed. The real fix is a union/blind oracle (`sql_boolean` is built, not yet wired) — carried to BS8. Conflict/ambiguity/response-trace behaviour is proven by the restored CI fixtures, not the live scan (VulnerableApp has none naturally).
+- Adequacy marks union-based and blind SQLi sinks `tested_negative`: ZAP's CWE-89 rules run and get past validation, but the only confirming oracle is error-based (`sql_error`), so nothing fires. `coverage.py` now computes `wrong_suppression_count`; live CWE-89 = 4 (the union/blind `expected_pairs` sinks), so 89 stays out of `export.suppress_cwes` per the measurement rule and they stay visible as Code-only, not suppressed. The real fix is a union/blind oracle (`sql_boolean` is built, not yet wired) — carried to BS9. Conflict/ambiguity/response-trace behaviour is proven by the restored CI fixtures, not the live scan (VulnerableApp has none naturally).
+- Secrets/crypto pass anchors on JDK APIs (MessageDigest/Cipher/Random/Math.random, secret-named literals); recall on VulnerableApp crypto is 0 because the app wraps weakness in its own utils. Recorded baseline, not fitted away.
 - ZAP sends one random-path request per job for 404 analysis: the one known request outside the route table.
 - Same-route sink ambiguity. `TRACE` unavailable at judging; `RESPONSE_TRACE` helps only when a stack trace leaks. A third unfound sink can mislead a link.
-- A negative result is not proof of safety; the state guard limits damage, not prevents it.
-- Second-order bugs, IDOR, business logic have no oracle. Blind SSRF and XXE need callbacks. Recall depends on the catalogue; third-party wrappers are missed.
+- A negative result is not proof of safety; the state guard limits damage, not prevents it. Second-order bugs, IDOR, business logic have no oracle; blind SSRF and XXE need callbacks; recall depends on the catalogue.
 - `docs/decisions.md` stale. Superseded: D-04, D-05, D-06, D-07, D-08, D-14, D-16, D-17.
 
 ## 8. Open questions for the user
@@ -136,13 +135,15 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-BS7 passed: the deleted conflict and response-trace fixtures/tests were restored (commit `4cf1685`) and pass unchanged, and the live exit ran with `--expected-pairs` (recall CWE-89 1.0, attribution 0.950/1.0). `BS8` is next.
+`BS8` passed (secrets/crypto pass, benchmark raw+supported, measurement baseline). `BS9` is next (M2 gate).
 
-BS8 scope and carried-over items:
-1. Secrets/crypto pass, SARIF export, benchmark adapter, full measurement table.
-2. Tune probe budgets: the probe stage ran 216s against a 170s job-start deadline. Lower `probe.max_job_seconds` or the stage budgets.
-3. Wire a union/blind SQL oracle (`sql_boolean` is built): union/blind sinks are marked `tested_negative` today, so CWE-89 is out of `export.suppress_cwes` until an oracle confirms them.
-4. Deferred BS6 live checks: `timing_slower`, command-injection, XSS and open-redirect oracles on routes that suit them. `target.auth.*` is wired; the app's login need is unknown.
+BS9 scope:
+1. State guard: risk-order jobs (GET, POST, PUT/PATCH, DELETE; destructive-SQL-literal routes last), re-check GET routes after each state-changing job, stop on drift and mark the rest `skipped_drift`. Only the `after_drift` plumbing exists. Forced-drift test.
+2. `judging.profile` enforcement: one command, `--target`/env only, context path detected, no restarts, under 5 minutes. Config forces AI/Semgrep off and requires ZAP already.
+3. Generality CI test: ban any test-app route/class/module name in `producers/` and the catalogue.
+4. Catalogue freeze marker; post-freeze changes logged as fitted. M2 risk: probe stage ~170-220s against the 170s deadline; tune `probe.max_job_seconds`/budgets so the whole run stays under 5 minutes.
+
+Carried over: wire a union/blind SQL oracle (`sql_boolean` built) so CWE-89 can return to `export.suppress_cwes`; register `timing_slower`; live-check command-injection/XSS/redirect oracles; `target.auth.*` wired, app login need unknown.
 
 ## 10. Resume instructions
 

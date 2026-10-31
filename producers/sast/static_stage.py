@@ -114,12 +114,31 @@ def _finding(target: ScanTarget, index: CodeIndex, site: SinkSite, callers, rout
     )
 
 
+def _secret_finding(target: ScanTarget, site: Any) -> Finding:
+    """A secret or weak-crypto site: Code-only, no route, never no_http_path."""
+    return Finding.from_dict(
+        {
+            "run_id": target.run_id,
+            "source": "sast",
+            "provenance": "own",
+            "cwe": site.cwe,
+            "type": site.type_name,
+            "file": site.file,
+            "line": site.line,
+            "evidence": [{"type": "PATH", "detail": {"rule": site.rule, "snippet": site.snippet}}],
+            "severity": site.severity,
+        }
+    )
+
+
 def run_static(target: ScanTarget, index: CodeIndex) -> list[Finding]:
     callers = _callers(index)
     routes_by_func: dict[str, list[RouteEntry]] = defaultdict(list)
     for entry in index.routes:
         routes_by_func[entry.func].append(entry)
-    return [_finding(target, index, site, callers, routes_by_func) for site in index.sinks]
+    findings = [_finding(target, index, site, callers, routes_by_func) for site in index.sinks]
+    findings.extend(_secret_finding(target, site) for site in index.secrets)
+    return findings
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         expected_pairs = _load_expected_pairs(args.expected_pairs)
         coverage = build_coverage_report(
             findings,
+            issues=issues,
             expected_pairs=expected_pairs,
             supported_cwes=config.rule_map(),
             skipped_by_type=pipeline_output.skipped_by_type,
