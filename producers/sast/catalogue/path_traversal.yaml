@@ -1,0 +1,46 @@
+# Sink catalogue: path traversal (CWE-22).
+#
+# Every entry names the public JDK API it came from. Nothing here names a class,
+# route or module of a test app. Anchored on the lowest public file-access API,
+# so a wrapper in the target's source is still found through the sink inside it.
+cwe: 22
+type: Path Traversal
+severity: high
+sanitisers: []
+entries:
+  - id: nio-path-resolve
+    api: java.nio.file.Path
+    kind: call
+    receiver_types: [Path]
+    methods: [resolve, resolveSibling]
+    sink_arg: 0
+  - id: nio-paths-get
+    api: java.nio.file.Paths
+    kind: call
+    receiver_types: [Paths]
+    methods: [get]
+    sink_arg: 0
+  - id: nio-files-read
+    api: java.nio.file.Files
+    kind: call
+    receiver_types: [Files]
+    methods: [newInputStream, newBufferedReader, readAllBytes, readString, readAllLines, lines]
+    sink_arg: 0
+  - id: java-io-file-new
+    api: java.io.File
+    kind: call
+    receiver_types: [File]
+    methods: ["<init>"]
+    sink_arg: 0
+  - id: java-io-fileinputstream-new
+    api: java.io.FileInputStream
+    kind: call
+    receiver_types: [FileInputStream]
+    methods: ["<init>"]
+    sink_arg: 0
+  - id: resource-as-stream
+    api: java.lang.Class.getResourceAsStream
+    kind: call
+    receiver_types: [Class, ClassLoader]
+    methods: [getResourceAsStream, getResource]
+    sink_arg: 0

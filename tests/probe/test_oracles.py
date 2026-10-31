@@ -5,6 +5,7 @@ from probe.oracles import (
     command_output,
     open_redirect,
     oracle_for,
+    path_traversal,
     sql_error,
     timing_slower,
     xss_reflected,
@@ -98,11 +99,28 @@ def test_command_injection_does_not_fire_when_the_baseline_already_shows_output(
     assert command_output(both, both) is False
 
 
-def test_registry_maps_the_four_single_response_classes():
+def test_path_traversal_fires_on_passwd_content_with_a_traversal_payload():
+    baseline = Response(200, "", "file not found")
+    probe = Response(200, "", "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:")
+    assert path_traversal(baseline, probe, "../../../../etc/passwd") is True
+
+
+def test_path_traversal_needs_a_traversal_sequence_in_the_attack():
+    probe = Response(200, "", "root:x:0:0:root:/root:/bin/bash")
+    assert path_traversal(Response(200, "", ""), probe, "info.txt") is False
+
+
+def test_path_traversal_does_not_fire_when_the_baseline_already_shows_it():
+    both = Response(200, "", "root:x:0:0:root")
+    assert path_traversal(both, both, "../../etc/passwd") is False
+
+
+def test_registry_maps_the_single_response_classes():
     assert oracle_for(89) is sql_error
     assert oracle_for(79) is xss_reflected
     assert oracle_for(601) is open_redirect
     assert oracle_for(78) is command_output
+    assert oracle_for(22) is path_traversal
 
 
 def test_timing_fires_only_past_the_threshold():

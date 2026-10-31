@@ -3,12 +3,18 @@
   "note": "Catalogue freeze. Any change after this date is recorded as fitted in docs/STATE.md if it is based on the test app's results. Update this file deliberately when adding a general entry.",
   "sink_entries": [
     "hibernate-session",
+    "java-io-file-new",
+    "java-io-fileinputstream-new",
     "java-processbuilder-command",
     "java-processbuilder-new",
     "java-runtime-exec",
     "jdbc-connection",
     "jdbc-statement",
     "jpa-entity-manager",
+    "nio-files-read",
+    "nio-path-resolve",
+    "nio-paths-get",
+    "resource-as-stream",
     "spring-jdbc-template",
     "spring-named-jdbc-template"
   ],

@@ -113,7 +113,25 @@ def command_output(baseline: Response, probe: Response, payload: str = "") -> bo
     return bool(_COMMAND_OUTPUT.search(probe.body)) and not _COMMAND_OUTPUT.search(baseline.body)
 
 
+# A traversal sequence in the attack, and the content of a well-known sensitive
+# file in the probe response but not the baseline.
+_TRAVERSAL_PAYLOAD = re.compile(r"\.\.[\\/]|%2e%2e|\.\.%2f|%252e", re.IGNORECASE)
+_TRAVERSAL_EVIDENCE = re.compile(
+    r"root:[^:\n]*:0:0:|\[boot loader\]|\[fonts\]|; for 16-bit app support",
+    re.IGNORECASE,
+)
+
+
+def path_traversal(baseline: Response, probe: Response, payload: str) -> bool:
+    """Path traversal: the attack carried a traversal sequence and a sensitive
+    file's content came back in the probe response and not the baseline."""
+    if not _TRAVERSAL_PAYLOAD.search(payload):
+        return False
+    return bool(_TRAVERSAL_EVIDENCE.search(probe.body)) and not _TRAVERSAL_EVIDENCE.search(baseline.body)
+
+
 ORACLES: dict[int, Oracle] = {
+    22: path_traversal,
     78: command_output,
     79: xss_reflected,
     89: sql_error,
