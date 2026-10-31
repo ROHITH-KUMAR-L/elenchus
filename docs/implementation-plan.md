@@ -115,6 +115,8 @@ Passed on 2026-10-31. Results in [STATE.md](STATE.md).
 | Build | Rework correlation to lineage, `link_status`, `link_origin`, config-driven confidence and `confidence_reasons`. Labels and scoring. Postgres. CLI report. One command. |
 | Exit test | **M1:** one command on a clean VulnerableApp run uses ZAP active scanning and yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. `attribution_accuracy` recorded. |
 
+Passed on 2026-11-01. 4 Confirmed error-based SQL issues, all matching a pair; attribution_accuracy 1.0. Results in [STATE.md](STATE.md).
+
 If M1 cannot pass: cut to open redirect and error-based SQL injection, then fix the spine first.
 
 ### `BS6`: All classes and the scheduler
@@ -194,9 +196,9 @@ The repo predates this architecture. The table lists what exists in the tree, ho
 | `pyproject.toml` | Semgrep is an optional extra, `uv sync --extra semgrep` | The pipeline and its tests pass without it. | `BS1` |
 | `producers/benchmark.py` | Offline SAST score against VulnerableApp's expected-issues CSV | Part of the benchmark adapter. Results not recorded here. Its CWE total currently covers only CWEs we report, so the raw score must be added. | `BS8` |
 | `producers/dast/zap_runner.py` | ZAP API client (`ZapApi`), extended in BS4 with the scan, policy, replacer, message and host methods the coordinator uses. The old alert-driven `run_dast` stays until BS5 reworks the CLI. | `probe/` holds the BS4 coordinator, preflight, seeds, attribution and oracles. | `BS4`, `BS5`, `BS6` |
-| `engine/correlate/` | Tier A/B/C correlation with tests | Rework: hypothesis lineage, `link_status`, `link_origin`, ambiguity groups, the conflict rule, evidence-based confidence. | `BS5`, `BS7` |
+| `engine/correlate/` | Lineage correlation: `link_status`, `link_origin`, config-driven confidence and `confidence_reasons`. Full ambiguity groups, conflict rule and sweep/back-guided origins land in BS7. | `BS5`, `BS7` |
 | `engine/store/`, `engine/report/` | Postgres store, text report, SARIF export | Reusable as the base for stage 7. Needs the new fields, the suppressed file and the coverage report `[TODO: verify]`. | `BS5`, `BS7`, `BS8` |
-| `cli/main.py` | `correlate` and `scan` commands | Rework the scan flow to stages 0 to 7. | `BS5` |
+| `cli/main.py` | `correlate` (records from files) and `scan` (the staged pipeline: index, static, hypotheses, preflight, probe, correlate, report) | Reworked in BS5. | `BS5` |
 | `common/record.py`, `common/pipeline.py`, `common/config.py` | The contract | Implements [finding-schema.md](finding-schema.md). | `BS1` |
 | `common/fixtures/` | Fixture rows 1 to 7 in the new shape | Rows 8 onward follow in their build stages. | `BS1` |
 

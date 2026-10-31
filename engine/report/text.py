@@ -11,38 +11,33 @@ def format_text(issues: list[Issue]) -> str:
 
     lines = [f"Found {len(issues)} issue(s):"]
     for index, issue in enumerate(issues, start=1):
-        primary = issue.primary_finding
-        route_finding = issue.route_finding
-        location = (
-            f"{primary.file}:{primary.line}"
-            if primary.file is not None and primary.line is not None
-            else "no source location"
-        )
+        location = f"{issue.file}:{issue.line}" if issue.file and issue.line else "no source location"
+        confidence = f"{issue.confidence:.2f}" if issue.confidence is not None else "none"
+        link = issue.link_status or issue.status or "none"
         lines.extend(
             [
                 "",
                 (
-                    f"{index}. {issue.label} | CWE-{primary.cwe} {primary.type} "
+                    f"{index}. {issue.label} | CWE-{issue.cwe} {issue.type} "
                     f"| risk {issue.risk_score:.0f}/100 | {location}"
                 ),
-                f"   Route: {route_finding.method or 'any method'} {route_finding.route or 'application-wide'}",
+                f"   Route: {issue.method or 'any method'} {issue.route or 'application-wide'}",
                 f"   Parameter: {issue.param or 'none'}",
-                f"   Severity: {issue.severity}",
-                f"   Confidence: {issue.confidence or 'none'}",
+                f"   Severity: {issue.severity} | Confidence: {confidence} | Link: {link}",
             ]
         )
+        if issue.link_origin:
+            lines.append(f"   Link origin: {issue.link_origin}")
+        for sink in issue.alternatives:
+            lines.append(f"   Alternative sink: {sink.file}:{sink.start_line}")
         for finding in issue.dast_findings:
             if finding.payload is not None:
                 lines.append(f"   Payload: {finding.payload}")
             oracle = finding.detail("oracle")
             if isinstance(oracle, str) and oracle:
-                lines.append(f"   Oracle: {oracle}")
-            request = finding.detail("request")
-            if isinstance(request, str) and request:
-                lines.append(f"   Request: {request}")
-            response_excerpt = finding.detail("response_excerpt")
-            if isinstance(response_excerpt, str) and response_excerpt:
-                lines.append(f"   Response: {response_excerpt}")
+                fired, replays = finding.detail("fired"), finding.detail("replays")
+                suffix = f" ({fired}/{replays} replays)" if fired is not None else ""
+                lines.append(f"   Oracle: {oracle}{suffix}")
         for finding in issue.sast_findings:
             snippet = finding.detail("snippet")
             if isinstance(snippet, str) and snippet:

@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-10-31. Trigger: `BS0` to `BS4` passed, each pushed to `main`. Work is committed per build stage on branch `feat/bs0-zap-check`, not pushed. Local ZAP and VulnerableApp containers are running from `infra/`.
+2026-11-01. Trigger: `BS0` to `BS5` passed and pushed to `main`; M1 cleared. Local ZAP and VulnerableApp containers run from `infra/`.
 
 ## 2. Architecture
 
@@ -13,7 +13,7 @@ Static-guided dynamic testing. Static analysis makes hypotheses. OWASP ZAP perfo
 - Pipeline stages: 0 preflight, 1 code index, 2 static, 3 hypotheses, 4 ZAP-backed probe orchestration, 5 correlation, 6 verify, 7 output.
 - Build stages: `BS0` onward. The order we build it in. Milestones are gates over them.
 - Stage 2 is the own sink finder and secrets/crypto pass. Semgrep is an optional adapter, off by default.
-- One ZAP job per `(route, method)`, one at a time. Param from a request diff, CWE from the rule ID, verdict from a coordinator replay. `BS0` confirmed the mechanism on a few routes. Replay as a verdict is built in `BS4`.
+- One ZAP job per `(route, method)`, one at a time. Param from a request diff, CWE from the rule ID, verdict from a coordinator replay. Built in `BS4`, wired end to end in `BS5`.
 - A firing probe proves route, param and CWE. It does not prove which sink on that route is the cause.
 - Residual risk is same-route sink ambiguity, marked with `link_status: ambiguous`.
 - Detail: `docs/architecture.md`. Contract: `docs/finding-schema.md`. Build stages: `docs/implementation-plan.md`. Repo map: `docs/repo-structure.md`.
@@ -60,11 +60,11 @@ Config names and default values live in the Config reference in `docs/architectu
 
 | Milestone | Build stages | Status | Evidence |
 |---|---|---|---|
-| M1 spine | `BS0` to `BS5` | in progress | `BS0` to `BS4` exit tests below. `BS5` not done. |
+| M1 spine | `BS0` to `BS5` | PASSED | M1 gate cleared on 2026-11-01. Exit tests below. |
 | M2 core | `BS6` to `BS9` | not started | None |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS5`. Not started.
+Current build stage: `BS6`. Not started.
 
 ## 5. Done
 
@@ -83,6 +83,8 @@ Current build stage: `BS5`. Not started.
 | `BS4` | `uv run --locked pytest -q tests/probe` | 38 passed: attribution (missing header, zero/two-param diffs unlinked), oracle, seeds, preflight, coordinator (reproduced hit links, non-reproducing makes no record, foreign host reported). |
 | `BS4` | `scripts/bs4_live_check.py` against live ZAP and VulnerableApp | 11 directed SQL jobs ran. 4 Confirmed error-based SQL findings (ErrorBased LEVEL_1 to LEVEL_4), each fired 3/3 on replay with unique lineage. attribution_rate 0.965, header_propagation_rate 1.0, no foreign hosts. Context path /VulnerableApp from config. |
 | `BS4` | `uv run --locked pytest -q`, `ruff check .` | 216 passed, 3 skipped. Ruff passed. |
+| `BS5` | `uv run --locked pytest -q` | 214 passed, 3 skipped (the drop from 216 is the old scan-wiring and tier tests replaced by lineage tests). Ruff passed. |
+| `BS5` | **M1 gate:** `uv run --locked elenchus scan --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store` | One command, live ZAP. 21 issues: 4 Confirmed error-based SQL (ErrorBased LEVEL_1 to LEVEL_4), all link_status unique, confidence 0.95, each matching expected_pairs on exact file and line; 17 Code-only; 0 Runtime-only. attribution_accuracy 4/4 = 1.0. |
 
 Not run: the updated CI workflow on GitHub. No correlation, probe or benchmark results exist.
 
@@ -96,21 +98,20 @@ Measured: nothing beyond `BS0`. Semgrep yardstick: `[TODO: Semgrep count on Vuln
 
 The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS3` have passed.
 
-1. `BS5`: end-to-end spine (M1 gate)
-2. `BS6`: all classes and the scheduler
-3. `BS7`: negative evidence, ambiguity, coverage
-4. `BS8`: secrets, exports, measurement
-5. `BS9`: judging mode and generality (M2 gate)
-6. `BS10`: Should list (M3)
-7. `BS11`: Could list
+1. `BS6`: all classes and the scheduler
+2. `BS7`: negative evidence, ambiguity, coverage
+3. `BS8`: secrets, exports, measurement
+4. `BS9`: judging mode and generality (M2 gate)
+5. `BS10`: Should list (M3)
+6. `BS11`: Could list
 
 Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.md`.
 
 ## 7. Known failures and residual flaws
 
-- The old alert-driven `run_dast` in `producers/dast/zap_runner.py` is unused by the BS4 coordinator but still wired into the CLI `scan` command until BS5. The BS4 `ZapApi` extensions are shared.
+- The old alert-driven `run_dast` in `producers/dast/zap_runner.py` is now unused (the CLI uses the coordinator). It and its helpers are dead code to remove in BS6; its test still passes.
 - XSS oracle: VulnerableApp's XSS routes reply `text/plain`, and its page inserts the text as HTML. The HTML-context oracle would not fire on them, and ZAP raised no alert. Decide in `BS6`.
-- The error-based SQL oracle fires on ErrorBased levels only. Blind and Union SQL need boolean and timing oracles (BS6).
+- Only the error-based SQL oracle exists. Blind and Union SQL (boolean/timing), XSS, command injection and open redirect are BS6, so their routes show as Code-only now.
 - Routes whose handler reads every param have no param name to seed. `XSSWithHtmlTagInjection` is one. Decide in `BS6`.
 - The answer key's line on a multi-line call is the argument's, not the call's. `BS3` follows it. Confirm with the organisers' key at kickoff.
 - Two safe VulnerableApp SQL sinks stay `dynamic` because their input is filtered before the call. They need a probe to clear them. One unreachable config sink is `dynamic` with `no_callers`, so it would report as Code-only.
@@ -138,7 +139,7 @@ Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.m
 
 ## 9. Next action
 
-Build `BS5`: wire the CLI to run index -> static -> hypotheses -> preflight -> probe -> correlate -> verify -> output, rework correlation to lineage with link_status, link_origin, confidence and confidence_reasons, and clear the M1 gate (a Confirmed error-based SQL issue whose sink file and line match expected_pairs).
+Build `BS6`: catalogue entries and oracles for XSS, command injection and open redirect, plus Blind/Union SQL (boolean and timing); the two-pass deadline scheduler; sweep with type pruning; own header and cookie checks; `target.auth.*`. Remove the dead `run_dast`. Confidence weights are proposed; tune on expected_pairs in BS7/BS8.
 
 ## 10. Resume instructions
 

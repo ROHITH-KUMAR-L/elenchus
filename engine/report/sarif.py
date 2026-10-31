@@ -1,10 +1,9 @@
-"""SARIF 2.1.0 export for correlated issues."""
+"""SARIF 2.1.0 export for correlated issues. Lossy; the record is the source of truth."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from common.record import Finding
 from engine.correlate.models import Issue
 
 
@@ -12,99 +11,74 @@ def to_sarif(issues: list[Issue]) -> dict[str, Any]:
     rules: dict[str, dict[str, Any]] = {}
     results = []
     for issue in issues:
-        finding = issue.primary_finding
-        route_finding = issue.route_finding
-        rule_id = f"CWE-{finding.cwe}"
+        rule_id = f"CWE-{issue.cwe}"
         rules.setdefault(
             rule_id,
             {
                 "id": rule_id,
-                "name": finding.type,
-                "shortDescription": {"text": finding.type},
-                "properties": {"cwe": finding.cwe},
+                "name": issue.type,
+                "shortDescription": {"text": issue.type},
+                "properties": {"cwe": issue.cwe},
             },
         )
         result: dict[str, Any] = {
             "ruleId": rule_id,
             "level": _sarif_level(issue.severity),
-            "message": {
-                "text": f"{finding.type} (CWE-{finding.cwe}). {issue.label}."
-            },
+            "message": {"text": f"{issue.type} (CWE-{issue.cwe}). {issue.label}."},
             "properties": {
                 "issue_key": issue.issue_key,
-                "cwe": finding.cwe,
+                "cwe": issue.cwe,
                 "label": issue.label,
+                "link_status": issue.link_status,
+                "link_origin": issue.link_origin,
                 "confidence": issue.confidence,
+                "confidence_reasons": [reason.to_dict() for reason in issue.confidence_reasons],
                 "risk_score": issue.risk_score,
                 "severity": issue.severity,
-                "run_id": finding.run_id,
-                "route": route_finding.route,
-                "method": route_finding.method,
+                "status": issue.status,
+                "route": issue.route,
+                "method": issue.method,
                 "param": issue.param,
-                "payloads": [
-                    item.payload
-                    for item in issue.dast_findings
-                    if item.payload is not None
-                ],
-                "sast_findings": [item.to_dict() for item in issue.sast_findings],
-                "dast_findings": [item.to_dict() for item in issue.dast_findings],
-                "link_reason": issue.link_reason,
-                "wasc_id": finding.wasc_id,
-                "sink_id": finding.sink_id.to_dict() if finding.sink_id else None,
+                "payloads": [f.payload for f in issue.dast_findings if f.payload is not None],
+                "sink_id": issue.sink.to_dict() if issue.sink is not None else None,
+                "alternatives": [sink.to_dict() for sink in issue.alternatives],
                 "entry_paths": [
-                    path.to_dict()
-                    for item in issue.sast_findings
-                    for path in item.entry_paths or ()
+                    path.to_dict() for f in issue.sast_findings for path in f.entry_paths or ()
                 ],
                 "evidence": [
                     entry.to_dict()
-                    for item in issue.sast_findings + issue.dast_findings
-                    for entry in item.evidence
+                    for f in issue.sast_findings + issue.dast_findings
+                    for entry in f.evidence
                 ],
+                "link_reason": issue.link_reason,
             },
         }
-
-        primary_location = _physical_location(finding)
-        if primary_location is not None:
-            result["locations"] = [{"physicalLocation": primary_location}]
-        elif route_finding.route is not None:
-            result["logicalLocations"] = [
-                {"name": route_finding.route, "kind": "resource"}
+        if issue.file is not None and issue.line is not None:
+            result["locations"] = [
+                {
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": issue.file},
+                        "region": {"startLine": issue.line},
+                    }
+                }
             ]
+        elif issue.route is not None:
+            result["logicalLocations"] = [{"name": issue.route, "kind": "resource"}]
 
-        related_locations = []
-        for item in issue.dast_findings:
-            physical_location = _physical_location(item)
-            if physical_location is not None:
-                related_locations.append(
-                    {
-                        "id": len(related_locations) + 1,
-                        "message": {"text": "DAST route-map source location"},
-                        "physicalLocation": physical_location,
-                    }
-                )
-        for item in issue.sast_findings:
-            for path in item.entry_paths or ():
-                handler = path.call_chain[0]
-                if handler.file is None:
-                    continue
-                related_locations.append(
-                    {
-                        "id": len(related_locations) + 1,
-                        "message": {"text": "Handler reaches the SAST sink"},
-                        "physicalLocation": {
-                            "artifactLocation": {"uri": handler.file},
-                            "region": {"startLine": handler.line},
-                        },
-                    }
-                )
-        if related_locations:
-            result["relatedLocations"] = related_locations
-        result["properties"]["taint_trace"] = [
-            [step.to_dict() for step in item.taint_trace]
-            for item in issue.sast_findings
-            if item.taint_trace
-        ]
+        related = []
+        for sink in issue.alternatives:
+            related.append(
+                {
+                    "id": len(related) + 1,
+                    "message": {"text": "Alternative sink on the same route"},
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": sink.file},
+                        "region": {"startLine": sink.start_line},
+                    },
+                }
+            )
+        if related:
+            result["relatedLocations"] = related
         results.append(result)
 
     return {
@@ -122,15 +96,6 @@ def to_sarif(issues: list[Issue]) -> dict[str, Any]:
                 "results": results,
             }
         ],
-    }
-
-
-def _physical_location(finding: Finding) -> dict[str, Any] | None:
-    if finding.file is None or finding.line is None:
-        return None
-    return {
-        "artifactLocation": {"uri": finding.file},
-        "region": {"startLine": finding.line},
     }
 
 

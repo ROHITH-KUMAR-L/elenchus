@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cli.main import main
-from common.record import Finding, ScanTarget
+from common.record import Finding
 
 
 def sast_record() -> dict[str, object]:
@@ -23,6 +23,13 @@ def sast_record() -> dict[str, object]:
         "method": "GET",
         "file": "src/RedirectController.java",
         "line": 44,
+        "sink_id": {
+            "file": "src/RedirectController.java",
+            "enclosing_method": "RedirectController.go",
+            "start_line": 44,
+            "start_col": 10,
+        },
+        "arg_shape": "dynamic",
         "candidate_params": ["next"],
         "entry_paths": [
             {
@@ -42,63 +49,39 @@ def sast_record() -> dict[str, object]:
 
 
 class CliTests(unittest.TestCase):
-    def test_scan_runs_route_map_then_both_producers(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            order: list[str] = []
-            routes = ("route-map",)
-            sast = Finding.from_dict({**sast_record(), "run_id": "scan-run"})
-            targets: list[ScanTarget] = []
+    def test_scan_runs_the_pipeline_and_reports_its_findings(self) -> None:
+        # The pipeline stages are exercised live in scripts/bs5_live_check.py;
+        # here we patch the stage seam and check the CLI wires it to correlation.
+        sast = Finding.from_dict({**sast_record(), "run_id": "scan-run"})
+        captured: dict[str, object] = {}
 
-            def build_routes(target: ScanTarget) -> tuple[str, ...]:
-                order.append("route_map")
-                targets.append(target)
-                return routes
+        def fake_pipeline(args, run_id, config):
+            captured["run_id"] = run_id
+            captured["source_path"] = args.source_path
+            captured["base_url"] = args.base_url
+            return [sast]
 
-            def run_sast(target: ScanTarget, route_map: tuple[str, ...]) -> list[Finding]:
-                order.append("run_sast")
-                targets.append(target)
-                self.assertEqual(route_map, routes)
-                return [sast]
-
-            def run_dast(target: ScanTarget, route_map: tuple[str, ...]) -> list[Finding]:
-                order.append("run_dast")
-                targets.append(target)
-                self.assertEqual(route_map, routes)
-                return []
-
-            output = io.StringIO()
-            with (
-                patch("producers.sast.spring_routes.route_map", build_routes),
-                patch("producers.sast.semgrep_runner.run_sast", run_sast),
-                patch("producers.dast.zap_runner.run_dast", run_dast),
-                contextlib.redirect_stdout(output),
-            ):
-                result = main(
-                    [
-                        "scan",
-                        "--source-path",
-                        temporary_directory,
-                        "--base-url",
-                        "http://localhost:9090/VulnerableApp",
-                        "--run-id",
-                        "scan-run",
-                        "--no-store",
-                    ]
-                )
+        output = io.StringIO()
+        with (
+            patch("cli.main._run_pipeline", fake_pipeline),
+            contextlib.redirect_stdout(output),
+        ):
+            result = main(
+                [
+                    "scan",
+                    "--source-path",
+                    "src",
+                    "--base-url",
+                    "http://localhost:9090/VulnerableApp",
+                    "--run-id",
+                    "scan-run",
+                    "--no-store",
+                ]
+            )
 
         self.assertEqual(result, 0)
-        self.assertEqual(order, ["route_map", "run_sast", "run_dast"])
-        self.assertEqual(
-            [(item.source_path, item.base_url, item.run_id, item.framework) for item in targets],
-            [
-                (
-                    temporary_directory,
-                    "http://localhost:9090/VulnerableApp",
-                    "scan-run",
-                    "spring-mvc",
-                )
-            ] * 3,
-        )
+        self.assertEqual(captured["run_id"], "scan-run")
+        self.assertEqual(captured["base_url"], "http://localhost:9090/VulnerableApp")
         self.assertIn("Code-only", output.getvalue())
 
     def test_scan_rejects_non_local_target_before_running_producers(self) -> None:
@@ -145,7 +128,7 @@ class CliTests(unittest.TestCase):
             report = json.loads(output.getvalue())
             sarif = json.loads(sarif_path.read_text(encoding="utf-8"))
             self.assertEqual(result, 0)
-            self.assertEqual(report["issues"][0]["finding"]["run_id"], "stable-run")
+            self.assertEqual(report["issues"][0]["sast_findings"][0]["run_id"], "stable-run")
             self.assertEqual(sarif["version"], "2.1.0")
 
     def test_ci_fails_for_confirmed_high_severity(self) -> None:

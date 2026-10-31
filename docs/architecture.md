@@ -545,6 +545,11 @@ The single source for config names and default values. Other docs point here and
 | `backguided.min_confidence_to_confirm` | [0.4] | Lowest confidence exported as Confirmed for back-guided and conflict links |
 | `confidence.band.low_max` | [0.4] | Upper bound of the low band. The low band is below it. |
 | `confidence.band.high_min` | [0.7] | Lower bound of the high band. The medium band is between the two. |
+| `confidence.weight.oracle_fired` | [proposed: 0.5] | Added to a link's confidence when an oracle fired |
+| `confidence.weight.path_exists` | [proposed: 0.2] | Added when a code path from an entry route to the sink exists |
+| `confidence.weight.unique_link` | [proposed: 0.15] | Added when the `(route, param, CWE)` group has one sink |
+| `confidence.weight.ambiguous_penalty` | [proposed: -0.25] | Added when the group has several sinks |
+| `confidence.weight.family_match` | [proposed: 0.1] | Added when the payload family matches the sink's CWE family |
 | `export.include_alternatives` | [true] | Alternative sinks in the SAST grader payload |
 | `export.include_suppressed` | [false] | Suppressed findings in the graded export |
 | `export.suppress_cwes` | [proposed: 89, 79, 78, 601, 22] | CWEs whose `tested_negative` and `safe_pattern` findings may be suppressed. Remove a CWE when `wrong_suppression_count` is above zero. |

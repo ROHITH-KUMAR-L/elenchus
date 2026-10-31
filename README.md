@@ -104,19 +104,17 @@ uv run --locked ruff check .
 
 Dependencies live in `pyproject.toml` and are pinned in `uv.lock`. `uv sync` keeps them in `.venv`. Add one with `uv add <package>`, and commit both files. Semgrep is an optional adapter: `uv sync --locked --all-groups --extra semgrep`.
 
-Older pipeline commands (the code that exists today). Until `BS5` reworks it, the `scan` command needs ZAP and the Semgrep extra:
+One command runs the whole pipeline against the running target and its source:
 
-1. Start the target app with its own Compose instructions.
-2. Start ZAP with its API bound to loopback, and set `ZAP_API_KEY`:
+1. Start the target app on loopback (for practice: `docker compose -f infra/vulnerableapp.compose.yaml up -d`).
+2. Start ZAP with its API on loopback and set `ZAP_API_KEY`:
 
    ```sh
    export ZAP_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
    docker compose -f infra/zap.compose.yaml up -d
    ```
 
-   For practice, start VulnerableApp on loopback with `docker compose -f infra/vulnerableapp.compose.yaml up -d`.
-
-3. Run the producers from the host:
+3. Run the scan from the host:
 
    ```sh
    uv run elenchus scan \
@@ -125,7 +123,9 @@ Older pipeline commands (the code that exists today). Until `BS5` reworks it, th
      --no-store
    ```
 
-   Omit `--no-store` to persist results. Start our Postgres first and set `DATABASE_URL`. Postgres setup: [infra/README.md](infra/README.md).
+   Omit `--no-store` to persist results; start our Postgres first and set `DATABASE_URL` (see [infra/README.md](infra/README.md)). Add `--sarif-output <file>` for SARIF (B-6) and `--ci` to fail on Confirmed high-severity issues.
+
+Scope today: the pipeline links error-based SQL injection end to end (the M1 spine). The other classes, the scheduler and negative-evidence suppression are the next build stages; see [docs/implementation-plan.md](docs/implementation-plan.md).
 
 ## 8. Continuous integration
 

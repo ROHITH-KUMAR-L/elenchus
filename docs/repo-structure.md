@@ -44,7 +44,7 @@ The authoritative map of what lives where. Work is split by build stage, not by 
 | `producers/hypotheses/` `[proposed, not created]` | Stage 3: directed and sweep hypotheses | `BS3` |
 | `producers/dast/` | ZAP API client and active-scan integration; ZAP generates and sends payload requests | `BS4` |
 | `probe/` `[proposed, not created]` | Stage 0 preflight and stage 4 ZAP scan coordinator: scheduler, job records, baseline gates, request attribution, verification replay, differential oracles, probe header and canaries, state guard, replay log, header and cookie checks. BS4 built: `preflight.py`, `seeds.py`, `attribution.py`, `oracles.py`, `coordinator.py`. | `BS4` |
-| `engine/correlate/` | Stage 5 correlation, stage 6 verify, labels, scoring | `BS5`, `BS7` |
+| `engine/correlate/` | Stage 5 correlation (lineage links, confidence), stage 6 verify, labels, scoring | `BS5`, `BS7` |
 | `engine/store/` | Postgres persistence | `BS5` |
 | `engine/report/` | Report, SARIF export, suppressed file, coverage report | `BS5`, `BS7`, `BS8` |
 | `cli/` | Calls the stages in order | `BS5` |

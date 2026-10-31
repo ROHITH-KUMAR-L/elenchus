@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from common.config import load_config
 from common.record import ScanTarget
 from engine.correlate import Finding, Issue, correlate
 from engine.report import format_text, to_sarif
@@ -24,11 +25,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("--run-id must not be empty")
         run_id = args.run_id or uuid.uuid4().hex
         if args.command == "scan":
-            findings = _run_producers(args, run_id)
+            config = load_config(overrides={"target.base_url": args.base_url})
+            findings = _run_pipeline(args, run_id, config)
         else:
+            config = load_config()
             records = _load_inputs(args.sast, args.dast)
             findings = [record.with_run_id(run_id) for record in records]
-        issues = correlate(findings)
+        issues = correlate(findings, config)
         if not args.no_store:
             from engine.store import PostgresStore
 
@@ -80,7 +83,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     scan_parser = commands.add_parser(
         "scan",
-        help="run the route map, Semgrep, and localhost ZAP scans",
+        help="run the staged pipeline against source and a localhost target",
     )
     scan_parser.add_argument("--source-path", required=True, help="target source directory")
     scan_parser.add_argument(
@@ -128,14 +131,29 @@ def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _run_producers(args: argparse.Namespace, run_id: str) -> list[Finding]:
-    target = ScanTarget(args.source_path, args.base_url, run_id, args.framework)
-    from producers.dast.zap_runner import run_dast
-    from producers.sast.semgrep_runner import run_sast
-    from producers.sast.spring_routes import route_map
+def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> list[Finding]:
+    """Stages 0 to 4: index, static, hypotheses, preflight, ZAP probe.
 
-    routes = route_map(target)
-    return run_sast(target, routes) + run_dast(target, routes)
+    Static findings carry their own status (untested, no_http_path, ...); probe
+    findings carry ORACLE evidence and lineage. Correlation links the two.
+    """
+    from probe.coordinator import Coordinator, plan_directed_jobs
+    from probe.preflight import check_loopback, detect_context_path
+    from producers.dast.zap_runner import ZapApi
+    from producers.hypotheses.builder import build_directed
+    from producers.sast.code_index import build_code_index
+    from producers.sast.static_stage import run_static
+
+    check_loopback(args.base_url)
+    target = ScanTarget(args.source_path, args.base_url, run_id, args.framework)
+    index = build_code_index(args.source_path)
+    static_findings = run_static(target, index)
+    directed = build_directed(static_findings, index)
+    jobs = plan_directed_jobs(directed, index.routes, run_id)
+    context = detect_context_path(args.source_path, args.base_url)
+    coordinator = Coordinator(ZapApi.from_environment(), config, args.base_url, context)
+    result = coordinator.run(run_id, jobs, index.routes)
+    return static_findings + result.findings
 
 
 def _load_inputs(sast_paths: Sequence[str], dast_paths: Sequence[str]) -> list[Finding]:
