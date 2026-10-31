@@ -37,6 +37,12 @@ def test_required_fixture_rows_exist():
         "runtime-only-header",
         "sweep-hit-matched",
         "sweep-hit-unmatched",
+        "conflict-tested-negative",
+        "conflict-sanitised",
+        "conflict-constant",
+        "response-trace-unique",
+        "response-trace-gap",
+        "response-trace-multiple-matches",
     }
 
 
