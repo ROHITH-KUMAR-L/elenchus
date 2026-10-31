@@ -37,7 +37,6 @@ flowchart TD
     hyp["3 Hypotheses: directed and sweep"]
     probe["4 ZAP active probe engine + project coordinator: baseline gate, differential oracles, canary, replay log"]
     corr["5 Correlation: evidence, link_status, link_origin, dedupe"]
-    bg["5 Back-guided search: relaxed mode (Should, off by default)"]
     ver["6 Verify: status for findings with no oracle hit (tested_negative, blocked, untested, no_http_path)"]
     out["7 Output: labels, scoring, Postgres, CLI, SARIF"]
     src --> idx
@@ -51,8 +50,6 @@ flowchart TD
     hyp --> probe
     probe -- probes --> app
     probe --> corr
-    probe --> bg
-    bg --> corr
     hyp --> corr
     corr --> ver
     ver --> out
