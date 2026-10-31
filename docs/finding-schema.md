@@ -1,54 +1,91 @@
-# Internal finding record (DRAFT contract)
+# Internal finding record (DRAFT contract, revised)
 
-Status: **DRAFT**. Every field is proposed. Ratify in hour one, then freeze.
+Status: **DRAFT**. This revision describes the target state. The fields marked below are not in `common/record.py` yet. Changing the record is a joint, stop-the-world change ([CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 Every component reads and writes this record. It is framework-agnostic: no Spring or JAX-RS field names.
 
-Contract-freeze decisions recorded on branch `feat/contract-freeze`. See [decisions.md](decisions.md) D-07, D-15, D-16, D-17.
-
-Change from the earlier draft: this record is the internal working format only. SARIF 2.1.0 is the interchange format at the edges: Semgrep SARIF in, correlated SARIF out (B-6). See [SARIF mapping](#sarif-mapping-ingestexport-lossy) and [decisions.md](decisions.md) D-13. The record is the source of truth. SARIF is for interop.
+SARIF 2.1.0 is the interchange format at the edges only: SARIF in from the optional Semgrep adapter, correlated SARIF out (B-6). The record is the source of truth. SARIF is for interop. See [SARIF mapping](#sarif-mapping-ingestexport-lossy).
 
 ## Canonical definition
 
 Code in `common/` is canonical. This doc is the human-readable description. When they disagree, the code wins.
 
-Authoritative definition: [`common/record.py`](../common/record.py) (frozen dataclasses with validation in `Finding.from_dict`). It also defines `ScanTarget`, `RouteMap`, `normalise_route()`, `dedupe_key()` and `route_key()`.
+[`common/record.py`](../common/record.py) implements the earlier record. The revised fields below are proposed. Updating `common/record.py`, the engine and the fixtures is a joint change `[TODO: schedule]`.
 
-`normalise_route(url, route_map, base_path="")` takes an optional `base_path` (from `ScanTarget.base_path`). It strips a servlet context path such as `/VulnerableApp` before matching, because route templates leave it out.
+## What changed
+
+| Earlier field or rule | Now |
+|---|---|
+| `reached_via` (handler span, one hop) | `entry_paths`: `{route, method, hops, call_chain}` |
+| `param` filled from the route map or a taint source | `candidate_params` (all params of the route) and `param` (resolved by the oracle, nullable) |
+| `evidence` object | `evidence` list of `{type, detail}` |
+| `confidence` tier A / B / C | Deterministic function of the evidence present. Reasons stored. Scale `[TODO: confirm at kickoff]`. |
+| `risk_score` from severity, exploit ease, confidence | Computed from config: CWE severity table, exploit factor, evidence-based link factor |
+| Dedupe key `(cwe, file, line)`, else `(cwe, route, method, param)` | `(sink_id, cwe)` `[proposed]`. See [Contract logic](#contract-logic). |
+| `taint_trace` from Semgrep | Kept, optional. Null in the Must plan. The own sink finder gives locations only. |
+| Tiers A / B / C | Evidence types `PATH`, `ORACLE`, `TRACE`, `FAMILY` and `link_status` |
 
 ## Fields
 
 | Field | Type | Meaning | Filled by |
 |---|---|---|---|
-| `run_id` | string | Scan run that produced the finding. Used for cross-run merge. | All |
-| `source` | `"sast"` \| `"dast"` | Which scanner produced it. | All |
-| `cwe` | integer | CWE number. Correlation join key. | SAST rule metadata; ZAP alert |
-| `type` | string | Vulnerability type name from the grader vocabulary (see below). | Mapping table |
-| `route` | string \| null | Normalised URL template, e.g. `/api/orders/{id}`. Always the output of `normalise_route()`. | DAST; route map for SAST |
-| `method` | string \| null | HTTP method. Separates two bugs on the same route and CWE. | DAST; route map for SAST |
-| `file` | string \| null | Source file, repo-relative. Sink file for SAST. | SAST; route map for DAST |
-| `line` | integer \| null | Line of the finding (sink line for SAST). | SAST; route map for DAST |
-| `param` | string \| null | Request parameter involved. Main wrong-link guard. | DAST; route map / taint source for SAST |
-| `payload` | string \| null | Payload that triggered the finding. | DAST |
-| `handler_file` | string \| null | File of the handler that contains the finding. Differs from `file` when the sink is in a service class. | SAST, when resolvable |
-| `handler_line_start` | integer \| null | Handler span start. | SAST, when resolvable |
-| `handler_line_end` | integer \| null | Handler span end. | SAST, when resolvable |
-| `reached_via` | array \| null | Handlers that call the method holding the sink (one-hop call edges). Each entry: `route`, `method`, `handler_file`, `handler_line_start`, `handler_line_end`. Tier B matches on this. `[proposed: list, since one service method can be called from several handlers]` | SAST, from the route-map parser's call edges |
-| `evidence` | object | Proof. DAST: oracle name, request, response excerpt. SAST: code snippet. Raw scanner severity also goes here. | All |
-| `taint_trace` | array \| null | Optional source-to-sink path from a SAST tool. Each step: `file`, `line`, `role` (`source` / `step` / `sink`). Semgrep OSS 1.183 SARIF did not include `codeFlows` in our synthetic rule tests, so the current runner sets this to null. | SAST |
-| `severity` | string \| null | The scanner's own severity claim. Shown in the report (FR-1). | Producer, when the scanner gives one |
-| `wasc_id` | integer \| null | Passthrough for the VulnerableApp grader. Not used inside the engine. | ZAP alert |
-| `label` | `"Confirmed"` \| `"Code-only"` \| `"Runtime-only"` | FR-7 label. Set by correlation, not by scanners. | Correlation engine |
-| `confidence` | `"A"` \| `"B"` \| `"C"` \| null | Correlation tier that produced the link. Null if unlinked. | Correlation engine |
-| `risk_score` | number \| null | Our ranking number. f(severity, exploit ease, confidence). Drives FR-9 ordering. Formula `[TODO: confirm at kickoff]`. | Correlation engine |
+| `run_id` | string | Scan run. Used for cross-run merge. | All |
+| `source` | `"sast"` \| `"dast"` | Which stage produced it. | All |
+| `provenance` | `"own"` \| `"semgrep"` \| `"llm"` \| `"zap"` | Which component produced the finding. `semgrep` appears only when the optional adapter ran. | All |
+| `corroborated` | boolean \| null | True when the own finder and the Semgrep adapter flag the same sink. Null when the adapter did not run `[proposed field]`. | Static stage |
+| `cwe` | integer | CWE number. | Rule metadata; probe class |
+| `type` | string | Type name from the grader vocabulary (see below). | Mapping table |
+| `route` | string \| null | Normalised URL template. Always from `normalise_route()`. On a static record, set only when exactly one entry path reaches the sink `[proposed]`. | DAST; static stage |
+| `method` | string \| null | HTTP method. Same rule as `route`. | DAST; static stage |
+| `file` | string \| null | Sink file (SAST). | SAST |
+| `line` | integer \| null | Sink line (SAST). | SAST |
+| `sink_id` | object \| null | `{file, enclosing_method, start_line, start_col}`. Refined later to `(method, call-site ordinal, arg index)` (Could). Copied onto the probe record from its hypothesis `[proposed]`. | Static stage |
+| `entry_paths` | array \| null | Routes that reach the sink. Each: `route`, `method`, `hops` (calls from handler to the sink's method), `call_chain` (method names, handler first) `[proposed element shapes]`. One sink reached from several routes is one record with several entry paths. | Static stage, from the call graph |
+| `hypothesis_id` | string \| null | Id of the hypothesis that produced the finding. Kept through the probe and into the evidence. Null for findings with no hypothesis (own header checks). | Stage 3 |
+| `candidate_params` | array \| null | Params the probe will try. Directed: all params of the route. | Stage 3 |
+| `param` | string \| null | Param the oracle fired on. Null until a probe resolves it, and for static-only findings. | Probe engine |
+| `param_location` | string \| null | Where the param is bound: `query`, `path`, `header`, `cookie`, `body` `[proposed values]`. | Probe engine, from the index |
+| `param_path` | string \| null | Path inside a structured value, e.g. a JSON field `[proposed meaning]`. | Probe engine |
+| `payload` | string \| null | Payload that fired. | Probe engine |
+| `evidence` | array | List of `{type, detail}`. Types: `PATH`, `ORACLE`, `TRACE`, `FAMILY`. Raw artefacts (code snippet, request, response excerpt, canary id, replay-log reference, raw scanner severity) go inside `detail`. | All |
+| `taint_trace` | array \| null | Optional source-to-sink path. Each step: `file`, `line`, `role`. Null in the Must plan. | Own flow engine (Could) |
+| `link_status` | `"unique"` \| `"ambiguous"` \| null | Set after an oracle fires. See [Linking](#linking-and-ambiguity). | Correlation |
+| `link_origin` | `"directed"` \| `"sweep_derived"` \| null | How the link was made: by hypothesis lineage, or by the back-guided static search `[proposed field]`. | Correlation |
+| `ambiguity_group_id` | string \| null | Shared by hypotheses in one `(route, param, CWE)` group of more than one. | Correlation |
+| `alternatives` | array \| null | `sink_id` of every other candidate in the group. | Correlation |
+| `status` | string \| null | For findings with no oracle hit: `tested_negative`, `no_http_path`, `blocked`, `untested`. See [Statuses](#statuses). | Verify stage |
+| `suppressed` | boolean | True for `tested_negative`. Excluded from the primary report and the graded export. | Verify stage |
+| `unlinked_reason` | string \| null | Why a finding has no partner. | Correlation |
+| `injected_route` | string \| null | Route that wrote the value (second-order flows). | Probe engine, from route-pair config |
+| `observed_route` | string \| null | Route where the value fired. | Probe engine |
+| `source_rev` | string \| null | Source revision the scan ran against. Best-effort. | Preflight |
+| `severity` | string \| null | Producer's severity claim. Shown in the report (FR-1). | Producer |
+| `wasc_id` | integer \| null | Passthrough for the VulnerableApp grader. Not used inside the engine. | ZAP alert, or own mapping |
+| `label` | `"Confirmed"` \| `"Code-only"` \| `"Runtime-only"` | FR-7 label. Set by correlation, not by producers. | Correlation |
+| `confidence` | `[TODO: scale]` \| null | Deterministic function of the evidence present. | Correlation |
+| `confidence_reasons` | array \| null | Reasons behind `confidence` `[proposed field]`. | Correlation |
+| `risk_score` | number \| null | Our ranking number. Drives FR-9 ordering. Weights live in config. | Correlation |
 
-`severity` and `risk_score` are two fields. Do not collapse them. `severity` is the scanner's claim. `risk_score` is our ranking.
+`severity` and `risk_score` are two fields. Do not collapse them.
 
-Handler fields are optional. A code-only secret has no handler.
+`handler_file`, `handler_line_start` and `handler_line_end` are unchanged in the earlier record. They have no consumer in the revised correlation, because Tier A and Tier B are gone. `[TODO: keep or drop]`
+
+## Hypothesis shape
+
+A hypothesis is a pipeline object, not a finding. It lives in `common/` with the record. Same freeze rules.
+
+| Field | Meaning |
+|---|---|
+| `hypothesis_id` | Stable id `[proposed: hash of kind, route, method, cwe, sink_id]` |
+| `kind` | `directed` or `sweep` |
+| `route`, `method` | Route under test |
+| `cwe` | Class to probe |
+| `sink_id`, `call_path` | Directed only. From the static stage. |
+| `candidate_params` | Directed: all params of the route. Sweep: one param. |
+
+Directed hypotheses come from static findings. Sweep hypotheses cover every param against every supported class, for bugs static analysis missed.
 
 ## Other contract shapes
-
-These live in `common/` with the record. Same freeze rules.
 
 ### ScanTarget
 
@@ -61,42 +98,82 @@ Immutable input config. Built once by the CLI.
 | `run_id` | This run |
 | `framework` | Adapter to use, e.g. Spring MVC `[proposed]` |
 
-### RouteMap
+### CodeIndex
 
-Derived output of `route_map(target)`. One entry per handler.
+Derived output of stage 1. Replaces `RouteMap` as the stage-1 output `[proposed; RouteMap becomes the route-table part]`.
 
-| Field | Meaning |
+| Part | Contents |
 |---|---|
-| `route` | Normalised URL template |
-| `method` | HTTP method |
-| `file` | Handler file |
-| `func` | Handler method name |
-| `line_start`, `line_end` | Handler span |
-| `params` | Request params the handler reads |
-| `calls` | Methods the handler calls (one-hop call edges). Feeds `reached_via`. |
+| Route table | Route template, method, handler file, function, line span |
+| Param bindings | Param name, location, Java type |
+| Call graph | Method-to-method edges. Unresolved calls are flagged, never dropped. |
+| Sink inventory | Sink call sites with `sink_id` and CWE |
 
-### Producer entries
+### Stage data
 
-```
-route_map(target) -> RouteMap            # Person A. CLI calls first.
-run_sast(target, route_map) -> [Record]  # Person A
-run_dast(target, route_map) -> [Record]  # Person A. Uses the map to seed ZAP.
-```
+Signatures `[TODO: ratify]`.
 
-The CLI builds the map once, passes it to both scanners, then passes the map and all records to the engine.
+| Stage | Output |
+|---|---|
+| 1 Code index | `CodeIndex` |
+| 2 Static | Static findings: records with `source: sast`, `status: untested`, `entry_paths`, no `param` |
+| 3 Hypotheses | Hypothesis list |
+| 4 Probe | Records with `source: dast`, `hypothesis_id`, resolved `param`, `ORACLE` evidence |
+| 5 to 6 Correlate, verify | Issues with label, `link_status`, `status` |
 
 ### Contract logic
 
 | Function | Rule |
 |---|---|
-| `normalise_route(url, route_map) -> template` | Maps a concrete URL (`/orders/5`) to its template (`/orders/{id}`) using the route map. Every `route` value comes from this. |
-| `dedupe_key(record)` | `(cwe, file, line)` when file and line are present. Else `(cwe, route, method, param)`. App-wide header findings: `(cwe, header_name)`, with `header_name` read from `evidence` `[proposed]`. |
+| `normalise_route(url, route_map) -> template` | Maps a concrete URL (`/orders/5`) to its template (`/orders/{id}`) using the route table. Every `route` value comes from this. Strips a servlet context path via `ScanTarget.base_path`. |
+| `dedupe_key(record)` | `(sink_id, cwe)` `[proposed]`. The resolved `param` is an attribute. Several firing params on one sink are several `evidence` entries on one issue. |
 
-Header counting: does the answer key count a missing header per URL or per app? `[TODO: confirm at kickoff]`. Collapse to one per header for now. Flip if the answer key counts per URL.
+The new key replaces `(sink_id, param)` because `param` is unknown for static-only findings.
+
+Findings with no `sink_id` (runtime-only, sweep hits with no static match, header findings) need a fallback key. The earlier record used `(cwe, route, method, param)` and `(cwe, header_name)`. Carry those over until decided. `[TODO: decide]`
+
+Header counting: does the answer key count a missing header per URL or per app? `[TODO: confirm at kickoff]`. Collapse to one per header for now.
 
 ### Merge rule
 
-When the engine links a pair, it searches stored issues by both the code key and the route key. It merges into any match, including a stored Runtime-only issue. It creates a new issue only when neither key matches. Engine code is Person B's. The rule is frozen here because both keys must stay stable.
+A new probe or static finding searches stored issues by `dedupe_key` and merges into any match. A sink reached from several routes is one issue with several `entry_paths`. A config flag decides how the export counts it `[TODO: flag name]`.
+
+## Linking and ambiguity
+
+A firing probe proves that route, param and CWE are exploitable. It does not prove which sink on that route is the cause.
+
+| Case | `link_status` | Result |
+|---|---|---|
+| One hypothesis in the `(route, param, CWE)` group | `unique` | Linked by lineage: `hypothesis_id` carried through the probe |
+| More than one hypothesis in the group | `ambiguous` | Lower confidence. All candidate sinks attached in `alternatives`. One primary chosen. |
+| Sweep hit, back-guided search finds one sink | `unique` | `link_origin: sweep_derived`. `PATH` evidence attached. Lower confidence. |
+| Sweep hit, back-guided search finds several sinks | `ambiguous` | `link_origin: sweep_derived`. Alternatives attached. Lower confidence. |
+| Sweep hit, no sink found | null | Stays Runtime-only. `unlinked_reason` set. |
+| Header or cookie finding | null | Never force-linked. Stays Runtime-only. |
+
+Primary choice rule `[proposed: more specific catalogue match first, then shorter call path, then source order; Semgrep corroboration counts only if the adapter ran]`. A match on receiver type and call name is more specific than a match on call name alone `[proposed meaning]`. `TRACE` resolves ambiguity when present. `TRACE` needs the optional log tail, which is off in judging mode.
+
+Evidence types `[proposed meanings]`:
+
+| Type | Meaning |
+|---|---|
+| `PATH` | A call path exists from an entry route to the sink |
+| `ORACLE` | A probe oracle fired. Detail holds oracle name, canary id, baseline status, replay-log reference. |
+| `TRACE` | The app log shows the payload reaching the sink. Optional. |
+| `FAMILY` | The payload family that fired matches the CWE family of the sink |
+
+## Statuses
+
+Every static finding without an oracle hit gets exactly one status.
+
+| `status` | Meaning | Report |
+|---|---|---|
+| `tested_negative` | Baseline valid for every candidate param, every candidate param probed, all payload families for the CWE tried within budget | Suppressed. Kept in Postgres. Excluded from the primary report and the graded export. Written to a separate suppressed file. |
+| `no_http_path` | No route reaches the sink | Primary report, Code-only, reason shown. Never set for secrets and crypto findings (CWE-798 and similar). |
+| `blocked` | Baseline gate failed | Primary report, Code-only |
+| `untested` | Not reached | Primary report, Code-only |
+
+Flags `[proposed]`: `export.include_suppressed` (default false), `export.suppress_no_http_path` (default false).
 
 ## Vocabulary alignment
 
@@ -117,7 +194,7 @@ The VulnerableApp grader (`POST /VulnerableApp/scanner/benchmark`) matches on it
 
 For the VulnerableApp grader only, internal CWE-78 is translated to grader CWE-77. The internal finding remains CWE-78. See `common/vocabulary.py`.
 
-Grader request bodies, as stated in VulnerableApp's docs (not yet exercised by us):
+Grader request bodies, as stated in VulnerableApp's docs:
 
 - DAST: `{ tool, scanType: "DAST", findings: [ {url, type, cwe, wascId} ] }`
 - SAST: `{ tool, scanType: "SAST", findings: [ {filePath, line, cwe, type} ] }`
@@ -126,139 +203,194 @@ The grader takes its own JSON. It is a third boundary format, separate from our 
 
 ## SARIF mapping (ingest/export, lossy)
 
-SARIF is mapped to and from the internal record only at the edges.
+**Ingest.** Only the optional Semgrep adapter ingests SARIF. Its output becomes static findings with `provenance: semgrep`. The own finders do not use SARIF. `ruleId` and rule metadata give `cwe` and `type`. `locations` give the sink `file` and `line`. Semgrep gives no param and no trace, so `param` and `taint_trace` stay null. The own finders also leave them null.
 
-**Ingest.** Semgrep SARIF output becomes internal records. `ruleId` and rule metadata give `cwe` and `type`. `locations` give `file` and `line`. Synthetic scans with Semgrep OSS 1.183 confirmed that taint results contain no `codeFlows`; the runner therefore sets `taint_trace` to null.
-
-**Export (B-6).** Each correlated issue becomes one SARIF `result`. Fields with no SARIF home go in `result.properties`. The mapping is lossy.
+**Export (B-6).** Each correlated issue becomes one SARIF `result`. Fields with no SARIF home go in `result.properties`. The mapping is lossy. The internal record is the source of truth.
 
 | Internal field | SARIF export location | Loss |
 |---|---|---|
 | `file`, `line` | `locations[0].physicalLocation` | None |
-| `taint_trace` | `properties.taint_trace` | Ignored by most viewers |
-| `reached_via` | `properties.reached_via`; each handler also in `relatedLocations` | Viewers show only the related locations |
-| `method`, `handler_*`, `wasc_id` | `properties` | Ignored by most viewers |
-| `cwe` | `properties.cwe`; rule tags `[TODO: GitHub code-scanning tag format]` | None in file |
-| `type` | `ruleId`, `message.text` | None in file |
+| `sink_id` | `locations[0]`, plus `partialFingerprints` `[proposed]` | Column kept only in fingerprint |
+| `entry_paths`, `hypothesis_id`, `provenance` | `properties` | Ignored by most viewers |
+| `alternatives`, `link_status`, `ambiguity_group_id` | `properties`. Alternative sinks also in `relatedLocations` `[proposed]`. | Viewers show only related locations |
+| `evidence`, `confidence_reasons`, `corroborated`, `link_origin` | `properties` | Ignored by most viewers |
+| `suppressed` | SARIF `suppressions` `[verify against the 2.1.0 spec]` | None if supported |
+| `status`, `param`, `payload`, `method`, `route` | `properties` | Ignored by most viewers |
 | `severity` | `level` (`error` / `warning` / `note`) | Coarser scale |
-| `route`, `param`, `payload`, `evidence` | `properties` | Ignored by most viewers |
 | `label`, `confidence`, `risk_score`, `run_id`, `source` | `properties` | Ignored by most viewers |
+| `cwe`, `type` | `properties.cwe`, `ruleId`, `message.text`. Rule tags `[TODO: GitHub code-scanning tag format]` | None in file |
 
-Runtime-only issues have no `file`/`line`. How to export them in SARIF: `[TODO: open question]`
+The graded export excludes suppressed findings. The suppressed file holds them, one SARIF result each with `suppressions` set `[proposed]`.
 
-CI mode: exit non-zero when any issue is `Confirmed` with high severity. Severity threshold: `[TODO: confirm]`
+Issues with no `file` or `line` (Runtime-only, sweep hits): how to export them in SARIF `[TODO: open question]`. Whether to use SARIF `webRequest` and `webResponse` for `ORACLE` detail `[TODO: open question]`.
 
-Example: the Confirmed SQLi issue from the examples below, exported as a SARIF result. Illustrative only.
-
-```json
-{
-  "ruleId": "[TODO: rule id]",
-  "level": "error",
-  "message": { "text": "SQL injection (CWE-89). Confirmed." },
-  "locations": [
-    { "physicalLocation": {
-        "artifactLocation": { "uri": "src/main/java/com/example/shop/OrderService.java" },
-        "region": { "startLine": 88 } } }
-  ],
-  "relatedLocations": [
-    { "id": 1,
-      "message": { "text": "Reached via handler" },
-      "physicalLocation": {
-        "artifactLocation": { "uri": "src/main/java/com/example/shop/OrderController.java" },
-        "region": { "startLine": 40 } } }
-  ],
-  "properties": {
-    "run_id": "example-run",
-    "cwe": 89,
-    "label": "Confirmed",
-    "confidence": "B",
-    "risk_score": null,
-    "route": "/api/orders/{id}",
-    "method": "GET",
-    "param": "id",
-    "payload": "1'",
-    "evidence": { "oracle": "db_error", "response_excerpt": "..." },
-    "reached_via": [
-      { "route": "/api/orders/{id}", "method": "GET",
-        "handler_file": "src/main/java/com/example/shop/OrderController.java",
-        "handler_line_start": 40, "handler_line_end": 47 }
-    ]
-  }
-}
-```
+CI mode: exit non-zero when any issue is `Confirmed` with high severity. Threshold `[TODO: confirm]`.
 
 ## Examples
 
-Illustrative only. File paths, names and port are placeholders.
+Illustrative only. File paths, ids and port are placeholders. Handler fields are omitted. All three examples use the same route, `GET /api/orders/{id}`.
 
-SAST finding in a Spring service class. The sink is in the service. The controller that calls it is in `reached_via`. Semgrep OSS gives a trace inside the service method only.
+### Static finding (stage 2 output)
+
+A SQL sink in a service class. The own sink finder matched it by call name and receiver type. The call graph walked backward to one route. No param is known yet.
 
 ```json
 {
   "run_id": "example-run",
   "source": "sast",
+  "provenance": "own",
   "cwe": 89,
-  "type": "[TODO: grader type]",
+  "type": "SQL Injection",
   "route": "/api/orders/{id}",
   "method": "GET",
   "file": "src/main/java/com/example/shop/OrderService.java",
   "line": 88,
-  "param": "id",
+  "sink_id": {
+    "file": "src/main/java/com/example/shop/OrderService.java",
+    "enclosing_method": "OrderService.find",
+    "start_line": 88,
+    "start_col": 31
+  },
+  "entry_paths": [
+    { "route": "/api/orders/{id}", "method": "GET", "hops": 1,
+      "call_chain": ["OrderController.get", "OrderService.find"] }
+  ],
+  "hypothesis_id": "h-3f9a",
+  "candidate_params": ["id", "sort"],
+  "param": null,
+  "param_location": null,
+  "param_path": null,
   "payload": null,
-  "handler_file": null,
-  "handler_line_start": null,
-  "handler_line_end": null,
-  "reached_via": [
-    { "route": "/api/orders/{id}", "method": "GET",
-      "handler_file": "src/main/java/com/example/shop/OrderController.java",
-      "handler_line_start": 40, "handler_line_end": 47 }
+  "evidence": [
+    { "type": "PATH",
+      "detail": { "snippet": "stmt.executeQuery(\"SELECT * FROM orders WHERE id = \" + id)",
+                  "catalogue_entry": "[TODO: catalogue id]" } }
   ],
-  "evidence": { "snippet": "stmt.executeQuery(\"SELECT * FROM orders WHERE id = \" + id)" },
-  "taint_trace": [
-    { "file": "src/main/java/com/example/shop/OrderService.java", "line": 85, "role": "source" },
-    { "file": "src/main/java/com/example/shop/OrderService.java", "line": 88, "role": "sink" }
-  ],
-  "severity": "[TODO: Semgrep rule severity]",
+  "taint_trace": null,
+  "corroborated": null,
+  "severity": "high",
+  "status": "untested",
+  "suppressed": false,
+  "link_status": null,
+  "ambiguity_group_id": null,
+  "alternatives": null,
+  "unlinked_reason": null,
+  "injected_route": null,
+  "observed_route": null,
+  "source_rev": null,
   "wasc_id": null,
   "label": null,
   "confidence": null,
+  "confidence_reasons": null,
   "risk_score": null
 }
 ```
 
-`handler_*` is null here because the sink is not inside a handler. It would be filled if the sink sat directly in the controller method.
+### Probe finding (stage 4 output)
 
-DAST finding from ZAP, after our oracle check.
+The probe engine tried both candidate params. The oracle fired on `id`.
 
 ```json
 {
   "run_id": "example-run",
   "source": "dast",
+  "provenance": "own",
   "cwe": 89,
-  "type": "[TODO: grader type]",
+  "type": "SQL Injection",
   "route": "/api/orders/{id}",
   "method": "GET",
   "file": null,
   "line": null,
-  "param": "id",
-  "payload": "1'",
-  "handler_file": null,
-  "handler_line_start": null,
-  "handler_line_end": null,
-  "reached_via": null,
-  "evidence": {
-    "oracle": "db_error",
-    "request": "GET http://localhost:[TODO: port]/api/orders/1'",
-    "response_excerpt": "...",
-    "scanner_severity": "[TODO: ZAP risk]"
+  "sink_id": {
+    "file": "src/main/java/com/example/shop/OrderService.java",
+    "enclosing_method": "OrderService.find",
+    "start_line": 88,
+    "start_col": 31
   },
+  "entry_paths": null,
+  "hypothesis_id": "h-3f9a",
+  "candidate_params": ["id", "sort"],
+  "param": "id",
+  "param_location": "path",
+  "param_path": null,
+  "payload": "1'",
+  "evidence": [
+    { "type": "ORACLE",
+      "detail": { "oracle": "db_error",
+                  "canary_id": "elx-7c1e",
+                  "baseline_status": 200,
+                  "request": "GET http://localhost:[TODO: port]/api/orders/1'",
+                  "replay_log": "[TODO: path]" } }
+  ],
   "taint_trace": null,
   "severity": null,
-  "wasc_id": "[TODO: from ZAP alert]",
+  "status": null,
+  "suppressed": false,
+  "link_status": null,
   "label": null,
   "confidence": null,
   "risk_score": null
 }
 ```
 
-After correlation, both merge into one issue with `label: "Confirmed"` and `confidence: "B"`. Tier B matches because the DAST route and method appear in the SAST record's `reached_via`, with the same CWE and param.
+After correlation the two merge into one issue. The group `(/api/orders/{id}, id, 89)` has one hypothesis, so the link is unique:
+
+```json
+{
+  "label": "Confirmed",
+  "link_status": "unique",
+  "param": "id",
+  "evidence": [
+    { "type": "PATH",   "detail": { "call_chain": ["OrderController.get", "OrderService.find"] } },
+    { "type": "ORACLE", "detail": { "oracle": "db_error", "canary_id": "elx-7c1e" } },
+    { "type": "FAMILY", "detail": { "payload_family": "sqli-error", "cwe": 89 } }
+  ],
+  "confidence": "[TODO: scale]",
+  "confidence_reasons": ["oracle fired", "one hypothesis in group", "path exists"],
+  "risk_score": null
+}
+```
+
+### Ambiguous group
+
+A second SQL sink, `OrderRepository.load`, sits behind the same route. Both sinks produce a hypothesis. The probe fires once, on `id`.
+
+```json
+{
+  "label": "Confirmed",
+  "link_status": "ambiguous",
+  "ambiguity_group_id": "g-1",
+  "route": "/api/orders/{id}",
+  "method": "GET",
+  "param": "id",
+  "cwe": 89,
+  "sink_id": {
+    "file": "src/main/java/com/example/shop/OrderService.java",
+    "enclosing_method": "OrderService.find",
+    "start_line": 88,
+    "start_col": 31
+  },
+  "alternatives": [
+    { "file": "src/main/java/com/example/shop/OrderRepository.java",
+      "enclosing_method": "OrderRepository.load",
+      "start_line": 41,
+      "start_col": 20 }
+  ],
+  "evidence": [
+    { "type": "PATH",   "detail": { "hypotheses": ["h-3f9a", "h-81bd"] } },
+    { "type": "ORACLE", "detail": { "oracle": "db_error", "canary_id": "elx-7c1e" } },
+    { "type": "FAMILY", "detail": { "payload_family": "sqli-error", "cwe": 89 } }
+  ],
+  "confidence": "[TODO: scale]",
+  "confidence_reasons": [
+    "oracle fired",
+    "2 hypotheses in group",
+    "primary by rule: more specific catalogue match",
+    "no TRACE evidence"
+  ]
+}
+```
+
+The oracle proves the route and param. It does not say whether line 88 or line 41 is the cause. The primary is chosen by the stated rule. The alternative stays attached.
+
+Whether the alternative sink also stays in the SAST export as its own finding `[TODO: decide]`. The code-detection score counts SAST findings by file and line.
