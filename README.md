@@ -35,16 +35,16 @@ CWE must match in every tier. Param match guards against wrong links.
 | Tier | Rule |
 |---|---|
 | A | SAST sink line inside the DAST route's handler span, same param |
-| B | Taint source of the SAST trace inside the handler span, sink in any file (Spring controller → service) |
+| B | DAST route is in the SAST record's `reached_via`: a handler calls the method holding the sink (Spring controller → service) |
 | C | Route + param only. Low confidence. |
 
 - Linked pair → **Confirmed**
 - SAST finding with no link → **Code-only**
 - DAST finding with no code location → **Runtime-only** (e.g. missing security headers)
 
-Merge and dedupe on `(cwe, file, line)` across runs via `run_id`. Dedupe key for Runtime-only findings: `[TODO]`
+Dedupe key: `(cwe, file, line)` when present, else `(cwe, route, method, param)`. A newly linked pair merges into any stored issue matching either key.
 
-Tier B needs a cross-file taint trace. Semgrep OSS taint is intraprocedural. How we get the trace: `[TODO: open question]`
+Tier B uses one-hop call edges from the route-map parser, not a cross-file taint trace. Semgrep OSS taint stays inside one function.
 
 ### Oracles
 

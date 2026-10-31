@@ -17,7 +17,7 @@ Status: plan. Nothing is built or measured. Hackathon length and team size: `[TO
 | 7. Harden + measure | Run on the organisers' app. Measure links against the 20 pairs. Fix wrong links. | Scoring |
 | 8. Secondary + bonus | JAX-RS adapter. AI helpers B-4, B-3. Then B-2, B-6 (SARIF export + CI exit code), B-5 (scan comparison from the run store). | Bonus points |
 
-Tier B depends on a cross-file trace. Phase 5 is blocked until D-07 is resolved. See [decisions.md](decisions.md).
+D-07 is resolved: Tier B uses call edges (`reached_via`). Phase 3's route-map parser must emit one-hop call edges. See [decisions.md](decisions.md).
 
 ## Dependency order
 

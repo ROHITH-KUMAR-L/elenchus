@@ -31,7 +31,7 @@ ADR-style. Status: proposed unless marked otherwise. Nothing here is validated b
 ## D-05 Semgrep taint mode over pattern rules
 
 - **Decision:** Use taint mode for the four injection classes. Use pattern or secret rules only for the secrets/crypto pass.
-- **Why:** Taint mode tracks source-to-sink flow and respects sanitisers. Parameterised-query decoys do not fire. The trace also feeds Tier B.
+- **Why:** Taint mode tracks source-to-sink flow and respects sanitisers. Parameterised-query decoys do not fire. The trace is kept as evidence. Tier B uses call edges instead (D-07).
 - **Rejected:** Pattern-only rules. They flag decoys and give no trace.
 
 ## D-06 ZAP over Nuclei for core DAST
@@ -42,10 +42,12 @@ ADR-style. Status: proposed unless marked otherwise. Nothing here is validated b
 
 ## D-07 Confidence-tiered correlation, Tier B main path
 
-- **Decision:** Link in tiers A (sink in handler span), B (taint source in handler span), C (route + param). Output confidence. Tier B is the main path on Spring.
+- **Decision:** Link in tiers A (sink in handler span), B (handler reaches the sink's method by a one-hop call edge), C (route + param). Output confidence. Tier B is the main path on Spring.
 - **Why:** Spring layers controller → service. The sink is usually outside the handler, so Tier A alone misses most pairs.
 - **Rejected:** A single boolean rule (line containment only).
-- **Open:** Semgrep OSS taint is intraprocedural. It does not produce a controller-to-service trace. The way Tier B gets a cross-file trace is undecided. `[TODO: open question]`
+- **Resolved (contract freeze):** Tier B keys off a one-hop call edge from the route-map parser, carried on the record as `reached_via`. It does not use a cross-file taint trace. Semgrep OSS taint is intraprocedural, so it cannot supply one.
+- **Rejected for Tier B:** Semgrep Pro interprocedural taint (paid, setup risk at kickoff). LLM-inferred links as the primary path (allowed only as an advisory fallback, lowest confidence, never a clean Confirmed).
+- **Open:** Check call-edge extraction against the real app's layering: hop depth, interface-to-implementation, param-to-argument mapping. `[TODO: confirm at kickoff]`
 
 ## D-08 Deterministic core, AI advisory
 
@@ -91,7 +93,7 @@ ADR-style. Status: proposed unless marked otherwise. Nothing here is validated b
 ## D-13 SARIF at boundaries, rich record internally
 
 - **Decision:** SARIF 2.1.0 is the interchange and output format. We ingest Semgrep findings as SARIF. We export correlated results as SARIF for B-6, and CI mode fails the build on Confirmed high-severity issues. Inside the engine, every component uses the internal finding record. Mapping happens only at ingest and export. The export is lossy. The record is the source of truth.
-- **Why not SARIF internally:** SARIF is file/line oriented. Correlation needs fields it has no general place for: a DAST finding's URL, method, parameter, payload and runtime evidence; our label, confidence tier and risk score; and the Semgrep `taint_trace` that Tier B matches on. Holding these in `properties` bags inside the engine would make the scored core depend on untyped extension data.
+- **Why not SARIF internally:** SARIF is file/line oriented. Correlation needs fields it has no general place for: a DAST finding's URL, method, parameter, payload and runtime evidence; our label, confidence tier and risk score; the Semgrep `taint_trace`; and the `reached_via` call edges that Tier B matches on. Holding these in `properties` bags inside the engine would make the scored core depend on untyped extension data.
 - **Rejected:** SARIF as the internal format. Also rejected: no SARIF at all, which loses Semgrep's standard output and B-6.
 - **Note on the rationale:** SARIF 2.1.0 does define `webRequest` / `webResponse` objects and `codeFlows` on results `[verify against the 2.1.0 spec]`. So "no native place" is not strictly true for URL, method, payload or trace. The decision still holds: these fields are rarely used by consumers, and SARIF has no field for label, confidence or the two-source merge. Whether the export should use `webRequest` and `codeFlows` in addition to `properties`: `[TODO: open question]`
 - **Boundary formats:** Semgrep SARIF in. SARIF out. VulnerableApp grader JSON out, which is separate and not SARIF.
@@ -110,3 +112,29 @@ ADR-style. Status: proposed unless marked otherwise. Nothing here is validated b
   - No persistent store. Then FR-6 re-run dedupe and B-5 have nothing to compare against.
 - **Note:** Persistence is our tool's own state. It does not change the localhost-only rule or CLI-only delivery (D-10).
 - **Open:** If the CLI or ZAP runs in a container, its `localhost` is the container, not the host. Placement: `[TODO: open question]`
+
+## D-15 Code in common/ is canonical; contract logic lives there too
+
+- **Decision:** The record model in `common/` is the source of truth. [finding-schema.md](finding-schema.md) describes it and points to it. When they disagree, the code wins. `common/` also holds the contract logic both halves must compute identically: `normalise_route(url, route_map)` and `dedupe_key(record)`. Changes to contract logic are stop-the-world, like the schema.
+- **Why:** A prose schema drifts from code as soon as one side is edited. If A and B normalise routes differently, Tier A/B matching and dedupe disagree without any error.
+- **Rejected:** The doc as canonical. Each half writing its own normaliser.
+- **Note:** This is a named exception to "the halves never meet through shared code" ([repo-structure.md](repo-structure.md)). No shared component code. Only contract code.
+- **Open:** Model style (dataclass / TypedDict / Pydantic). `[TODO: decide]`
+
+## D-16 Separate route_map() entry; ScanTarget stays immutable
+
+- **Decision:** Producer entries are `route_map(target) -> RouteMap`, `run_sast(target, route_map) -> [Record]` and `run_dast(target, route_map) -> [Record]`. `ScanTarget` holds `source_path`, `base_url`, `run_id` and `framework`. The CLI computes the map once and passes it to both scanners and the engine.
+- **Why:** The map is needed by DAST seeding, by SAST (`reached_via`) and by the engine. `ScanTarget` is input config. The map is derived output. Keeping them apart avoids mutating the target after construction.
+- **Rejected:** One `run(target)` for all producers (cannot return the map). The map as a field on `ScanTarget`.
+
+## D-17 Dedupe keys, merge rule and severity
+
+- **Decision:**
+  - `dedupe_key`: `(cwe, file, line)` when present, else `(cwe, route, method, param)`. Routes are normalised to templates first.
+  - App-wide header findings collapse to `(cwe, header_name)`.
+  - Merge rule: a newly linked pair searches stored issues by both keys and merges into any match, including a stored Runtime-only issue.
+  - `severity` is the scanner's claim, filled by the producer and shown in the report (FR-1). `risk_score` is our ranking, filled by the engine (FR-9). Raw scanner severity also goes in `evidence`.
+  - `method` is a real field. `wasc_id` is an optional passthrough for the grader, unused internally.
+- **Why:** One key alone splits a bug across runs when it moves from Runtime-only to Confirmed, which breaks FR-6. `method` separates two bugs on one route and CWE.
+- **Rejected:** A single `(cwe, file, line)` key. Engine-only severity (fails FR-1).
+- **Open:** Does the answer key count missing headers per URL or per app? `[TODO: confirm at kickoff]`. Collapse for now. Flip if needed.

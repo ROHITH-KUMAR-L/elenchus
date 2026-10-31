@@ -2,7 +2,7 @@
 
 **Owner:** Person B.
 
-The single integration seam. It calls each producer's `run()`-style entry, collects the records, and passes them to the engine. This is the only place where producers and engine connect.
+The single integration seam. It builds `ScanTarget`, calls `route_map(target)` once, then `run_sast` and `run_dast` with the map, and passes the map and all records to the engine (D-16). This is the only place where producers and engine connect.
 
 It lives on B's side so there is no shared orchestration file. Person A changes producer entries only through the contract in `common/`, never by editing this dir.
 

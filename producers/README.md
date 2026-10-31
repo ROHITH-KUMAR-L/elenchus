@@ -9,6 +9,6 @@ Everything that writes a finding record. A's job ends when a finding exists as a
 | `producers/sast/` | Semgrep runner. Spring MVC route-map parser. JAX-RS route-map adapter. |
 | `producers/dast/` | ZAP runner. Deterministic oracles. |
 
-All Java/framework-specific parsing and all HTTP attack logic live here and nowhere else. Each producer exposes a `run()`-style entry that returns records. The CLI calls it. Exact signature: `[TODO: confirm at kickoff]`
+All Java/framework-specific parsing and all HTTP attack logic live here and nowhere else. Entries: `route_map(target) -> RouteMap`, `run_sast(target, route_map) -> [Record]`, `run_dast(target, route_map) -> [Record]` (D-16). The route-map parser also emits one-hop call edges for `reached_via`.
 
 Do not edit this dir if you don't own it.

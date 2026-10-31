@@ -18,7 +18,8 @@ Rules for AI coding agents working in this repo.
 
 ## Schema first
 
-- The internal finding record in [docs/finding-schema.md](docs/finding-schema.md) is the contract. Read and write only that shape.
+- The internal finding record is the contract. Code in `common/` is canonical; [docs/finding-schema.md](docs/finding-schema.md) describes it. Read and write only that shape.
+- Use `normalise_route()` and `dedupe_key()` from `common/`. Never write a second route normaliser or key function.
 - Do not add, rename or drop fields without updating that doc first.
 - Keep `type` and `cwe` aligned to the VulnerableApp grader vocabulary.
 - SARIF is ingest and export only. Never collapse the internal record into SARIF. Never pass SARIF between internal components.

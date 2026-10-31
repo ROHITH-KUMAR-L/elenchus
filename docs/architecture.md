@@ -25,7 +25,15 @@ Status: plan. Nothing is built.
 | Grader client | No | Sends findings to the VulnerableApp grader in its own JSON. Practice only. |
 | AI helpers | No | Advisory only: fix text, link explanations, false-positive demotion. |
 
-Adapter interface: two operations per framework, `sast(source_dir)` and `route_map(source_dir)`. `sast` returns internal finding records. Exact signatures: `[TODO: ratify in hour one]`
+Producer entries (frozen in `common/`, see [finding-schema.md](finding-schema.md)):
+
+```
+route_map(target) -> RouteMap
+run_sast(target, route_map) -> [Record]
+run_dast(target, route_map) -> [Record]
+```
+
+The SAST and route-map entries are framework-specific. The DAST entry is not. The route-map parser also records one-hop call edges from each handler.
 
 | Adapter | Status | Route annotations | Param annotations |
 |---|---|---|---|
@@ -70,17 +78,22 @@ Output is a confidence tier, not a boolean. CWE must match in every tier. Param 
 | Tier | Rule | Confidence | Notes |
 |---|---|---|---|
 | A | SAST sink line inside the DAST route's handler span, same param | Highest | Rare on Spring: the sink usually sits in a service class. |
-| B | Taint **source** end of the SAST trace inside the handler span, sink anywhere | High | **Main path on Spring.** Controller → service layering puts the sink in another file. |
+| B | DAST route + method appears in the SAST record's `reached_via` (one-hop call edge from a handler to the method holding the sink), same param | High | **Main path on Spring.** Controller → service layering puts the sink in another file. |
 | C | Route + param match only, no line link | Low | Linked but flagged. |
 
 - No SAST partner: Runtime-only.
 - No DAST partner: Code-only.
-- Merge and dedupe on `(cwe, file, line)` across runs via `run_id`.
+- Dedupe key: `dedupe_key()` in `common/`. `(cwe, file, line)` when present, else `(cwe, route, method, param)`. App-wide header findings collapse to `(cwe, header_name)`.
+- Merge rule: a newly linked pair searches stored issues by both keys and merges into any match, including a stored Runtime-only issue.
 - Sort: Confirmed first, then `risk_score` = f(severity, exploit ease, confidence).
 
-Tier B depends on a source-to-sink trace that spans controller and service. Semgrep OSS taint is intraprocedural only. Cross-file taint is a Semgrep Pro feature. How we get a cross-file trace is unresolved: `[TODO: open question, see decisions.md D-07]`
+Tier B uses call edges from the route-map parser, not a cross-file taint trace. Semgrep OSS taint stays inside one function. See [decisions.md](decisions.md) D-07.
 
-Dedupe key for Runtime-only findings (no `file`/`line`): `[TODO: confirm]`
+Call-edge limits to check against the real app `[TODO: confirm at kickoff]`:
+
+- One hop only. A sink in a repository called by the service is two hops away.
+- Service interfaces. The controller calls `OrderService.find()`, but the sink is in `OrderServiceImpl`. The parser must resolve interface to implementation.
+- Param mapping. The DAST param name belongs to the controller. The service method may name its argument differently. Tier B's param guard must map controller request params to call arguments.
 
 ## Oracles
 
