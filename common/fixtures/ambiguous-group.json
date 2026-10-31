@@ -37,7 +37,6 @@
           ]
         }
       ],
-      "hypothesis_id": "h-a",
       "candidate_params": [
         "id",
         "sort"
@@ -91,7 +90,6 @@
           ]
         }
       ],
-      "hypothesis_id": "h-b",
       "candidate_params": [
         "id",
         "sort"
@@ -117,7 +115,6 @@
       "type": "SQL Injection",
       "route": "/api/orders/{id}",
       "method": "GET",
-      "hypothesis_id": "h-a",
       "candidate_params": [
         "id",
         "sort"
@@ -130,6 +127,11 @@
           "type": "ORACLE",
           "detail": {
             "oracle": "db_error",
+            "job_pass": "directed",
+            "hypothesis_ids": [
+              "h-01f0e72b97f256be",
+              "h-0cb8dc14a707eb54"
+            ],
             "canary_id": "elx-fixture",
             "zap_job_id": "j-1",
             "zap_scan_id": "1",

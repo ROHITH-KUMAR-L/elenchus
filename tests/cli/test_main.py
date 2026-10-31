@@ -5,11 +5,14 @@ import io
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.main import _apply_adequacy, _PipelineOutput, main
-from common.record import Finding
+from cli.main import _apply_adequacy, _apply_conflict_resolution, _PipelineOutput, main
+from common.pipeline import hypothesis_id
+from common.record import Finding, SinkId
+from engine.correlate.models import Issue
 from probe.coordinator import ProbeAdequacy
 
 ROUTE_PARAMS = {("/redirect", "GET"): ("next",)}
@@ -118,6 +121,35 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(updated.status, "untested")
 
+    def test_conflict_resolution_clears_the_persisted_static_status(self) -> None:
+        original = Finding.from_dict(
+            {
+                **sast_record(),
+                "run_id": "conflict-run",
+                "status": "tested_negative",
+                "suppressed": True,
+            }
+        )
+        cleared = replace(original, status=None, suppressed=False, conflict=True)
+        issue = Issue(
+            issue_key="conflict-key",
+            label="Confirmed",
+            cwe=601,
+            type="Open redirect",
+            severity="high",
+            risk_score=80.0,
+            link_status="ambiguous",
+            link_origin="sweep",
+            conflict=True,
+            sast_findings=(cleared,),
+        )
+
+        [updated] = _apply_conflict_resolution([original], [issue])
+
+        self.assertIsNone(updated.status)
+        self.assertFalse(updated.suppressed)
+        self.assertTrue(updated.conflict)
+
     def test_scan_runs_the_pipeline_and_reports_its_findings(self) -> None:
         # The pipeline stages are exercised live in scripts/bs5_live_check.py;
         # here we patch the stage seam and check the CLI wires it to correlation.
@@ -206,6 +238,14 @@ class CliTests(unittest.TestCase):
             sast_path = directory / "sast.json"
             dast_path = directory / "dast.json"
             sast = sast_record()
+            hid = hypothesis_id(
+                "directed",
+                "/redirect",
+                "GET",
+                601,
+                SinkId.from_value(sast["sink_id"]),
+                tuple(sast["candidate_params"]),
+            )
             dast = {
                 "run_id": "producer-run",
                 "source": "dast",
@@ -216,7 +256,17 @@ class CliTests(unittest.TestCase):
                 "method": "GET",
                 "param": "next",
                 "payload": "https://evil.example",
-                "evidence": [{"type": "ORACLE", "detail": {"oracle": "redirect_location"}}],
+                "hypothesis_id": hid,
+                "evidence": [
+                    {
+                        "type": "ORACLE",
+                        "detail": {
+                            "oracle": "redirect_location",
+                            "job_pass": "directed",
+                            "hypothesis_ids": [hid],
+                        },
+                    }
+                ],
             }
             sast_path.write_text(json.dumps([sast]), encoding="utf-8")
             dast_path.write_text(json.dumps([dast]), encoding="utf-8")

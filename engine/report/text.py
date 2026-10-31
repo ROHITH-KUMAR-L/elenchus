@@ -29,8 +29,14 @@ def format_text(issues: list[Issue]) -> str:
         )
         if issue.link_origin:
             lines.append(f"   Link origin: {issue.link_origin}")
+        if issue.conflict:
+            lines.append("   Conflict: positive replay against negative evidence")
+        if issue.oracle_flaky:
+            lines.append("   Oracle: flaky replay; verdict remains Runtime-only")
         for sink in issue.alternatives:
             lines.append(f"   Alternative sink: {sink.file}:{sink.start_line}")
+        for sink in issue.candidate_sinks:
+            lines.append(f"   Candidate sink hint: {sink.file}:{sink.start_line}")
         for finding in issue.dast_findings:
             if finding.payload is not None:
                 lines.append(f"   Payload: {finding.payload}")

@@ -35,13 +35,14 @@ def static(
     match_mode="strict",
     hops=1,
     corroborated=None,
+    arg_shape="dynamic",
 ):
     return Finding.from_dict(
         {
             "run_id": "r", "source": "sast", "provenance": "own", "cwe": cwe,
             "type": "SQL Injection", "route": route, "method": "GET",
             "file": sink["file"] if sink else None, "line": sink["start_line"] if sink else None,
-            "sink_id": sink, "arg_shape": "dynamic", "entry_paths": entry_paths(route, hops),
+            "sink_id": sink, "arg_shape": arg_shape, "entry_paths": entry_paths(route, hops),
             "candidate_params": list(params), "status": status, "severity": severity,
             "match_mode": match_mode, "corroborated": corroborated,
             "evidence": [{"type": "PATH", "detail": {"snippet": "q(...)"}}],
@@ -54,26 +55,40 @@ def lineage_id(sink=SINK, route=ROUTE, cwe=89, params=("id",)):
 
 
 def probe(
-    *, cwe=89, route=ROUTE, param="id", hypothesis=None, payload="1'", job_pass=None
+    *,
+    cwe=89,
+    route=ROUTE,
+    param="id",
+    hypothesis=None,
+    payload="1'",
+    job_pass=None,
+    oracle_flaky=False,
+    response_frames=None,
 ):
     job_pass = job_pass or ("directed" if hypothesis else "sweep")
+    evidence = [
+        {
+            "type": "ORACLE",
+            "detail": {
+                "oracle": "sql_error",
+                "hypothesis_ids": [hypothesis] if hypothesis else [],
+                "fired": 3,
+                "replays": 3,
+                "job_pass": job_pass,
+                "oracle_flaky": oracle_flaky,
+            },
+        }
+    ]
+    if response_frames is not None:
+        evidence.append(
+            {"type": "RESPONSE_TRACE", "detail": {"frames": response_frames}}
+        )
     return Finding.from_dict(
         {
             "run_id": "r", "source": "dast", "provenance": "zap", "cwe": cwe,
             "type": "SQL Injection", "route": route, "method": "GET", "param": param,
             "payload": payload, "hypothesis_id": hypothesis,
-            "evidence": [
-                {
-                    "type": "ORACLE",
-                    "detail": {
-                        "oracle": "sql_error",
-                        "hypothesis_ids": [hypothesis] if hypothesis else [],
-                        "fired": 3,
-                        "replays": 3,
-                        "job_pass": job_pass,
-                    },
-                }
-            ],
+            "evidence": evidence,
         }
     )
 
@@ -175,6 +190,127 @@ class CorrelationTests(unittest.TestCase):
             {sink.file for sink in issue.alternatives},
             {"src/A.java", "src/B.java", "src/C.java", "src/Z.java"},
         )
+
+    def test_tested_negative_conflict_confirms_as_ambiguous_and_unsuppresses(self) -> None:
+        other = {**SINK, "file": "src/Other.java", "enclosing_method": "Other.query"}
+        [issue] = correlate(
+            [
+                static(status="tested_negative"),
+                static(other, status="untested"),
+                probe(hypothesis=None),
+            ]
+        )
+
+        self.assertEqual(issue.label, "Confirmed")
+        self.assertEqual(issue.link_status, "ambiguous")
+        self.assertEqual(issue.link_origin, "sweep")
+        self.assertTrue(issue.conflict)
+        self.assertFalse(issue.suppressed)
+        negative = next(f for f in issue.sast_findings if f.status is None)
+        untested = next(f for f in issue.sast_findings if f.status == "untested")
+        self.assertTrue(negative.conflict)
+        self.assertFalse(untested.conflict)
+        self.assertEqual(len(issue.alternatives), 1)
+
+    def test_low_confidence_conflict_stays_runtime_only_with_candidate_hint(self) -> None:
+        [issue] = correlate(
+            [static(status="tested_negative"), probe(hypothesis=None)],
+            {"backguided.min_confidence_to_confirm": 0.99},
+        )
+
+        self.assertEqual(issue.label, "Runtime-only")
+        self.assertEqual(issue.link_status, "ambiguous")
+        self.assertEqual(issue.link_origin, "sweep")
+        self.assertTrue(issue.conflict)
+        self.assertEqual(len(issue.candidate_sinks), 1)
+        self.assertIsNone(issue.sast_findings[0].status)
+
+    def test_constant_safe_pattern_conflict_stays_unlinked_and_suppressed(self) -> None:
+        issues = correlate(
+            [
+                static(status="safe_pattern", arg_shape="constant"),
+                probe(hypothesis=None),
+            ],
+            {"export.suppress_cwes": (89,)},
+        )
+
+        runtime = next(issue for issue in issues if issue.label == "Runtime-only")
+        code = next(issue for issue in issues if issue.label == "Code-only")
+        self.assertTrue(runtime.conflict)
+        self.assertIsNone(runtime.link_status)
+        self.assertEqual(len(runtime.candidate_sinks), 1)
+        self.assertEqual(code.status, "safe_pattern")
+        self.assertTrue(code.suppressed)
+
+    def test_sanitised_safe_pattern_can_be_reproduced_as_a_conflict(self) -> None:
+        [issue] = correlate(
+            [
+                static(status="safe_pattern", arg_shape="sanitised"),
+                probe(hypothesis=None),
+            ]
+        )
+
+        self.assertEqual(issue.label, "Confirmed")
+        self.assertTrue(issue.conflict)
+        self.assertEqual(issue.link_status, "ambiguous")
+
+    def test_flaky_replay_stays_runtime_only_and_does_not_link(self) -> None:
+        issues = correlate(
+            [
+                static(),
+                probe(hypothesis=None, oracle_flaky=True),
+            ]
+        )
+
+        runtime = next(issue for issue in issues if issue.label == "Runtime-only")
+        self.assertTrue(runtime.oracle_flaky)
+        self.assertIsNone(runtime.link_status)
+        self.assertFalse(runtime.conflict)
+
+    def test_deepest_response_trace_frame_resolves_the_unique_candidate(self) -> None:
+        other = {**SINK, "file": "src/OrderRepository.java", "enclosing_method": "OrderRepository.load"}
+        frames = [
+            {
+                "method": "com.example.OrderRepository.load",
+                "file": "src/OrderRepository.java",
+                "line": 41,
+                "project": True,
+            },
+            {
+                "method": "com.example.OrderService.find",
+                "file": "src/OrderService.java",
+                "line": 80,
+                "project": True,
+            },
+        ]
+
+        [issue] = correlate(
+            [static(), static(other), probe(hypothesis=None, response_frames=frames)]
+        )
+
+        self.assertEqual(issue.link_status, "unique")
+        self.assertEqual(issue.sink.enclosing_method, "OrderRepository.load")
+        self.assertEqual(len(issue.alternatives), 1)
+
+    def test_unmatched_project_frame_logs_gap_and_reduces_confidence(self) -> None:
+        frames = [
+            {
+                "method": "com.example.Uncatalogued.handle",
+                "file": "src/Uncatalogued.java",
+                "line": 30,
+                "project": True,
+            }
+        ]
+
+        with self.assertLogs("engine.correlate.core", level="WARNING") as logs:
+            [issue] = correlate(
+                [static(), probe(hypothesis=None, response_frames=frames)]
+            )
+
+        self.assertIn("Catalogue gap", logs.output[0])
+        self.assertEqual(issue.link_status, "unique")
+        self.assertLess(issue.confidence, 0.95)
+        self.assertIn("catalogue_gap", {r.factor for r in issue.confidence_reasons})
 
     def test_unlinked_static_is_code_only_with_its_status(self) -> None:
         [issue] = correlate([static(status="no_http_path")])

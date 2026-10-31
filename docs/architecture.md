@@ -275,7 +275,7 @@ Two link fields. Both are required and orthogonal.
 | `link_status` | `unique`, `ambiguous` | How many candidate sinks the link has |
 | `link_origin` | `directed`, `sweep`, `back_guided` | How the link was produced |
 
-`link_origin` alone would hide ambiguity on sweep links. `sweep` means a sweep hit matched a static finding of the same CWE whose `entry_paths` include the hit route `[proposed meaning]`.
+`link_origin` alone would hide ambiguity on sweep links. A sweep hit is matched to static candidates with the same CWE whose `entry_paths` include the hit route and whose `candidate_params` include the hit param.
 
 - Primary rule: strict catalogue matches before relaxed matches, then shorter call path, then corroboration when Semgrep ran, then normalized source file/line/column order. A match on receiver type and call name is more specific than a match on call name alone.
 - `TRACE` resolves ambiguity when present.
@@ -283,11 +283,11 @@ Two link fields. Both are required and orthogonal.
 
 | Stack trace result | Effect |
 |---|---|
-| The deepest project frame is in the enclosing method of exactly one candidate | That candidate is primary. `link_status: unique`. |
+| The first project frame in Java stack order (deepest call) is in the enclosing method of exactly one candidate | That candidate is primary. `link_status: unique`. |
 | The deepest project frame is in a method with no known sink | No upgrade. Lower confidence. Logged as a catalogue gap. This partly addresses the third-sink flaw. |
 | No stack trace, or several candidates in that method | No change. The link stays as it was. |
 
-- Sweep hits (oracle fired, no directed hypothesis): matched to a static finding by route and CWE with `link_origin: sweep`, lower confidence. Sinks with status `safe_pattern` are not matched this way; the conflict rule handles them. Otherwise see [Back-guided static search](#back-guided-static-search).
+- Sweep hits (oracle fired, no directed hypothesis): matched to static findings by route and param with `link_origin: sweep`, lower confidence. `safe_pattern` and `tested_negative` sinks are matched only by the conflict rule. Otherwise see [Back-guided static search](#back-guided-static-search).
 - Confidence is a float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Bands and weights live in config ([Config reference](#config-reference)). The cut points are tuned on `expected_pairs` runs. Each factor is stored in `confidence_reasons`, a list of `{factor, delta}` written by the engine.
 - `sink_id` for the Must set is `(file, enclosing_method, start_line, start_col)`. Refining it to `(method, call-site ordinal, arg index)` is Could.
 - Dedupe key is `(sink_id, cwe)` `[proposed]`. The resolved param is an attribute. Several firing params on one sink are several evidence entries on one issue. Findings with no `sink_id` use the fallback keys in [finding-schema.md](finding-schema.md#contract-logic). Header findings follow config `header.count_mode` `[TODO: confirm at kickoff against the answer key]`.
@@ -551,10 +551,11 @@ The single source for config names and default values. Other docs point here and
 | `confidence.weight.path_exists` | [proposed: 0.2] | Added when a code path from an entry route to the sink exists |
 | `confidence.weight.unique_link` | [proposed: 0.15] | Added when the `(route, param, CWE)` group has one sink |
 | `confidence.weight.ambiguous_penalty` | [proposed: -0.25] | Added when the group has several sinks |
+| `confidence.weight.catalogue_gap_penalty` | [proposed: -0.1] | Added when the deepest project frame has no candidate sink |
 | `confidence.weight.family_match` | [proposed: 0.1] | Added when the payload family matches the sink's CWE family |
 | `export.include_alternatives` | [true] | Alternative sinks in the SAST grader payload |
 | `export.include_suppressed` | [false] | Suppressed findings in the graded export |
-| `export.suppress_cwes` | [proposed: 89, 79, 78, 601, 22] | CWEs whose `tested_negative` and `safe_pattern` findings may be suppressed. Remove a CWE when `wrong_suppression_count` is above zero. |
+| `export.suppress_cwes` | [proposed: 79, 78, 601, 22] | CWEs whose `tested_negative` and `safe_pattern` findings may be suppressed. CWE-89 was removed after the live run suppressed four planted SQL injection sinks. Remove any CWE when `wrong_suppression_count` is above zero. |
 | `export.suppress_no_http_path` | [false] | Suppress eligible `no_http_path` findings |
 | `export.count_multi_entry` | [TODO: confirm at kickoff against the answer key] | How the export counts one sink reached from several routes |
 | `header.count_mode` | [per_app] | `per_app` or `per_url` `[TODO: confirm at kickoff against the answer key]` |

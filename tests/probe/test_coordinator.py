@@ -1,8 +1,7 @@
 """Coordinator behaviour against a scripted fake ZAP. No network, no sleeping.
 
-The fake returns a fixed set of scan messages and a scripted sequence of replay
-responses, so we can pin down: a reproduced hit becomes one Finding with lineage;
-a hit that does not reproduce becomes none; unattributable messages never link.
+The fake returns fixed scan messages and scripted replay responses. Tests pin down
+positive lineage, flaky replay evidence, adequacy observations, and attribution.
 """
 
 from __future__ import annotations
@@ -149,13 +148,48 @@ def test_probe_records_rule_and_validation_outcomes_for_each_parameter():
     assert row.outcome == "adequate"
 
 
-def test_hit_that_does_not_reproduce_makes_no_finding():
+def test_replay_stack_trace_is_attached_as_adapter_parsed_evidence():
+    fake = FakeZap(
+        scan_messages=[scan_message("id=1'")],
+        replay_bodies=["JdbcSQLSyntaxErrorException"] * 3,
+    )
+    config = load_config(
+        overrides={"target.base_url": BASE, "zap.rule_map.89": ["40018"]},
+        environ={"ZAP_API_KEY": "k"},
+    )
+    frame = {
+        "method": "com.example.OrderService.find",
+        "file": "src/OrderService.java",
+        "line": 88,
+        "project": True,
+    }
+    coord = Coordinator(
+        fake,
+        config,
+        BASE,
+        ContextPath("/VulnerableApp", "config"),
+        trace_parser=lambda _: [frame],
+    )
+    jobs = plan_directed_jobs([hypothesis()], ROUTES, "run")
+
+    result = coord.run("run", jobs, ROUTES)
+
+    [finding] = [item for item in result.findings if item.cwe == 89]
+    assert finding.detail("job_pass") == "directed"
+    trace = next(item for item in finding.evidence if item.type == "RESPONSE_TRACE")
+    assert trace.detail["frames"] == [frame]
+
+
+def test_hit_that_does_not_reproduce_is_recorded_as_flaky_runtime_evidence():
     fake = FakeZap(
         scan_messages=[scan_message("id=1'")],
         replay_bodies=["ok", "ok", "ok"],  # oracle never fires on replay
     )
     result = run(fake)
-    assert [f for f in result.findings if f.cwe == 89] == []
+    [finding] = [f for f in result.findings if f.cwe == 89]
+    assert finding.detail("oracle_flaky") is True
+    assert finding.detail("fired") == 0
+    assert finding.detail("job_pass") == "directed"
 
 
 def test_message_without_the_probe_header_is_dropped_from_attribution():

@@ -1,0 +1,109 @@
+{
+  "description": "BS7 RESPONSE_TRACE variant 1: the deepest project frame uniquely identifies a sink.",
+  "findings": [
+    {
+      "run_id": "fixture",
+      "source": "sast",
+      "provenance": "own",
+      "cwe": 89,
+      "type": "SQL Injection",
+      "route": "/orders/{id}",
+      "method": "GET",
+      "file": "src/OrderService.java",
+      "line": 88,
+      "sink_id": {
+        "file": "src/OrderService.java",
+        "enclosing_method": "OrderService.find",
+        "start_line": 88,
+        "start_col": 20
+      },
+      "arg_shape": "dynamic",
+      "entry_paths": [
+        {
+          "route": "/orders/{id}",
+          "method": "GET",
+          "hops": 2,
+          "call_chain": [
+            {"method": "OrderController.get", "file": "src/OrderController.java", "line": 40}
+          ]
+        }
+      ],
+      "candidate_params": ["id"],
+      "match_mode": "strict",
+      "evidence": [{"type": "PATH", "detail": {"snippet": "query(id)"}}]
+    },
+    {
+      "run_id": "fixture",
+      "source": "sast",
+      "provenance": "own",
+      "cwe": 89,
+      "type": "SQL Injection",
+      "route": "/orders/{id}",
+      "method": "GET",
+      "file": "src/OrderRepository.java",
+      "line": 41,
+      "sink_id": {
+        "file": "src/OrderRepository.java",
+        "enclosing_method": "OrderRepository.load",
+        "start_line": 41,
+        "start_col": 18
+      },
+      "arg_shape": "dynamic",
+      "entry_paths": [
+        {
+          "route": "/orders/{id}",
+          "method": "GET",
+          "hops": 2,
+          "call_chain": [
+            {"method": "OrderController.get", "file": "src/OrderController.java", "line": 40}
+          ]
+        }
+      ],
+      "candidate_params": ["id"],
+      "match_mode": "strict",
+      "evidence": [{"type": "PATH", "detail": {"snippet": "query(id)"}}]
+    },
+    {
+      "run_id": "fixture",
+      "source": "dast",
+      "provenance": "zap",
+      "cwe": 89,
+      "type": "SQL Injection",
+      "route": "/orders/{id}",
+      "method": "GET",
+      "param": "id",
+      "payload": "1'",
+      "evidence": [
+        {
+          "type": "ORACLE",
+          "detail": {"oracle": "sql_error", "job_pass": "sweep", "fired": 2, "replays": 3}
+        },
+        {
+          "type": "RESPONSE_TRACE",
+          "detail": {
+            "frames": [
+              {"method": "com.example.OrderRepository.load", "file": "src/OrderRepository.java", "line": 41, "project": true},
+              {"method": "com.example.OrderController.get", "file": "src/OrderController.java", "line": 40, "project": true}
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "label": "Confirmed",
+    "link_status": "unique",
+    "link_origin": "sweep",
+    "status": null,
+    "suppressed": false,
+    "conflict": false,
+    "alternatives": [
+      {
+        "file": "src/OrderService.java",
+        "enclosing_method": "OrderService.find",
+        "start_line": 88,
+        "start_col": 20
+      }
+    ]
+  }
+}

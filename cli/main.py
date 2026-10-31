@@ -45,6 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             findings = [record.with_run_id(run_id) for record in records]
             pipeline_output = _PipelineOutput(findings)
         issues = correlate(findings, config)
+        findings = _apply_conflict_resolution(findings, issues)
         expected_pairs = _load_expected_pairs(args.expected_pairs)
         coverage = build_coverage_report(
             findings,
@@ -182,6 +183,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
     from producers.dast.zap_runner import ZapApi
     from producers.hypotheses.builder import build_directed, build_sweep, skipped_by_type
     from producers.sast.code_index import build_code_index
+    from producers.sast.response_trace import parse_java_response_trace
     from producers.sast.static_stage import run_static
 
     check_loopback(args.base_url)
@@ -204,6 +206,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
         args.base_url,
         context,
         enum_types=index.enum_types,
+        trace_parser=lambda body: parse_java_response_trace(body, args.source_path),
     )
     result = coordinator.run(run_id, jobs, index.routes)
     _report_probe_telemetry(result)
@@ -325,6 +328,23 @@ def _apply_adequacy(
             )
         )
     return output
+
+
+def _apply_conflict_resolution(
+    findings: list[Finding], issues: Sequence[Issue]
+) -> list[Finding]:
+    """Persist conflict-cleared static records alongside their correlated issue."""
+    cleared = {
+        (finding.sink_id, finding.cwe): finding
+        for issue in issues
+        if issue.conflict and issue.link_status == "ambiguous" and issue.link_origin == "sweep"
+        for finding in issue.sast_findings
+        if finding.source == "sast" and finding.conflict and finding.status is None
+    }
+    return [
+        cleared.get((finding.sink_id, finding.cwe), finding)
+        for finding in findings
+    ]
 
 
 def _load_expected_pairs(path: str | None) -> dict[str, Any] | None:

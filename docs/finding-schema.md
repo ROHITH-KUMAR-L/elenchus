@@ -193,7 +193,7 @@ A firing probe proves that route, param and CWE are exploitable. It does not pro
 | More than one hypothesis in the group | `ambiguous` | `directed` | Lower confidence. All candidate sinks attached in `alternatives`. One primary chosen. |
 | More than one hypothesis, and `RESPONSE_TRACE` puts the deepest project frame in exactly one candidate's enclosing method | `unique` | `directed` | That candidate is primary. The others stay in `alternatives`. |
 | `RESPONSE_TRACE` puts the deepest project frame in a method with no known sink | unchanged | unchanged | No upgrade. Lower confidence. Logged as a catalogue gap. |
-| Sweep hit matches a static finding of the same CWE whose `entry_paths` include the route `[proposed meaning]` | by count | `sweep` | Lower confidence |
+| Sweep hit matches a static finding of the same CWE whose `entry_paths` include the route and `candidate_params` include the param | by count | `sweep` | Lower confidence |
 | Back-guided search finds exactly one sink | `unique` | `back_guided` | `PATH` evidence. Confidence starts at `backguided.start_confidence` and loses `backguided.hop_penalty` per unresolved hop. Confirmed only at or above `backguided.min_confidence_to_confirm`. |
 | Back-guided search finds several sinks | `ambiguous` | `back_guided` | Label stays Runtime-only. `candidate_sinks` hold the hints. No Confirmed link is exported. |
 | Back-guided search finds none | null | null | Stays Runtime-only. `unlinked_reason` set. |
@@ -215,9 +215,9 @@ Evidence types `[proposed meanings]`:
 | Type | Meaning |
 |---|---|
 | `PATH` | A call path exists from an entry route to the sink |
-| `ORACLE` | A probe oracle fired. Detail holds oracle name, canary id, baseline status, replay-log reference. |
+| `ORACLE` | A candidate request produced an oracle signal and was replayed; only a replay meeting the threshold confirms it. Detail holds oracle name, `job_pass`, hypothesis IDs, canary id, baseline status, replay counts, and `oracle_flaky` when the replay threshold was not met. |
 | `TRACE` | The app log shows the payload reaching the sink. Optional. Not available in judging mode. |
-| `RESPONSE_TRACE` | A replay response holds a stack trace. Detail holds the generic frames from the adapter's parser and the matched method. Available in judging mode, only when the app leaks one. It proves the enclosing method, not the line. |
+| `RESPONSE_TRACE` | A replay response holds a stack trace. Detail holds generic `{method, file, line, project}` frames from the adapter parser. The first project frame in Java stack order (deepest call) resolves ambiguity only when its file and enclosing method match exactly one candidate. An unmatched project frame is a catalogue gap and lowers confidence. Available in judging mode only when the app leaks one. |
 | `ADEQUACY` | Probe-side coverage for a route, method, parameter, and CWE. Detail records `job_id`, `params_status`, `job_outcome`, `after_drift`, expected and observed ZAP rule IDs, baseline and mutated response statuses, `passed_validation`, and the per-parameter outcome. It supports `tested_negative` only when every parameter on every entry route has adequate evidence. |
 | `FAMILY` | The payload family that fired matches the CWE family of the sink |
 
@@ -290,7 +290,7 @@ The grader takes its own JSON. It is a third boundary format, separate from our 
 | `sink_id` | `locations[0]`, plus `partialFingerprints` `[proposed]` | Column kept only in fingerprint |
 | `entry_paths`, `hypothesis_id`, `provenance` | `properties` | Ignored by most viewers |
 | `alternatives`, `link_status`, `ambiguity_group_id` | `properties`. Alternative sinks also in `relatedLocations` `[proposed]`. | Viewers show only related locations |
-| `evidence`, `confidence_reasons`, `corroborated`, `link_origin`, `match_mode`, `unresolved_hops`, `candidate_sinks`, `conflict`, `arg_shape` | `properties` | Ignored by most viewers |
+| `evidence`, `confidence_reasons`, `corroborated`, `link_origin`, `match_mode`, `unresolved_hops`, `candidate_sinks`, `conflict`, `oracle_flaky`, `arg_shape` | `properties` | Ignored by most viewers |
 | `suppressed` | SARIF `suppressions` `[verify against the 2.1.0 spec]` | None if supported |
 | `status`, `param`, `payload`, `method`, `route` | `properties` | Ignored by most viewers |
 | `severity` | `level` (`error` / `warning` / `note`) | Coarser scale |

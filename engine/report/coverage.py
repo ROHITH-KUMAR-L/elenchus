@@ -62,11 +62,12 @@ def build_coverage_report(
         for finding in probes
         if finding.param is not None and _has_hypothesis(finding)
     ]
-    accurate = sum(
-        _probe_matches_expected(finding, pairs)
-        for finding in attributed
+    accurate = (
+        sum(_probe_matches_expected(finding, pairs) for finding in attributed)
+        if pairs
+        else None
     )
-    accuracy = accurate / len(attributed) if attributed else None
+    accuracy = accurate / len(attributed) if attributed and accurate is not None else None
 
     return {
         "recall_by_cwe": recall_by_cwe,

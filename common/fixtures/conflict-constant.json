@@ -1,0 +1,78 @@
+{
+  "description": "BS7 conflict variant 3: a positive replay never links to a constant sink.",
+  "findings": [
+    {
+      "run_id": "fixture",
+      "source": "sast",
+      "provenance": "own",
+      "cwe": 89,
+      "type": "SQL Injection",
+      "route": "/orders/{id}",
+      "method": "GET",
+      "file": "src/OrderService.java",
+      "line": 88,
+      "sink_id": {
+        "file": "src/OrderService.java",
+        "enclosing_method": "OrderService.find",
+        "start_line": 88,
+        "start_col": 20
+      },
+      "arg_shape": "constant",
+      "entry_paths": [
+        {
+          "route": "/orders/{id}",
+          "method": "GET",
+          "hops": 1,
+          "call_chain": [
+            {"method": "OrderController.get", "file": "src/OrderController.java", "line": 40}
+          ]
+        }
+      ],
+      "candidate_params": ["id"],
+      "match_mode": "strict",
+      "status": "safe_pattern",
+      "suppressed": true,
+      "evidence": [{"type": "PATH", "detail": {"snippet": "query(constant)"}}]
+    },
+    {
+      "run_id": "fixture",
+      "source": "dast",
+      "provenance": "zap",
+      "cwe": 89,
+      "type": "SQL Injection",
+      "route": "/orders/{id}",
+      "method": "GET",
+      "param": "id",
+      "payload": "1'",
+      "evidence": [
+        {
+          "type": "ORACLE",
+          "detail": {
+            "oracle": "sql_error",
+            "job_pass": "sweep",
+            "hypothesis_ids": [],
+            "replays": 3,
+            "fired": 2,
+            "oracle_flaky": false
+          }
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "label": "Runtime-only",
+    "link_status": null,
+    "link_origin": null,
+    "status": null,
+    "suppressed": false,
+    "conflict": true,
+    "candidate_sinks": [
+      {
+        "file": "src/OrderService.java",
+        "enclosing_method": "OrderService.find",
+        "start_line": 88,
+        "start_col": 20
+      }
+    ]
+  }
+}

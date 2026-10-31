@@ -411,7 +411,7 @@ class Coordinator:
             for candidate in candidates.values()
             if (
                 finding := self._verify(
-                    run_id, job, seed, seed_path, seed_values, baseline, candidate
+                    run_id, job, seed, baseline, candidate
                 )
             ) is not None
         ]
@@ -433,7 +433,7 @@ class Coordinator:
         return outcome, findings, headers, stats, adequacy_rows
 
     def _verify(
-        self, run_id, job, seed, seed_path, seed_values, baseline, candidate
+        self, run_id, job, seed, baseline, candidate
     ) -> Finding | None:
         """Replay the candidate; the oracle on the replay is the verdict."""
         oracle = oracle_for(candidate.cwe)
@@ -441,17 +441,44 @@ class Coordinator:
             return None
         attempts = self.config["replay.count"]
         fired = 0
+        trace_frames: list[dict[str, Any]] = []
         for _ in range(attempts):
             replayed = self.api.send_request(
                 self._replay_request(seed, candidate), follow_redirects=False
             )
-            if oracle(baseline, _response(replayed), candidate.payload):
+            response = _response(replayed)
+            if oracle(baseline, response, candidate.payload):
                 fired += 1
-        if fired < self.config["replay.min_hits"]:
-            return None  # Not reproduced: no record. oracle_flaky lives in the log only.
+                if self.trace_parser is not None:
+                    frames = self.trace_parser(response.body)
+                    if frames:
+                        trace_frames = frames
         # One directed hypothesis for this (route, cwe): unique lineage. Several:
         # correlation (BS7) resolves the ambiguity, so carry them all in evidence.
         single = job.hypothesis_ids[0] if len(job.hypothesis_ids) == 1 else None
+        evidence = [
+            {
+                "type": "ORACLE",
+                "detail": {
+                    "oracle": oracle.__name__,
+                    "canary_id": job.canary,
+                    "zap_job_id": job.job_id,
+                    "zap_scan_id": job.scan_id,
+                    "zap_message_id": candidate.message_id,
+                    "zap_rule_id": candidate.rule_id,
+                    "job_pass": job.job_pass,
+                    "hypothesis_ids": list(job.hypothesis_ids),
+                    "replays": attempts,
+                    "fired": fired,
+                    "oracle_flaky": fired < self.config["replay.min_hits"],
+                    "baseline_status": baseline.status,
+                },
+            }
+        ]
+        if trace_frames:
+            evidence.append(
+                {"type": "RESPONSE_TRACE", "detail": {"frames": trace_frames}}
+            )
         return Finding.from_dict(
             {
                 "run_id": run_id,
@@ -464,23 +491,7 @@ class Coordinator:
                 "param": candidate.param,
                 "payload": candidate.payload,
                 "hypothesis_id": single,
-                "evidence": [
-                    {
-                        "type": "ORACLE",
-                        "detail": {
-                            "oracle": oracle.__name__,
-                            "canary_id": job.canary,
-                            "zap_job_id": job.job_id,
-                            "zap_scan_id": job.scan_id,
-                            "zap_message_id": candidate.message_id,
-                            "zap_rule_id": candidate.rule_id,
-                            "hypothesis_ids": list(job.hypothesis_ids),
-                            "replays": attempts,
-                            "fired": fired,
-                            "baseline_status": baseline.status,
-                        },
-                    }
-                ],
+                "evidence": evidence,
                 "severity": "high",
             }
         )
