@@ -21,14 +21,18 @@ D-07 is resolved: Tier B uses call edges (`reached_via`). Phase 3's route-map pa
 
 ## Dependency order
 
-```
-internal record + SARIF mapping + adapter interface
- ├── secrets/crypto pass ──────────────┐
- ├── ZAP passive ──────────────────────┤
- ├── route map ── ZAP active seeding ──┤
- │       └── oracles ──────────────────┤
- ├── Semgrep taint + trace (SARIF in) ─┤
- └── run store (Postgres) ─────────────┴── correlation ── report ── SARIF out
+```mermaid
+flowchart LR
+    contract["Internal record + SARIF mapping + adapter interface"]
+    contract --> secrets[Secrets/crypto pass]
+    contract --> passive[ZAP passive]
+    contract --> rmap[Route map]
+    rmap --> active[ZAP active seeding]
+    rmap --> oracles[Oracles]
+    contract --> semgrep["Semgrep taint + trace (SARIF in)"]
+    contract --> store["Run store (Postgres)"]
+    secrets & passive & active & oracles & semgrep & store --> corr[Correlation]
+    corr --> report[Report] --> sarif[SARIF out]
 ```
 
 ## Parallel tracks (small team)

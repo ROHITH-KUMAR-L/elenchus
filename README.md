@@ -77,16 +77,18 @@ Draft contract: [docs/finding-schema.md](docs/finding-schema.md). The internal f
 
 ## 5. Architecture
 
-```
-source --> Semgrep --[SARIF in]-----+
-source --> route-map adapter -------+--> internal finding record
-localhost app --> ZAP + oracles ----+              |
-                                                   v
-                         correlation + merge (tiers A/B/C) <--> Postgres (our network)
-                                                   |
-                                  +----------------+----------------+
-                                  v                                 v
-                         prioritised CLI report            [SARIF out] (B-6)
+```mermaid
+flowchart TD
+    src[Target source] --> semgrep[Semgrep]
+    src --> rmap[Route-map adapter]
+    zap[ZAP + oracles] -- HTTP --> app[localhost app]
+    semgrep -- SARIF in --> rec[Internal finding record]
+    rmap --> rec
+    zap --> rec
+    rec --> corr["Correlation + merge (tiers A/B/C)"]
+    corr <--> pg[("Postgres (our network)")]
+    corr --> report[Prioritised CLI report]
+    corr -- SARIF out --> sarif["SARIF file (B-6)"]
 ```
 
 Our stack and the target app use separate Docker networks. Our scanner reaches the target only over `localhost:<port>`. Details: [docs/architecture.md](docs/architecture.md).
