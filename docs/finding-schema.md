@@ -52,10 +52,10 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `link_status` | `"unique"` \| `"ambiguous"` \| null | How many candidate sinks the link has. Set after an oracle fires. See [Linking](#linking-and-ambiguity). | Correlation |
 | `link_origin` | `"directed"` \| `"sweep"` \| `"back_guided"` \| null | How the link was produced. Orthogonal to `link_status`. Both are required once a link exists. | Correlation |
 | `ambiguity_group_id` | string \| null | Shared by hypotheses in one `(route, param, CWE)` group of more than one. | Correlation |
-| `alternatives` | array \| null | `sink_id` of every other candidate in the group. | Correlation |
+| `alternatives` | array \| null | `sink_id` of every other candidate in the group. Exported in the SAST grader payload. Not separate issues in the primary report. | Correlation |
 | `candidate_sinks` | array \| null | `sink_id` of each candidate when the back-guided search finds several. Hints only. No link is made. | Back-guided search |
-| `match_mode` | `"strict"` \| `"relaxed"` \| null | How a sink was matched. `relaxed` means call name alone with the receiver type unresolved. Every back-guided match is `relaxed`. `strict` for catalogue matches with a resolved receiver `[proposed value]`. | Static stage; back-guided search |
-| `unresolved_hops` | integer \| null | Unresolved calls walked to reach the sink. Back-guided search only. | Back-guided search |
+| `match_mode` | `"strict"` \| `"relaxed"` \| null | How a sink was matched. `strict` is the default: a catalogue match with a resolved receiver type. `relaxed` means call name alone with the receiver type unresolved. Every back-guided match is `relaxed`. | Static stage; back-guided search |
+| `unresolved_hops` | integer \| null | Unresolved calls walked to reach the sink. At most 3. Back-guided search only. | Back-guided search |
 | `conflict` | boolean | True when a positive oracle hit overrode `tested_negative`. | Correlation |
 | `status` | string \| null | For findings with no oracle hit: `tested_negative`, `no_http_path`, `blocked`, `untested`. See [Statuses](#statuses). | Verify stage |
 | `suppressed` | boolean | True for `tested_negative`. Excluded from the primary report and the graded export. | Verify stage |
@@ -89,7 +89,7 @@ A hypothesis is a pipeline object, not a finding. It lives in `common/` with the
 | `sink_id`, `call_path` | Directed only. From the static stage. |
 | `candidate_params` | Directed: all params of the route. Sweep: one param. |
 
-Directed hypotheses come from static findings. Sweep hypotheses cover every param against every supported class, for bugs static analysis missed.
+Directed hypotheses come from static findings. Sweep hypotheses cover every param against every supported class, for bugs static analysis missed. Both sets use this one record type. The probe engine does not care which set a hypothesis came from.
 
 ## Other contract shapes
 
@@ -165,7 +165,7 @@ A firing probe proves that route, param and CWE are exploitable. It does not pro
 | Back-guided search finds several sinks | `ambiguous` | `back_guided` | Label stays Runtime-only. `candidate_sinks` hold the hints. No Confirmed link is exported. |
 | Back-guided search finds none | null | null | Stays Runtime-only. `unlinked_reason` set. |
 | Header, cookie or info-leak finding | null | null | Never searched. Stays Runtime-only. |
-| Positive oracle hit on a `tested_negative` sink, reproduces in 2 of 3 replays | `ambiguous` | `sweep` `[proposed]` | `conflict: true`. Un-suppressed. Lower confidence. |
+| Positive oracle hit on a `tested_negative` sink, reproduces in 2 of 3 replays | `ambiguous` | `sweep` | `conflict: true`. Un-suppressed. Labelled Confirmed at low confidence. Exported as Confirmed only at or above `backguided.min_confidence_to_confirm`. |
 | Same hit, does not reproduce | null | null | `tested_negative` kept. `oracle_flaky: true`. Hit stays Runtime-only. |
 
 Confidence is a deterministic function of the evidence present, `link_status` and `link_origin`. Weights live in config.
@@ -412,7 +412,7 @@ A second SQL sink, `OrderRepository.load`, sits behind the same route. Both sink
 
 The oracle proves the route and param. It does not say whether line 88 or line 41 is the cause. The primary is chosen by the stated rule. The alternative stays attached.
 
-Whether the alternative sink also stays in the SAST export as its own finding `[TODO: decide]`. The code-detection score counts SAST findings by file and line.
+The alternative sinks go in the SAST grader payload, with the primary, under `export.include_alternatives` (default true). In the primary report they are attributes of the primary issue, not separate issues. `[TODO: measure false alarms and code detection with the flag on and off on VulnerableApp against expected_pairs, then set the default.]`
 
 ### Back-guided link
 
@@ -489,6 +489,6 @@ The sink `OrderService.find` was marked `tested_negative`: every candidate param
 }
 ```
 
-The finding leaves the suppressed file and enters the primary report `[proposed label: Confirmed, low confidence]`.
+The finding leaves the suppressed file and enters the primary report, labelled Confirmed at low confidence. It is exported as Confirmed only at or above `backguided.min_confidence_to_confirm` `[TODO: set value]`.
 
 If the hit had fired in fewer than 2 of 3 replays, the sink would keep `status: tested_negative`. The `ORACLE` entry would carry `"oracle_flaky": true`. No link would be made. The hit would stay Runtime-only.

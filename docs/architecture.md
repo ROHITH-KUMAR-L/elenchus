@@ -112,7 +112,7 @@ Semgrep is not part of the pipeline. It is an optional adapter, off by default, 
 
 The pipeline and its tests must pass with Semgrep not installed.
 
-Own flow engine: Should, built after M2. It narrows `candidate_params` from all to the specific param. It never blocks M1 or M2. Gate for making it the default: it matches Semgrep's 35 of 45 on VulnerableApp, with Semgrep run offline as the yardstick.
+Own flow engine: Should, built after M2. It narrows `candidate_params` from all to the specific param. It never blocks M1 or M2. Gate for making it the default: it matches the measured Semgrep count on VulnerableApp, with Semgrep run offline as the yardstick. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality.
 
 Receiver-type matching needs the type information in the code index. Calls whose receiver type does not resolve are flagged, not dropped `[TODO: define the fallback match]`.
 
@@ -122,6 +122,8 @@ Receiver-type matching needs the type information in the code index. Calls whose
 |---|---|---|
 | Directed | `(route, CWE, sink_id, call_path)` with `candidate_params` = all params of the route | The probe tries each param. The oracle shows which one fires. |
 | Sweep | Every param by every supported class | Bugs static analysis missed |
+
+Owner: Person A, both sets. Stage 3 emits one Hypothesis record type for both sets. The probe engine does not care which set a hypothesis came from.
 
 ### Stage 4: Probe engine
 
@@ -189,7 +191,7 @@ Strict mode (receiver type resolved, same catalogue) is already covered by the s
 Relaxed mode:
 
 - Match the call name alone when the receiver type is unresolved.
-- Walk through unresolved calls up to N hops `[proposed: N = 3]`. Record the count in `unresolved_hops`.
+- Walk through unresolved calls up to N = 3 hops. Record the count in `unresolved_hops`.
 - Every match carries `match_mode: relaxed`.
 
 Method: start at the hit route's handler, walk the call graph forward, look for sinks of the same CWE.
@@ -218,6 +220,8 @@ Every static finding without an oracle hit gets exactly one status.
 | `blocked` | Baseline gate failed | Primary report, Code-only |
 | `untested` | Not reached | Primary report, Code-only |
 
+The adequacy logic and the suppressed file are M2. The suppressed file has real content in M2, not an empty placeholder.
+
 - Secrets and crypto findings (CWE-798 and similar) are Code-only by nature. They are never labelled `no_http_path`.
 - `no_http_path` for injection CWEs: suppress or keep `[TODO: decide]`. Flag `export.suppress_no_http_path`, default false.
 - Tradeoff: suppression cuts false alarms. It lowers code-detection recall if the probe missed a real bug. `[TODO: choose the default by running VulnerableApp with and without suppression]`
@@ -227,7 +231,7 @@ Every static finding without an oracle hit gets exactly one status.
 Case: an `ORACLE` hit matches the `(route, param, CWE)` of a sink marked `tested_negative`.
 
 1. Replay the probe up to 3 times.
-2. Fires in at least 2 of 3 replays: un-suppress the finding and clear `tested_negative`. Set `link_status: ambiguous` and `conflict: true`. Record the reason "directed probes negative, positive hit on replay". Lower the confidence. Move it to the primary report.
+2. Fires in at least 2 of 3 replays: un-suppress the finding and clear `tested_negative`. Set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`. Record the reason "directed probes negative, positive hit on replay". Label it Confirmed at low confidence. Export it as Confirmed only at or above `backguided.min_confidence_to_confirm`, the same threshold as back-guided search `[TODO: set value]`. Label below the threshold `[TODO: decide]`. Move it to the primary report.
 3. Does not reproduce: keep `tested_negative`. Set `oracle_flaky: true` on that evidence entry. Create no link. The hit stays Runtime-only.
 
 Rationale: a positive oracle is stronger evidence than a failed probe. One unconfirmed hit is not enough to override an adequately tested negative.
@@ -243,11 +247,14 @@ Rationale: a positive oracle is stronger evidence than a failed probe. One uncon
 
 | Output | Contents |
 |---|---|
-| Primary report and graded export | Every finding except `suppressed`. |
+| Primary report | Every finding except `suppressed`. Alternative sinks are attributes of the primary issue, not separate issues. |
+| SAST grader payload | Every finding except `suppressed`. Primary and alternative sinks both, controlled by `export.include_alternatives`, default true. |
 | Suppressed file | `tested_negative` findings, each with its reason. |
 | Postgres | Everything, including suppressed findings. |
 
 Config flag `export.include_suppressed`, default false, merges the suppressed findings into the graded export.
+
+Alternative sinks go in the grader payload because code detection is scored from that export, and the planted bug may be the alternative. `[TODO: measure false alarms and code detection with export.include_alternatives on and off on VulnerableApp against expected_pairs, then set the default.]`
 
 ## Judging mode
 
@@ -275,7 +282,7 @@ Time is not a constraint. Work is ordered by dependency. Milestone gates replace
 | Milestone | Scope |
 |---|---|
 | M1 spine | One command on a clean VulnerableApp run yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. No other stage is added until M1 passes. |
-| M2 core | All four classes, own header and cookie checks, the suppressed file, the judging-mode profile, the benchmark adapter, `expected_pairs` measurement. |
+| M2 core | All four classes, own header and cookie checks, the `tested_negative` adequacy logic, the suppressed file with real content (not an empty placeholder), the judging-mode profile, the benchmark adapter, `expected_pairs` measurement. |
 | M3 extras | The Should list. |
 
 ## AI advisor (optional side channel)

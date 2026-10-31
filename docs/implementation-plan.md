@@ -23,17 +23,18 @@ The repo predates this architecture. The table lists what exists in the tree and
 
 ## Must
 
-| # | Item | Stage | Owner | Milestone `[proposed split]` |
+| # | Item | Stage | Owner | Milestone |
 |---|---|---|---|---|
 | 1 | Preflight: baseline per route, context path, coverage report | 0 | Person B | M1 baseline and context path. M2 coverage report. |
 | 2 | Route table and param bindings | 1 | Person A | M1 |
-| 3 | Own sink finder and own secrets/crypto pass, plus call graph walked backward, route-granularity hypotheses | 2 to 3 | Person A. Stage 3 owner `[TODO]`. | M1 SQL sinks, call graph, hypotheses. M2 other classes, secrets and crypto pass. |
+| 3 | Own sink finder and own secrets/crypto pass, plus call graph walked backward, route-granularity hypotheses (directed and sweep) | 2 to 3 | Person A | M1 SQL sinks, call graph, hypotheses. M2 other classes, secrets and crypto pass. |
 | 4 | Probe engine for four classes: differential oracles, baseline gate, canary, replay log | 4 | Person B | M1 error-based SQL injection oracle with the gate, canary and log. M2 four classes. |
 | 5 | Own header and cookie-flag checks | 4 | Person B | M2 |
 | 6 | Hypothesis linking with ambiguity marking, labels and scoring | 5, 7 | Person B | M1 lineage link, label, score. M2 ambiguity marking. |
 | 7 | Postgres, CLI, SARIF and the suppressed file | 6, 7 | Person B | M1 Postgres and CLI report. M2 SARIF and the suppressed file. |
 | 8 | Benchmark adapter and the `expected_pairs` file | 7 | Person B | M1 `expected_pairs` file. M2 adapter and measurement. |
 | 9 | Judging-mode profile | all | Person B | M2 |
+| 10 | `tested_negative` adequacy logic: baseline valid for every candidate param, every candidate param probed, all payload families for the CWE tried within budget. It fills the suppressed file with real content. | 6, 7 | Person B | M2 |
 
 The four classes: SQL injection, XSS, command injection, open redirect. Path traversal is stretch `[proposed]`, though its oracle is listed in the architecture.
 
@@ -41,14 +42,13 @@ The four classes: SQL injection, XSS, command injection, open redirect. Path tra
 
 | Item | Stage | Owner |
 |---|---|---|
-| `tested_negative` logic with the adequacy rule | 6 | Person B |
 | Typed seeds with AI repair | 4 | Person B |
 | Session manager | 4 | Person B |
 | ZAP passive pass | 4 | Person B |
 | AI triage (judge `tested_negative`, demote only) | 6 | Person B |
 | Best-effort preflight items | 0 | Person B |
 | Back-guided static search, relaxed mode only. Producer entry `run_back_guided(target, route_map, runtime_only_findings)`. Config `backguided.enabled`, default false until measured. | 5 | Person A. Reads A's index and sink catalogue. Person B consumes the evidence through the cli seam. |
-| Own flow engine (narrows `candidate_params`). Built after M2. Never blocks M1 or M2. Gate for making it the default: matches Semgrep's 35 of 45 on VulnerableApp, with Semgrep run offline as the yardstick. | 2 | Person A |
+| Own flow engine (narrows `candidate_params`). Built after M2. Never blocks M1 or M2. Gate for making it the default: matches the measured Semgrep count on VulnerableApp, Semgrep run offline as the yardstick. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality. | 2 | Person A |
 
 ## Could
 
@@ -69,7 +69,7 @@ The four classes: SQL injection, XSS, command injection, open redirect. Path tra
 | Bonus | Where it lands |
 |---|---|
 | B-1 Auto-verify Code-only | Directed probes (Must item 4) |
-| B-2 Cut SAST noise | `tested_negative` suppression (Should) |
+| B-2 Cut SAST noise | `tested_negative` suppression (Must item 10, M2) |
 | B-3 Explain links | Confidence reasons stored (Must item 6). Report display `[TODO]`. |
 | B-4 Fix suggestion | AI advisory `[TODO: tier]` |
 | B-5 Compare two scans | Could `[proposed]` |
@@ -83,7 +83,7 @@ Order work by dependency. A milestone passes only when its test has been run and
 | Milestone | Scope |
 |---|---|
 | M1 spine | One command on a clean VulnerableApp run yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. No other stage is added until M1 passes. |
-| M2 core | All four classes, own header and cookie checks, the suppressed file, the judging-mode profile, the benchmark adapter, `expected_pairs` measurement. |
+| M2 core | All four classes, own header and cookie checks, the `tested_negative` adequacy logic, the suppressed file with real content (not an empty placeholder), the judging-mode profile, the benchmark adapter, `expected_pairs` measurement. |
 | M3 extras | The Should list. The own flow engine is built after M2. |
 
 If M1 cannot pass:
@@ -93,22 +93,20 @@ If M1 cannot pass:
 
 The pipeline and its tests must pass with Semgrep not installed. Semgrep stays an optional adapter, off by default.
 
-Conflict in the tiers `[TODO: decide]`: the suppressed file is M2, but the `tested_negative` logic that fills it is Should. Proposed: M2 writes the file, and it stays empty until the logic exists.
-
 ## Split
 
 | Person | Owns |
 |---|---|
-| Person A | Stage 1 (code index), stage 2 (static), the back-guided search (`run_back_guided`), the own flow engine |
-| Person B | Stages 0, 4, 5, 6 and 7, the `expected_pairs` file, the judging profile |
+| Person A | Stages 1, 2 and 3 (directed and sweep hypotheses), the back-guided search (`run_back_guided`), the own flow engine, the fixtures |
+| Person B | Stages 0, 4, 5, 6 and 7, the `expected_pairs` file, the judging profile, and review of every fixture against the correlation cases before the contract freeze |
 
-Stage 3 (hypotheses) has no owner in the split `[TODO: decide. Proposed: Person A, since hypotheses are derived entirely from stage 1 and 2 output.]`
+Stage 3 emits one Hypothesis record type for both sets, so the probe engine does not care which set a hypothesis came from.
 
 Person B builds against fixtures first. Both test against `common/fixtures/`. Person B consumes `run_back_guided` output through the cli seam.
 
 ### Required fixtures
 
-Each at route granularity, with `candidate_params`. Rows 1 to 7 are required. Rows 8 to 10 cover the Should items `[proposed]`. Fixture author `[TODO: decide. Proposed: Person A, since A owns the hypothesis inputs.]`
+Each at route granularity, with `candidate_params`. Rows 1 to 7 are required. Rows 8 to 10 cover the Should items `[proposed]`. Person A writes the fixtures. Person B reviews each one against the correlation cases before the contract freeze.
 
 | # | Fixture | Purpose |
 |---|---|---|
@@ -161,7 +159,6 @@ If scope must shrink, drop in this order. M1 and M2 items are never cut.
 5. AI triage and typed-seed AI repair
 6. Session manager
 7. Best-effort preflight items
-8. `tested_negative` logic `[TODO: see the tier conflict above]`
 
 Never cut: the contract, the code index, the own sink finder, hypothesis linking with ambiguity marking, the probe engine with its baseline gate, the run store, the CLI report, the judging profile.
 
@@ -179,7 +176,7 @@ From the PRD. No results recorded.
 | Unseen app (pairs linked) | >40% | >65% |
 | Run time | <15 min | <5 min |
 
-VulnerableApp's grader measures detection only. Semgrep is run offline as a yardstick, outside the pipeline. Link metrics are measured against the `expected_pairs` file. Ambiguity rate on VulnerableApp is measured too `[TODO]`. The back-guided search is measured by running with `backguided.enabled` on and off. If it adds no correct links, or adds any wrong link, it stays off.
+VulnerableApp's grader measures detection only. Semgrep is run offline as a yardstick, outside the pipeline. Link metrics are measured against the `expected_pairs` file. Ambiguity rate on VulnerableApp is measured too `[TODO]`. The back-guided search is measured by running with `backguided.enabled` on and off. If it adds no correct links, or adds any wrong link, it stays off. The alternative-sink export is measured with `export.include_alternatives` on and off `[TODO]`.
 
 ## Docs rule
 
