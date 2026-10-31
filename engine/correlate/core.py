@@ -12,13 +12,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from typing import Any
 
 from common.config import DEFAULTS
 from common.pipeline import hypothesis_id
-from common.record import ConfidenceReason, Finding, dedupe_key
+from common.record import ConfidenceReason, Finding, dedupe_key, normalize_file
 from engine.correlate.models import SEVERITY_ORDER, Issue
 
 _SEVERITY_SCORE = {
@@ -26,6 +28,7 @@ _SEVERITY_SCORE = {
     "informational": 10, "unknown": 10,
 }
 _CODE_ONLY_STATUSES = {"no_http_path", "blocked", "untested", "safe_pattern", "tested_negative"}
+_LOGGER = logging.getLogger(__name__)
 
 
 def _weight(config: Mapping[str, Any] | None, key: str) -> float:
@@ -54,21 +57,67 @@ def correlate(findings: Iterable[Finding], config: Mapping[str, Any] | None = No
     # both reaching one auth query) are one issue with several evidence entries,
     # per the (sink_id, cwe) dedupe key. Group by resolved identity, then build one
     # issue per identity.
-    probe_groups: dict[tuple[str | None, str | None, int], list[Finding]] = defaultdict(list)
+    probe_groups: dict[
+        tuple[str | None, str | None, str | None, int], list[Finding]
+    ] = defaultdict(list)
     for probe in probes:
-        probe_groups[(probe.route, probe.param, probe.cwe)].append(probe)
+        probe_groups[(probe.route, probe.method, probe.param, probe.cwe)].append(probe)
 
     linked: dict[str, tuple[list[Finding], list[int]]] = {}
+    conflict_links: dict[str, tuple[list[Finding], list[int]]] = {}
+    constant_conflicts: dict[str, tuple[list[Finding], list[int]]] = {}
     runtime: list[list[Finding]] = []
     for key, group in sorted(probe_groups.items(), key=lambda item: str(item[0])):
-        route, param, cwe = key
+        route, method, param, cwe = key
         lineage = _lineage_ids(group)
-        candidates = _candidate_sinks(static, route, param, cwe, lineage)
+        origin = _link_origin(group)
+        candidates = _candidate_sinks(
+            static,
+            route,
+            method,
+            param,
+            cwe,
+            lineage,
+            origin,
+        )
+        if any(probe.detail("oracle_flaky") is True for probe in group):
+            runtime.append(group)
+            continue
         if not candidates:
             runtime.append(group)
             continue
+        conflict_sinks = [
+            index
+            for index in candidates
+            if _is_conflict_sink(static[index])
+        ]
+        if conflict_sinks:
+            constant_sinks = [
+                index
+                for index in conflict_sinks
+                if static[index].status == "safe_pattern"
+                and static[index].arg_shape == "constant"
+            ]
+            if constant_sinks:
+                identity = _runtime_key(group[0])
+                probes_acc, sinks_acc = constant_conflicts.setdefault(
+                    identity, ([], [])
+                )
+                probes_acc.extend(group)
+                sinks_acc.extend(index for index in constant_sinks if index not in sinks_acc)
+                continue
+            linked_static.update(candidates)
+            identity = _sink_key(
+                min((static[index] for index in candidates), key=_primary_rank)
+            )
+            probes_acc, sinks_acc = conflict_links.setdefault(identity, ([], []))
+            probes_acc.extend(group)
+            sinks_acc.extend(index for index in candidates if index not in sinks_acc)
+            continue
         linked_static.update(candidates)
-        identity = _sink_key(static[candidates[0]])
+        identity = _sink_key(
+            min((static[index] for index in candidates), key=_primary_rank)
+        )
         probes_acc, sinks_acc = linked.setdefault(identity, ([], []))
         probes_acc.extend(group)
         for index in candidates:
@@ -77,12 +126,24 @@ def correlate(findings: Iterable[Finding], config: Mapping[str, Any] | None = No
 
     for probes_acc, sinks_acc in linked.values():
         issues.append(_linked_issue(probes_acc, [static[i] for i in sinks_acc], config))
+    for probes_acc, sinks_acc in conflict_links.values():
+        issues.append(_conflict_issue(probes_acc, [static[i] for i in sinks_acc], config))
+    for probes_acc, sinks_acc in constant_conflicts.values():
+        issues.append(
+            _conflict_issue(
+                probes_acc,
+                [static[i] for i in sinks_acc],
+                config,
+                confirmed=False,
+                constant=True,
+            )
+        )
     for group in runtime:
         issues.append(_linked_issue(group, [], config))
 
     for index, finding in enumerate(static):
         if index not in linked_static:
-            issues.append(_code_only_issue(finding))
+            issues.append(_code_only_issue(finding, config))
 
     return sorted(issues, key=_issue_sort_key)
 
@@ -98,6 +159,14 @@ def _lineage_ids(group: list[Finding]) -> set[str]:
     return ids
 
 
+def _link_origin(group: list[Finding]) -> str | None:
+    if any(probe.detail("job_pass") == "directed" for probe in group):
+        return "directed"
+    if any(probe.detail("job_pass") == "sweep" for probe in group):
+        return "sweep"
+    return "directed" if _lineage_ids(group) else None
+
+
 def _static_hypothesis_ids(finding: Finding) -> set[str]:
     if finding.sink_id is None or not finding.entry_paths:
         return set()
@@ -109,21 +178,28 @@ def _static_hypothesis_ids(finding: Finding) -> set[str]:
 
 
 def _candidate_sinks(
-    static: list[Finding], route: str | None, param: str | None, cwe: int, lineage: set[str]
+    static: list[Finding],
+    route: str | None,
+    method: str | None,
+    param: str | None,
+    cwe: int,
+    lineage: set[str],
+    origin: str | None,
 ) -> list[int]:
-    """Indices of the static sinks a probe hit links to, preferring lineage."""
+    """Resolve directed hits only by lineage and sweep hits by route and param."""
     by_route: list[int] = []
     for index, finding in enumerate(static):
         if finding.cwe != cwe or finding.sink_id is None:
             continue
-        reaches = any(path.route == route for path in finding.entry_paths or ())
+        reaches = any(
+            path.route == route and path.method == method
+            for path in finding.entry_paths or ()
+        )
         if reaches and (param is None or param in (finding.candidate_params or ())):
             by_route.append(index)
-    if lineage:
-        linked = [i for i in by_route if _static_hypothesis_ids(static[i]) & lineage]
-        if linked:
-            return linked
-    return by_route
+    if origin == "directed":
+        return [i for i in by_route if _static_hypothesis_ids(static[i]) & lineage]
+    return by_route if origin == "sweep" else []
 
 
 def _linked_issue(
@@ -132,8 +208,15 @@ def _linked_issue(
     probe = probes[0]
     severity = _max_severity(probes + sinks)
     if not sinks:
+        oracle_flaky = any(
+            probe.detail("oracle_flaky") is True for probe in probes
+        )
         confidence, reasons = _confidence(
-            config, oracle=True, path=False, unique=False, ambiguous=False
+            config,
+            oracle=not oracle_flaky,
+            path=False,
+            unique=False,
+            ambiguous=False,
         )
         return Issue(
             issue_key=_runtime_key(probe),
@@ -148,14 +231,32 @@ def _linked_issue(
             method=probe.method,
             param=probe.param,
             dast_findings=tuple(probes),
-            link_reason="Oracle fired but no code path was found for this route.",
+            link_reason=(
+                "The candidate did not meet the replay threshold; it remains Runtime-only."
+                if oracle_flaky
+                else "Oracle fired but no code path was found for this route."
+            ),
+            oracle_flaky=oracle_flaky,
         )
-    unique = len(sinks) == 1
-    primary = sinks[0]
+    ordered_sinks = sorted(sinks, key=_primary_rank)
+    trace_primary, catalogue_gap = _response_trace_primary(probes, ordered_sinks)
+    trace_resolved = trace_primary is not None
+    if trace_primary is not None:
+        ordered_sinks = [
+            trace_primary,
+            *(sink for sink in ordered_sinks if sink is not trace_primary),
+        ]
+    unique = trace_resolved or len(ordered_sinks) == 1
+    primary = ordered_sinks[0]
+    origin = _link_origin(probes) or "directed"
     confidence, reasons = _confidence(
         config, oracle=True, path=True, unique=unique, ambiguous=not unique
     )
     confidence, reasons = _with_family(probes, config, confidence, reasons)
+    if catalogue_gap:
+        delta = _weight(config, "confidence.weight.catalogue_gap_penalty")
+        confidence = _clamp(confidence + delta)
+        reasons = (*reasons, ConfidenceReason("catalogue_gap", delta))
     return Issue(
         issue_key=_sink_key(primary),
         label="Confirmed",
@@ -164,28 +265,198 @@ def _linked_issue(
         severity=severity,
         risk_score=_risk(severity, confidence),
         link_status="unique" if unique else "ambiguous",
-        link_origin="directed",
+        link_origin=origin,
         confidence=confidence,
         confidence_reasons=reasons,
         route=probe.route,
         method=probe.method,
         param=probe.param,
         sink=primary.sink_id,
-        alternatives=tuple(s.sink_id for s in sinks[1:] if s.sink_id is not None),
+        alternatives=tuple(
+            s.sink_id for s in ordered_sinks[1:] if s.sink_id is not None
+        ),
         file=primary.file,
         line=primary.line,
         link_reason=(
-            "Directed hypothesis fired: the probe's lineage matches this sink."
+            "RESPONSE_TRACE identified the deepest project frame's unique candidate."
+            if trace_resolved
+            else (
+                "Directed hypothesis fired: the probe's lineage matches this sink."
+                if origin == "directed"
+                else "Sweep probe matched this sink by its route and parameter."
+            )
             if unique
-            else "Directed hypotheses fired for several sinks on this route; link is ambiguous."
+            else f"{origin.capitalize()} probes matched several sinks on this route; link is ambiguous."
         ),
-        sast_findings=tuple(sinks),
+        sast_findings=tuple(ordered_sinks),
         dast_findings=tuple(probes),
     )
 
 
-def _code_only_issue(finding: Finding) -> Issue:
+def _response_trace_primary(
+    probes: list[Finding], sinks: list[Finding]
+) -> tuple[Finding | None, bool]:
+    catalogue_gap = False
+    for probe in probes:
+        for evidence in probe.evidence:
+            if evidence.type != "RESPONSE_TRACE":
+                continue
+            frames = evidence.detail.get("frames")
+            if not isinstance(frames, list):
+                continue
+            project_frames = [
+                frame
+                for frame in frames
+                if isinstance(frame, dict) and frame.get("project") is True
+            ]
+            if not project_frames:
+                continue
+            deepest = project_frames[0]
+            file = deepest.get("file")
+            method = deepest.get("method")
+            if not isinstance(file, str) or not isinstance(method, str):
+                continue
+            matching = [
+                sink
+                for sink in sinks
+                if sink.sink_id is not None
+                and normalize_file(sink.sink_id.file) == normalize_file(file)
+                and (
+                    method == sink.sink_id.enclosing_method
+                    or method.endswith(f".{sink.sink_id.enclosing_method}")
+                )
+            ]
+            if len(matching) == 1:
+                return matching[0], catalogue_gap
+            if not matching:
+                _LOGGER.warning(
+                    "Catalogue gap: RESPONSE_TRACE deepest project frame %s:%s (%s) "
+                    "matches no candidate sink",
+                    file,
+                    deepest.get("line", "?"),
+                    method,
+                )
+                catalogue_gap = True
+    return None, catalogue_gap
+
+
+def _is_conflict_sink(finding: Finding) -> bool:
+    return finding.status == "tested_negative" or (
+        finding.status == "safe_pattern"
+        and finding.arg_shape in {"constant", "sanitised"}
+    )
+
+
+def _conflict_issue(
+    probes: list[Finding],
+    sinks: list[Finding],
+    config: Mapping[str, Any] | None,
+    *,
+    confirmed: bool | None = None,
+    constant: bool = False,
+) -> Issue:
+    probe = probes[0]
+    ordered_sinks = sorted(sinks, key=_primary_rank)
+    primary = ordered_sinks[0]
+    severity = _max_severity(probes + sinks)
+    confidence, reasons = _confidence(
+        config, oracle=True, path=not constant, unique=False, ambiguous=not constant
+    )
+    confidence, reasons = _with_family(probes, config, confidence, reasons)
+    threshold = (
+        float(config.get("backguided.min_confidence_to_confirm", DEFAULTS["backguided.min_confidence_to_confirm"]))
+        if config is not None
+        else float(DEFAULTS["backguided.min_confidence_to_confirm"])
+    )
+    is_confirmed = confidence >= threshold if confirmed is None else confirmed
+    cleared_sinks = tuple(
+        replace(sink, status=None, suppressed=False, conflict=True)
+        if _is_conflict_sink(sink)
+        else sink
+        for sink in ordered_sinks
+    )
+    if constant or not is_confirmed:
+        return Issue(
+            issue_key=_runtime_key(probe),
+            label="Runtime-only",
+            cwe=probe.cwe,
+            type=probe.type,
+            severity=severity,
+            risk_score=_risk(severity, confidence),
+            link_status="ambiguous" if not constant else None,
+            link_origin="sweep" if not constant else None,
+            confidence=confidence,
+            confidence_reasons=reasons,
+            route=probe.route,
+            method=probe.method,
+            param=probe.param,
+            status=None,
+            conflict=True,
+            candidate_sinks=tuple(
+                sink.sink_id for sink in ordered_sinks if sink.sink_id is not None
+            ),
+            link_reason=(
+                "A positive replay conflicts with a constant safe-pattern sink; "
+                "the sink is a candidate hint and is not linked."
+                if constant
+                else "A replay reproduced a hit against negative evidence, but "
+                "the ambiguity confidence is below the confirmation threshold."
+            ),
+            sast_findings=tuple(ordered_sinks if constant else cleared_sinks),
+            dast_findings=tuple(probes),
+        )
+    return Issue(
+        issue_key=_sink_key(primary),
+        label="Confirmed",
+        cwe=probe.cwe,
+        type=probe.type,
+        severity=severity,
+        risk_score=_risk(severity, confidence),
+        link_status="ambiguous",
+        link_origin="sweep",
+        confidence=confidence,
+        confidence_reasons=reasons,
+        route=probe.route,
+        method=probe.method,
+        param=probe.param,
+        sink=primary.sink_id,
+        alternatives=tuple(
+            sink.sink_id for sink in ordered_sinks[1:] if sink.sink_id is not None
+        ),
+        file=primary.file,
+        line=primary.line,
+        conflict=True,
+        link_reason="A positive replay reproduced a hit against negative evidence.",
+        sast_findings=cleared_sinks,
+        dast_findings=tuple(probes),
+    )
+
+
+def _code_only_issue(
+    finding: Finding, config: Mapping[str, Any] | None = None
+) -> Issue:
     status = finding.status if finding.status in _CODE_ONLY_STATUSES else "untested"
+    suppress_cwes = (
+        config.get("export.suppress_cwes", DEFAULTS["export.suppress_cwes"])
+        if config is not None
+        else DEFAULTS["export.suppress_cwes"]
+    )
+    suppressed = status in {"safe_pattern", "tested_negative"} and finding.cwe in suppress_cwes
+    if status == "no_http_path":
+        suppressible_cwes = (
+            config.get(
+                "export.no_http_path_suppress_cwes",
+                DEFAULTS["export.no_http_path_suppress_cwes"],
+            )
+            if config is not None
+            else DEFAULTS["export.no_http_path_suppress_cwes"]
+        )
+        suppressed = (
+            config is not None
+            and bool(config.get("export.suppress_no_http_path", False))
+            and finding.cwe in suppressible_cwes
+            and finding.unlinked_reason == "no_callers"
+        )
     return Issue(
         issue_key=_sink_key(finding),
         label="Code-only",
@@ -199,6 +470,7 @@ def _code_only_issue(finding: Finding) -> Issue:
         file=finding.file,
         line=finding.line,
         status=status,
+        suppressed=suppressed,
         link_reason=finding.unlinked_reason,
         sast_findings=(finding,),
     )
@@ -248,6 +520,21 @@ def _max_severity(findings: list[Finding]) -> str:
         (finding.severity or "unknown" for finding in findings),
         key=lambda value: SEVERITY_ORDER.get(value.casefold(), 1),
         default="unknown",
+    )
+
+
+def _primary_rank(finding: Finding) -> tuple[int, int, int, str, int, int]:
+    specificity = {"strict": 0, "relaxed": 1}.get(finding.match_mode or "", 2)
+    hops = min((path.hops for path in finding.entry_paths or ()), default=10**9)
+    corroboration = 0 if finding.corroborated is True else 1
+    sink = finding.sink_id
+    return (
+        specificity,
+        hops,
+        corroboration,
+        sink.file.casefold() if sink else "",
+        sink.start_line if sink else 0,
+        sink.start_col if sink else 0,
     )
 
 

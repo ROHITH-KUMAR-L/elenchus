@@ -36,12 +36,15 @@ def to_sarif(issues: list[Issue]) -> dict[str, Any]:
                 "risk_score": issue.risk_score,
                 "severity": issue.severity,
                 "status": issue.status,
+                "conflict": issue.conflict,
+                "oracle_flaky": issue.oracle_flaky,
                 "route": issue.route,
                 "method": issue.method,
                 "param": issue.param,
                 "payloads": [f.payload for f in issue.dast_findings if f.payload is not None],
                 "sink_id": issue.sink.to_dict() if issue.sink is not None else None,
                 "alternatives": [sink.to_dict() for sink in issue.alternatives],
+                "candidate_sinks": [sink.to_dict() for sink in issue.candidate_sinks],
                 "entry_paths": [
                     path.to_dict() for f in issue.sast_findings for path in f.entry_paths or ()
                 ],

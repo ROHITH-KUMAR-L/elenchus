@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-11-01. Trigger: `BS6` passed its live exit run; 5 Confirmed CWE-89, M1 intact. `BS0` to `BS5` passed and pushed. 248 tests pass, ruff clean. Local ZAP and VulnerableApp containers run from `infra/`.
+2026-11-01. BS7 remains in progress on `feat/bs7-negative-evidence-ambiguity-coverage`. Synthetic BS7 JSON fixtures and tests were removed. The current VulnerableApp run observed no conflict, ambiguity or response-trace cases; those remain unverified.
 
 ## 2. Architecture
 
@@ -58,10 +58,10 @@ Config names and default values live in the Config reference in `docs/architectu
 | Milestone | Build stages | Status | Evidence |
 |---|---|---|---|
 | M1 spine | `BS0` to `BS5` | PASSED | M1 gate cleared on 2026-11-01. Exit tests below. |
-| M2 core | `BS6` to `BS9` | in progress | `BS6` passed; `BS7`-`BS9` not started |
+| M2 core | `BS6` to `BS9` | in progress | `BS6` passed; `BS7` in progress; `BS8`-`BS9` not started |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS6` passed (live exit run, section 5). `BS7` is next. Details: section 9.
+Current build stage: `BS7` is in progress on `feat/bs7-negative-evidence-ambiguity-coverage`. BS6 passed its live exit run. Details: section 9.
 
 ## 5. Done
 
@@ -85,20 +85,22 @@ Current build stage: `BS6` passed (live exit run, section 5). `BS7` is next. Det
 | `BS6` | `uv run --locked pytest -q`, `ruff check .` | 248 passed, ruff clean. New: command-injection oracle, boolean/timing SQL oracles, header/cookie checks, two-pass scheduler, correlation dedupe fix, auth-header wiring, sweep wiring. |
 | `BS6` | `find_sinks` and offline pipeline plan on `.targets/VulnerableApp` | 2 CWE-78 sinks found: `CommandInjection.java` 48 and 53 (`new ProcessBuilder`), `dynamic`, matching `expectedIssues.csv` (CWE-77). CWE-89 unchanged. Plan: 17 directed jobs (78, 89), 167 sweep jobs (78/79/89/601). |
 | `BS6` | **Live exit run:** `elenchus scan --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store`, sweep wired, ZAP 2.17.0 | exit 0, wall 3:37. 5 Confirmed CWE-89: ErrorBased LEVEL_1-4 on exact pair lines 83/143/206/272, and `AuthLoginService.java:51` as one issue (dedupe fix live, was 2). 18 Code-only, 2 Runtime-only headers (693, 1021). probe `stage_seconds` 216, 38 jobs attempted (36 finished, 1 all_blocked, 1 stopped_at_limit), 146 `skipped_budget`. attribution_rate 0.950, header_propagation 1.0, no foreign hosts. |
+| `BS7` Wave A | `uv run --locked pytest -q tests/producers/test_sink_finder.py`; Ruff on changed files | 29 passed; Ruff clean. Static now prioritizes `safe_pattern` before `no_http_path`; commit `31624cc`. |
+| `BS7` app-only validation | `uv run --locked pytest -q`; `uv run --locked ruff check .`; local VulnerableApp/ZAP scan | 256 passed, 3 skipped; Ruff passed. Live: 36 jobs finished, 146 skipped by budget, 1 all-blocked, 1 stopped at limit; 5 Confirmed, 18 Code-only, 2 Runtime-only. No ambiguous links, conflict findings, flaky replays or `RESPONSE_TRACE` evidence occurred. `attribution_rate` 0.950, header propagation 1.0, no foreign hosts. No findings were suppressed, so the suppressed file is empty and wrong-suppression count is zero. Expected-pairs YAML is absent; recall and attribution accuracy are unavailable. |
 
-Not run: the updated CI workflow on GitHub. No correlation, probe or benchmark results exist.
+Not run: the updated CI workflow on GitHub. The VulnerableApp benchmark with a complete expected-pairs file remains unavailable.
 
 Older code still running on the new record with its older logic: tier correlation (reworked in `BS5`), alert-driven ZAP runner (`BS4`), `elenchus scan` (`BS5`), which still needs the Semgrep extra.
 
-Pinned: ZAP and VulnerableApp images by digest in `infra/`. VulnerableApp source in `.targets/` at commit 9f45cd5. Its image is the `latest` digest on the same day, so line numbers may differ from the source. Confirm when `expected_pairs` is checked live.
+Pinned: ZAP and VulnerableApp images by digest in `infra/`. VulnerableApp source in `.targets/` at commit 9f45cd5. Its image is the `latest` digest on the same day, so line numbers may differ from the source.
 
-Measured: nothing beyond `BS0`. Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]`
+Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]`
 
 ## 6. Not done, in dependency order
 
 The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS6` have passed.
 
-1. `BS7`: negative evidence, ambiguity, coverage
+1. `BS7`: finish exit checks; decoy/twin comparison, real suppressed-file content, and expected-pairs measurement remain incomplete. Conflict, ambiguity, and response-trace behavior were not exercised by the latest live scan.
 2. `BS8`: secrets, exports, measurement
 3. `BS9`: judging mode and generality (M2 gate)
 4. `BS10`: Should list (M3). 5. `BS11`: Could list
@@ -114,7 +116,7 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 - Probe stage ran 216s against a 170s start-deadline: in-flight jobs (scan plus replays, `max_job_seconds` 30) finish past it. Total wall 3:37 under the 5-minute cap; tune budgets in BS8. A single ZAP timeout no longer aborts the run (wrapped in `ZapApi.call`; the job is recorded `errored`).
 - Routes whose handler reads every param have no param name to seed (`XSSWithHtmlTagInjection`). The sweep still probes their declared params. Generated-name seeding not built.
 - The answer key's line on a multi-line call is the argument's, not the call's. `BS3` and the command-injection catalogue follow it. Confirm at kickoff.
-- Two safe SQL sinks and one unreachable config sink stay `dynamic`; the config sink is `no_callers`, so Code-only. No full live scan has run; `BS0` jobs took under 2s on a few routes.
+- The first BS7 live scan showed four planted CWE-89 sinks incorrectly marked `tested_negative`; CWE-89 suppression was removed. The latest app-only scan had no suppressed findings, so suppressed-file content and decoy/twin behavior remain unverified.
 - ZAP sends one random-path request per job for 404 analysis: the one known request outside the route table.
 - Same-route sink ambiguity. `TRACE` unavailable at judging; `RESPONSE_TRACE` helps only when a stack trace leaks. A third unfound sink can mislead a link.
 - A negative result is not proof of safety; the state guard limits damage, not prevents it.
@@ -135,16 +137,9 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-BS6 exit test ran and passed (section 5 live row). Next:
+The branch contains Wave B suppression, coverage, and ADEQUACY code, and Wave C correlation/conflict/trace code. Removed the synthetic BS7 JSON fixture records and their tests at the user's request. Full suite after removal: 256 passed, 3 skipped; Ruff passed. The latest local scan found no conflict, ambiguity, or response-trace case. BS7 is not passed: decoy/twin checks, a non-empty suppressed file, and expected-pairs accuracy remain unverified. Do not claim these features were live-validated.
 
-1. **BS7:** negative evidence, ambiguity, coverage. The next build stage.
-2. Budget tuning (overlaps BS8): the probe stage overran its 170s start-deadline to 216s. Lower `probe.max_job_seconds` or the stage budgets so the probe stage keeps clear of the 5-minute cap.
-
-Deferred within BS6, needs a live signal before wiring (do not fake):
-- `sql_boolean`: wire as a true/false replay pair, verified on `BlindSQLInjectionVulnerability`.
-- `timing_slower`: register for CWE 78/89 blind cases once `probe.timing_repeats` and a live timing baseline are set.
-- Verify the command-output, XSS and open-redirect oracles live on routes that suit them (see section 7).
-- `target.auth.*` is wired (header-name + env-var, off unless both set); decide if the organisers' app needs it.
+BS8 follow-up: tune probe budgets; the last live scan ran 216s against a 170s job-start deadline. Deferred BS6: live-check boolean/timing SQLi, command injection, XSS, and open redirect oracles. `target.auth.*` is wired but the app's login requirement is unknown.
 
 ## 10. Resume instructions
 

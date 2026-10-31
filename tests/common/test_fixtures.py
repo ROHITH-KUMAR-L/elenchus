@@ -9,7 +9,18 @@ from common.record import ISSUE_LABELS, LINK_ORIGINS, LINK_STATUSES, STATUSES, F
 
 FIXTURES = Path(__file__).parents[2] / "common" / "fixtures"
 FILES = sorted(FIXTURES.glob("*.json"))
-EXPECTED_KEYS = {"label", "status", "suppressed", "link_status", "link_origin", "param", "alternatives"}
+EXPECTED_KEYS = {
+    "label",
+    "status",
+    "suppressed",
+    "link_status",
+    "link_origin",
+    "param",
+    "alternatives",
+    "candidate_sinks",
+    "conflict",
+    "oracle_flaky",
+}
 
 
 def load(path):

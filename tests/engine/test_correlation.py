@@ -24,14 +24,27 @@ def entry_paths(route=ROUTE, hops=1):
     return [{"route": route, "method": "GET", "hops": hops, "call_chain": chain}]
 
 
-def static(sink=SINK, *, cwe=89, route=ROUTE, params=("id",), status="untested", severity="high"):
+def static(
+    sink=SINK,
+    *,
+    cwe=89,
+    route=ROUTE,
+    params=("id",),
+    status="untested",
+    severity="high",
+    match_mode="strict",
+    hops=1,
+    corroborated=None,
+    arg_shape="dynamic",
+):
     return Finding.from_dict(
         {
             "run_id": "r", "source": "sast", "provenance": "own", "cwe": cwe,
             "type": "SQL Injection", "route": route, "method": "GET",
             "file": sink["file"] if sink else None, "line": sink["start_line"] if sink else None,
-            "sink_id": sink, "arg_shape": "dynamic", "entry_paths": entry_paths(route),
+            "sink_id": sink, "arg_shape": arg_shape, "entry_paths": entry_paths(route, hops),
             "candidate_params": list(params), "status": status, "severity": severity,
+            "match_mode": match_mode, "corroborated": corroborated,
             "evidence": [{"type": "PATH", "detail": {"snippet": "q(...)"}}],
         }
     )
@@ -41,23 +54,34 @@ def lineage_id(sink=SINK, route=ROUTE, cwe=89, params=("id",)):
     return hypothesis_id("directed", route, "GET", cwe, SinkId.from_value(sink), tuple(params))
 
 
-def probe(*, cwe=89, route=ROUTE, param="id", hypothesis=None, payload="1'"):
+def probe(
+    *,
+    cwe=89,
+    route=ROUTE,
+    param="id",
+    hypothesis=None,
+    payload="1'",
+    job_pass=None,
+):
+    job_pass = job_pass or ("directed" if hypothesis else "sweep")
+    evidence = [
+        {
+            "type": "ORACLE",
+            "detail": {
+                "oracle": "sql_error",
+                "hypothesis_ids": [hypothesis] if hypothesis else [],
+                "fired": 3,
+                "replays": 3,
+                "job_pass": job_pass,
+            },
+        }
+    ]
     return Finding.from_dict(
         {
             "run_id": "r", "source": "dast", "provenance": "zap", "cwe": cwe,
             "type": "SQL Injection", "route": route, "method": "GET", "param": param,
             "payload": payload, "hypothesis_id": hypothesis,
-            "evidence": [
-                {
-                    "type": "ORACLE",
-                    "detail": {
-                        "oracle": "sql_error",
-                        "hypothesis_ids": [hypothesis] if hypothesis else [],
-                        "fired": 3,
-                        "replays": 3,
-                    },
-                }
-            ],
+            "evidence": evidence,
         }
     )
 
@@ -76,10 +100,11 @@ class CorrelationTests(unittest.TestCase):
             {"oracle_fired", "path_exists", "unique_link", "family_match"},
         )
 
-    def test_links_by_route_and_param_when_no_lineage_is_carried(self) -> None:
+    def test_sweep_links_by_route_and_param_when_no_sink_lineage_is_carried(self) -> None:
         [issue] = correlate([static(), probe(hypothesis=None)])
         self.assertEqual(issue.label, "Confirmed")
         self.assertEqual(issue.link_status, "unique")
+        self.assertEqual(issue.link_origin, "sweep")
 
     def test_cwe_or_param_mismatch_never_links(self) -> None:
         issues = correlate([static(), probe(cwe=79, hypothesis=None)])
@@ -106,6 +131,10 @@ class CorrelationTests(unittest.TestCase):
         self.assertEqual(confirmed[0].link_status, "unique")
         self.assertEqual(confirmed[0].sink.enclosing_method, "OrderService.find")
         self.assertEqual(code_only[0].sink.enclosing_method, "OrderRepository.load")
+
+    def test_directed_lineage_mismatch_does_not_fall_back_to_route_matching(self) -> None:
+        issues = correlate([static(), probe(hypothesis="unmatched-lineage")])
+        self.assertEqual({issue.label for issue in issues}, {"Code-only", "Runtime-only"})
 
     def test_unlinked_static_is_code_only_with_its_status(self) -> None:
         [issue] = correlate([static(status="no_http_path")])
