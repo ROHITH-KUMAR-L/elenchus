@@ -7,7 +7,17 @@ No AI task is default-on until a with/without run shows no loss in correct links
 or false alarms. Hard rules: AGENTS.md.
 """
 
+from ai.advisor import annotate
 from ai.client import AiClient
 from ai.harness import ArmMeasure, HarnessResult, measure, with_without
+from ai.seeds import propose_seed
 
-__all__ = ["AiClient", "ArmMeasure", "HarnessResult", "measure", "with_without"]
+__all__ = [
+    "AiClient",
+    "ArmMeasure",
+    "HarnessResult",
+    "annotate",
+    "measure",
+    "propose_seed",
+    "with_without",
+]

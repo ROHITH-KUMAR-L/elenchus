@@ -52,6 +52,10 @@ def format_text(issues: list[Issue]) -> str:
                 lines.append(f"   Code: {snippet}")
         if issue.link_reason:
             lines.append(f"   Link: {issue.link_reason}")
+        for label, key in (("Advisory fix", "fix"), ("Advisory note", "explanation")):
+            text = (issue.ai_notes or {}).get(key)
+            if text:
+                lines.append(f"   {label} (AI, advisory): {text}")
         lines.append(f"   Issue key: {issue.issue_key}")
     return "\n".join(lines)
 

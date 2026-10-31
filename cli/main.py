@@ -59,6 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             from producers.sast.sink_finder import load_catalogue
 
             issues = apply_back_guided(issues, pipeline_output.index, load_catalogue(), config)
+        issues = _apply_ai_advice(issues, config)
         findings = _apply_conflict_resolution(findings, issues)
         expected_pairs = _load_expected_pairs(args.expected_pairs)
         coverage = build_coverage_report(
@@ -384,6 +385,20 @@ def _apply_adequacy(
             )
         )
     return output
+
+
+def _apply_ai_advice(issues: list[Issue], config: Any) -> list[Issue]:
+    """Attach advisory fix text and link explanations when an AI task is on.
+
+    Advisory only: it never changes a verdict, label, link or confidence. Off by
+    default and in judging mode, so this is a no-op on a normal run.
+    """
+    if not any(config.task_enabled(task) for task in ("fix_text", "link_explanation")):
+        return issues
+    from ai.advisor import annotate
+    from ai.client import AiClient
+
+    return annotate(issues, AiClient(config))
 
 
 def _apply_conflict_resolution(

@@ -49,6 +49,9 @@ class Issue:
     link_reason: str | None = None
     sast_findings: tuple[Finding, ...] = ()
     dast_findings: tuple[Finding, ...] = ()
+    # Advisory AI text (fix suggestion, link explanation). Off by default; it never
+    # changes a verdict, label, link or confidence. See ai/advisor.py.
+    ai_notes: dict[str, str] | None = None
 
     @property
     def primary_finding(self) -> Finding:
@@ -90,4 +93,5 @@ class Issue:
             "link_reason": self.link_reason,
             "sast_findings": [finding.to_dict() for finding in self.sast_findings],
             "dast_findings": [finding.to_dict() for finding in self.dast_findings],
+            "ai_notes": self.ai_notes,
         }
