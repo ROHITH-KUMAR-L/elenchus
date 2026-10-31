@@ -28,6 +28,7 @@ class _PipelineOutput:
     skipped_by_type: tuple[tuple[str, str, str], ...] = ()
     index: Any = None
     advisory_alerts: tuple[dict[str, Any], ...] = ()
+    preflight_extras: dict[str, Any] | None = None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -78,7 +79,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # to their own file and never enter correlation.
         _write_json(
             output_dir / "advisory.json",
-            {"advisory_alerts": list(pipeline_output.advisory_alerts)},
+            {
+                "advisory_alerts": list(pipeline_output.advisory_alerts),
+                "preflight_extras": pipeline_output.preflight_extras,
+            },
         )
         print(
             f"suppressed_file={output_dir / 'suppressed.json'} "
@@ -226,7 +230,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
     """
     from probe.coordinator import Coordinator, plan_directed_jobs, plan_sweep_jobs
     from probe.oracles import ORACLES
-    from probe.preflight import check_loopback, detect_context_path
+    from probe.preflight import check_loopback, detect_context_path, probe_extras
     from producers.dast.zap_runner import ZapApi
     from producers.hypotheses.builder import build_directed, build_sweep, skipped_by_type
     from producers.sast.code_index import build_code_index
@@ -247,8 +251,10 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
         sweep, index.routes, run_id
     )
     context = detect_context_path(args.source_path, args.base_url)
+    api = ZapApi.from_environment()
+    preflight_extras = probe_extras(api, args.base_url).to_dict()
     coordinator = Coordinator(
-        ZapApi.from_environment(),
+        api,
         config,
         args.base_url,
         context,
@@ -271,6 +277,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
         skipped_by_type=skipped,
         index=index,
         advisory_alerts=tuple(result.advisory_alerts),
+        preflight_extras=preflight_extras,
     )
 
 

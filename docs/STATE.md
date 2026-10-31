@@ -2,7 +2,7 @@
 
 ## 1. Last updated
 
-2026-11-01. M1 and M2 cleared. `BS10a`-`d` done. `BS10e`-`g` done: scan comparison (B-5), session manager, passive-alert ingestion (advisory). See Done table. 332 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
+2026-11-01. M1 and M2 cleared. `BS10a`-`d` done. `BS10e`-`h` done: scan comparison (B-5), session manager, passive-alert ingestion, preflight extras (banner + error-page fingerprint). See Done table. 336 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
 
 ## 2. Architecture
 
@@ -57,7 +57,7 @@ Config names and default values live in the Config reference in `docs/architectu
 | M2 core | `BS6` to `BS9` | PASSED | M2 gate cleared 2026-11-01 (judging rehearsal, 3:35). Exit tests below. |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS10a`-`g` done (M3 Should list). `BS10h`-`j` next. Details: section 9.
+Current build stage: `BS10a`-`h` done (M3 Should list). `BS10i`-`j` (AI) next. Details: section 9.
 
 ## 5. Done
 
@@ -93,6 +93,7 @@ Current build stage: `BS10a`-`g` done (M3 Should list). `BS10h`-`j` next. Detail
 | `BS10e` | `uv run --locked pytest -q tests/engine/test_compare.py tests/cli/test_main.py` | 50 passed. Pure `compare_runs` + `PostgresStore.read_run_issues` + `compare` CLI. Fixture `common/fixtures/scans/scan-compare.json` has a fixed, a new and a still-open issue; suppressed issues excluded from both sides. Not run against a live Postgres this stage. |
 | `BS10f` | `uv run --locked pytest -q tests/probe/test_session.py` | 11 passed. `resolve_session` logs in once (cookie/json/header token), wired into the coordinator before scanning, overriding the static header. Integration test: a cookie-gated route is `all_blocked` without the login flow and `finished` with it. Login body read from env, not config; login URL localhost-only. Not run against a live auth app. |
 | `BS10g` | `uv run --locked pytest -q tests/probe/test_passive.py` | 4 passed. `probe/passive.ingest` keeps ZAP passive alerts, drops our active-scanner plugins, dedups. Coordinator collects them best-effort (`ProbeResult.advisory_alerts`), CLI writes `advisory.json`. Test proves findings are byte-identical with and without alerts present: verdicts unchanged. Not run against a live ZAP this stage. |
+| `BS10h` | `uv run --locked pytest -q tests/probe/test_preflight.py` | 14 passed. `preflight.probe_extras` reads the `Server` banner and an error-page fingerprint (framework markers or `<title>`) from a random missing path; skips cleanly when the target is down. Wired in the CLI pipeline, written to `advisory.json`. Advisory only. Not run live. |
 
 Not run: the updated CI workflow on GitHub.
 
@@ -104,7 +105,7 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS9` have passed (M1 and M2 cleared).
 
-1. `BS10h`-`j`: preflight extras, AI harness, advisory AI. 2. `BS11`: Could list
+1. `BS10i`-`j`: AI with/without harness, advisory AI. 2. `BS11`: Could list
 
 Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
@@ -138,9 +139,9 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-`BS10a`-`g` done (path traversal, blind/union SQL, back-guided, flow engine, scan comparison, session manager, passive ingestion). `BS10h`-`j` next, in order:
-1. BS10h preflight extras (banner, error-page fingerprint); run when exposed, skip cleanly when not.
-2. BS10i AI with/without harness (OpenAI-compatible, env in `.env.example`; off by default and in judging). BS10j advisory AI (fix text, link explanations, DTO seeds) each behind a with/without run.
+`BS10a`-`h` done. `BS10i`-`j` (AI) next, in order:
+1. BS10i AI with/without harness (OpenAI-compatible, env in `.env.example`; off by default and in judging). Built before any AI task; must run with AI off (no network) and produce the diff table.
+2. BS10j advisory AI (fix text, link explanations, then DTO seeds) each behind a with/without run; AI may only demote confidence, never create/delete a finding, set a verdict or decide a link.
 
 Gates and carry-overs: Semgrep yardstick count (unfitted) not recorded — gates `flow.enabled` on (BS10d) and is a BS11 item. `timing_slower` built, unwired (needs `probe.timing_repeats` + live baseline). Path-traversal oracle not yet Confirmed live. `target.auth.*` wired; app login need unknown. M2 margin ~80s.
 
