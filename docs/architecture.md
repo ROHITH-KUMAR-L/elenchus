@@ -515,6 +515,13 @@ The single source for config names and default values. Other docs point here and
 | `target.context_path` | [auto-detected] | Servlet context path. See Stage 0. |
 | `target.auth.header_name` | [none] | Optional header or `Cookie` sent on every request to the target |
 | `target.auth.value_env` | [none] | Environment variable holding that header's value. Never commit or print it. |
+| `target.auth.login_url` | [none] | Session manager: localhost login URL probed once before scanning to mint a session token. When set, its token overrides the static header. |
+| `target.auth.login_method` | [POST] | HTTP method for the login request |
+| `target.auth.login_content_type` | [`application/x-www-form-urlencoded`] | Content type of the login request body |
+| `target.auth.login_body_env` | [none] | Environment variable holding the login request body (credentials). Never commit or print it. |
+| `target.auth.token_from` | [cookie] | Where the session token is read from the login response: `cookie`, `json` or `header` |
+| `target.auth.token_name` | [none] | Cookie name, dotted JSON field or response header the token is read from. A cookie with no name carries every `Set-Cookie` pair. |
+| `target.auth.header_template` | [`{token}`] | Template for the carried header value, e.g. `Bearer {token}`. Unused in cookie mode. |
 | `judging.profile` | [false] | When true: forces `semgrep.enabled`, `logtail.enabled` and `ai.enabled` to false, requires ZAP active scanning, and allows no target restarts |
 | `semgrep.enabled` | [false] | Optional Semgrep adapter |
 | `zap.enabled` | [true] | Required ZAP active scan engine and passive response analysis. Must stay enabled in judging mode. |

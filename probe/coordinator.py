@@ -27,6 +27,7 @@ from probe.oracles import Response, oracle_for, sql_boolean
 from probe.preflight import ContextPath
 from probe.scheduler import run_two_pass
 from probe.seeds import build_seed
+from probe.session import login_configured, resolve_session
 
 # ZAP input-vector bitmask: query string (1) and POST data (2). The URL-path
 # vector stays off here; a path-param sink needs the scoped handling added in BS6.
@@ -248,6 +249,7 @@ class Coordinator:
         self.rule_cwes = {rule: cwe for cwe, rules in config.rule_map().items() for rule in rules}
         self.rule_ids_by_cwe = config.rule_map()
         self._auth = _auth_header(config)
+        self._login = login_configured(config)
         self._sleep = time.sleep
         self._now = time.monotonic
         self.enum_types = enum_types
@@ -275,6 +277,10 @@ class Coordinator:
         drift = {"detected": False}
         start = self._now()
         try:
+            # Session manager: mint the auth header from the login flow, if one is
+            # configured, before anything carries it. It overrides the static header.
+            if self._login:
+                self._auth = resolve_session(self.api, self.config, self.base_url)
             self._set_auth_header()
             self.api.set_option("ascan", "InjectPluginIdInHeader", "Boolean", "true")
             self.api.set_option(

@@ -24,6 +24,13 @@ DEFAULTS: dict[str, Any] = {
     "target.context_path": None,
     "target.auth.header_name": None,
     "target.auth.value_env": None,
+    "target.auth.login_url": None,
+    "target.auth.login_method": "POST",
+    "target.auth.login_content_type": "application/x-www-form-urlencoded",
+    "target.auth.login_body_env": None,
+    "target.auth.token_from": "cookie",
+    "target.auth.token_name": None,
+    "target.auth.header_template": "{token}",
     "judging.profile": False,
     "semgrep.enabled": False,
     "zap.enabled": True,
@@ -87,11 +94,15 @@ _UNSET_KEY_TYPES: dict[str, type] = {
     "target.context_path": str,
     "target.auth.header_name": str,
     "target.auth.value_env": str,
+    "target.auth.login_url": str,
+    "target.auth.login_body_env": str,
+    "target.auth.token_name": str,
     "zap.api_key": str,
     "probe.timing_repeats": int,
     "export.count_multi_entry": str,
 }
 _ATTACK_STRENGTHS = {"LOW", "MEDIUM", "HIGH", "INSANE"}
+_TOKEN_SOURCES = {"cookie", "json", "header"}
 _FORCED_OFF_WHEN_JUDGING = ("semgrep.enabled", "logtail.enabled", "ai.enabled")
 
 
@@ -201,6 +212,11 @@ def _validate(values: Mapping[str, Any]) -> None:
     base_url = values["target.base_url"]
     if base_url is not None and urlsplit(base_url).hostname not in LOCALHOST_NAMES:
         raise ValueError("target.base_url must be on localhost")
+    login_url = values["target.auth.login_url"]
+    if login_url is not None and urlsplit(login_url).hostname not in LOCALHOST_NAMES:
+        raise ValueError("target.auth.login_url must be on localhost")
+    if values["target.auth.token_from"] not in _TOKEN_SOURCES:
+        raise ValueError(f"target.auth.token_from must be one of {', '.join(sorted(_TOKEN_SOURCES))}")
     if values["header.count_mode"] not in HEADER_COUNT_MODES:
         raise ValueError(f"header.count_mode must be one of {', '.join(sorted(HEADER_COUNT_MODES))}")
     for key in ("zap.attack_strength.directed", "zap.attack_strength.sweep"):
