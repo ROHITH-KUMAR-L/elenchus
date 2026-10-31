@@ -152,15 +152,3 @@ From the PRD. Good qualifies; Great stands out. No results measured yet.
 | Run time | Under 15 minutes | Under 5 minutes |
 
 Test app facts: 36 planted vulnerabilities (20 pairs, 10 code-only, 6 runtime-only), about 8 safe decoys, and an unseen second app at judging.
-
-## 9. Team, scope and licence
-
-Team: `[TODO: names]`
-
-Non-goals, per the PRD:
-
-- No polished UI. A command-line report or simple page is enough.
-- No automatic code fixes.
-- Single language only.
-
-Licence: `[TODO]`
