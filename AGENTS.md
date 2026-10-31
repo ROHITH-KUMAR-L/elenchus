@@ -2,6 +2,8 @@
 
 Rules for AI coding agents working in this repo.
 
+- Ownership source of truth: [docs/repo-structure.md](docs/repo-structure.md). Respect directory ownership. Never edit the schema in `common/` without flagging it as a joint change.
+
 ## Languages
 
 - The tool is Python.

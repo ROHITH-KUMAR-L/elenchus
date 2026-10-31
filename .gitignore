@@ -1,0 +1,24 @@
+# Scan outputs. Output dir name [proposed], confirm when the CLI exists.
+out/
+runs/
+
+# Benchmark result files
+benchmarks/*-results.json
+
+# Per-run SARIF files. Fixtures in common/ stay tracked.
+*.sarif
+!common/fixtures/**/*.sarif
+
+# Python
+__pycache__/
+
+# Secrets
+.env
+
+# Local virtualenvs
+.venv/
+venv/
+
+# IDE folders
+.vscode/
+.idea/
