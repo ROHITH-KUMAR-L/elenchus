@@ -106,6 +106,8 @@ Passed on 2026-10-31. Results are in [STATE.md](STATE.md).
 | Build | `probe/`: loopback check, context path detection, baselines, typed seeds. The ZAP client in `producers/dast/`. One-at-a-time jobs from `ProbeJob`, exact-route scope, allow-list policy, probe header. Request attribution. Error-based SQL injection oracle. Verification replay. Replay log. Run-end host check. |
 | Exit test | Unit tests with recorded ZAP messages: zero-param and two-param diffs stay unlinked, a message without the header is dropped, a non-reproducing hit creates no record. A live run on VulnerableApp with `attribution_rate` and `header_propagation_rate` recorded, and only loopback in ZAP history. |
 
+Passed on 2026-10-31. Results in [STATE.md](STATE.md).
+
 ### `BS5`: End-to-end spine (M1 gate)
 
 | Item | Detail |
@@ -191,7 +193,7 @@ The repo predates this architecture. The table lists what exists in the tree, ho
 | `producers/sast/semgrep_runner.py`, `rules/` | Semgrep runner, Semgrep-format taint and pattern rules, tests | Becomes the optional Semgrep adapter (`semgrep.enabled`, off by default). It must not guess `param`. Its tests must skip when Semgrep is not installed. The rules are Semgrep syntax and do not carry over to the own sink catalogue or secrets pass `[TODO: confirm]`. | `BS1`, `BS11` |
 | `pyproject.toml` | Semgrep is an optional extra, `uv sync --extra semgrep` | The pipeline and its tests pass without it. | `BS1` |
 | `producers/benchmark.py` | Offline SAST score against VulnerableApp's expected-issues CSV | Part of the benchmark adapter. Results not recorded here. Its CWE total currently covers only CWEs we report, so the raw score must be added. | `BS8` |
-| `producers/dast/zap_runner.py` | ZAP-driven active DAST with response-oracle checks and tests. One scan per seed, then alerts read for the whole base URL. | Seed for the required ZAP active probe engine. Keep the API client. Replace alert-driven attribution with request attribution, the whole-base-path scope with exact routes, and fixed seeds with typed seeds. | `BS4`, `BS6` |
+| `producers/dast/zap_runner.py` | ZAP API client (`ZapApi`), extended in BS4 with the scan, policy, replacer, message and host methods the coordinator uses. The old alert-driven `run_dast` stays until BS5 reworks the CLI. | `probe/` holds the BS4 coordinator, preflight, seeds, attribution and oracles. | `BS4`, `BS5`, `BS6` |
 | `engine/correlate/` | Tier A/B/C correlation with tests | Rework: hypothesis lineage, `link_status`, `link_origin`, ambiguity groups, the conflict rule, evidence-based confidence. | `BS5`, `BS7` |
 | `engine/store/`, `engine/report/` | Postgres store, text report, SARIF export | Reusable as the base for stage 7. Needs the new fields, the suppressed file and the coverage report `[TODO: verify]`. | `BS5`, `BS7`, `BS8` |
 | `cli/main.py` | `correlate` and `scan` commands | Rework the scan flow to stages 0 to 7. | `BS5` |

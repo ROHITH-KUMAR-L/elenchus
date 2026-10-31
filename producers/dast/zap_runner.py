@@ -212,6 +212,146 @@ class ZapApi:
             raise RuntimeError("ZAP returned an invalid message")
         return message
 
+    # --- Methods the BS4 coordinator uses. BS0 verified each against ZAP 2.17.0.
+
+    def set_option(self, component: str, option: str, type_name: str, value: str) -> None:
+        self.call(component, "action", f"setOption{option}", {type_name: value})
+
+    def scanners(self, policy: str | None = None) -> list[dict[str, Any]]:
+        params = {"scanPolicyName": policy} if policy else None
+        result = self.call("ascan", "view", "scanners", params)
+        scanners = result.get("scanners")
+        if not isinstance(scanners, list):
+            raise RuntimeError("ZAP returned an invalid scanners list")
+        return scanners
+
+    def scan_policy_names(self) -> list[str]:
+        result = self.call("ascan", "view", "scanPolicyNames")
+        return [name for name in result.get("scanPolicyNames", []) if isinstance(name, str)]
+
+    def ensure_scan_policy(self, name: str, rule_ids: list[str], strength: str) -> None:
+        """A fresh allow-list policy: only rule_ids on, all at one strength."""
+        if name in self.scan_policy_names():
+            self.call("ascan", "action", "removeScanPolicy", {"scanPolicyName": name})
+        self.call(
+            "ascan",
+            "action",
+            "addScanPolicy",
+            {"scanPolicyName": name, "attackStrength": strength, "alertThreshold": "MEDIUM"},
+        )
+        self.call("ascan", "action", "disableAllScanners", {"scanPolicyName": name})
+        self.call(
+            "ascan",
+            "action",
+            "enableScanners",
+            {"ids": ",".join(rule_ids), "scanPolicyName": name},
+        )
+        for rule_id in rule_ids:
+            self.call(
+                "ascan",
+                "action",
+                "setScannerAttackStrength",
+                {"id": rule_id, "attackStrength": strength, "scanPolicyName": name},
+            )
+
+    def start_scan(
+        self, url: str, method: str, post_data: str, context_id: str, policy: str
+    ) -> str:
+        result = self.call(
+            "ascan",
+            "action",
+            "scan",
+            {
+                "url": url,
+                "recurse": "false",
+                "method": method,
+                "postData": post_data,
+                "contextId": context_id,
+                "scanPolicyName": policy,
+            },
+        )
+        scan_id = result.get("scan")
+        if not isinstance(scan_id, str) or not scan_id:
+            raise RuntimeError("ZAP did not return an active scan ID")
+        return scan_id
+
+    def stop_scan(self, scan_id: str) -> None:
+        self.call("ascan", "action", "stop", {"scanId": scan_id})
+
+    def scan_message_ids(self, scan_id: str) -> list[str]:
+        result = self.call("ascan", "view", "messagesIds", {"scanId": scan_id})
+        return [str(message_id) for message_id in result.get("messagesIds", [])]
+
+    def excluded_params(self) -> list[dict[str, Any]]:
+        result = self.call("ascan", "view", "excludedParams")
+        return result.get("excludedParams", [])
+
+    def add_excluded_param(self, name: str, type_id: str) -> None:
+        self.call(
+            "ascan", "action", "addExcludedParam", {"name": name, "type": type_id, "url": "*"}
+        )
+
+    def remove_excluded_param(self, index: str) -> None:
+        self.call("ascan", "action", "removeExcludedParam", {"idx": index})
+
+    def replacer_rules(self) -> list[dict[str, Any]]:
+        return self.call("replacer", "view", "rules").get("rules", [])
+
+    def add_replacer_request_header(self, description: str, header: str, value: str) -> None:
+        """A Replacer rule that sets a request header on all traffic, scanner included."""
+        self.call(
+            "replacer",
+            "action",
+            "addRule",
+            {
+                "description": description,
+                "enabled": "true",
+                "matchType": "REQ_HEADER",
+                "matchRegex": "false",
+                "matchString": header,
+                "replacement": value,
+                "initiators": "",
+            },
+        )
+
+    def remove_replacer_rule(self, description: str) -> None:
+        self.call("replacer", "action", "removeRule", {"description": description})
+
+    def send_request(self, raw_request: str, follow_redirects: bool = False) -> dict[str, Any]:
+        result = self.call(
+            "core",
+            "action",
+            "sendRequest",
+            {"request": raw_request, "followRedirects": str(follow_redirects).lower()},
+        )
+        messages = result.get("sendRequest")
+        if not isinstance(messages, list) or not messages:
+            raise RuntimeError("ZAP returned no response for a sent request")
+        return messages[0]
+
+    def hosts(self) -> list[str]:
+        return [host for host in self.call("core", "view", "hosts").get("hosts", [])]
+
+    def prime_site_tree(self, url: str, method: str, body: str, content_type: str) -> None:
+        """Send one request through ZAP's proxy so the node enters the site tree.
+
+        An active scan can only start from a node ZAP has seen, and core/sendRequest
+        does not add a POST to the tree (BS0). Best effort: a target hiccup here
+        must not abort the run, since the scan's own baseline gate catches it."""
+        proxy = urllib.request.ProxyHandler({"http": self.base_url, "https": self.base_url})
+        opener = urllib.request.build_opener(proxy, _NoRedirect())
+        headers = {"Content-Type": content_type} if content_type else {}
+        request = urllib.request.Request(
+            url, data=body.encode() if body else None, headers=headers, method=method
+        )
+        try:
+            with opener.open(request, timeout=self.timeout) as response:
+                response.read(MAX_API_RESPONSE_BYTES)
+        except urllib.error.HTTPError as error:
+            error.read()
+        except urllib.error.URLError:
+            pass
+
 
 @dataclass(frozen=True)
 class OracleResult:

@@ -17,6 +17,7 @@ RUN uv sync --locked --no-dev --no-install-project
 COPY cli ./cli
 COPY common ./common
 COPY engine ./engine
+COPY probe ./probe
 COPY producers ./producers
 RUN uv sync --locked --no-dev --no-editable
 

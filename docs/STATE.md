@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-10-31. Trigger: `BS0` to `BS3` passed. Work is committed per build stage on branch `feat/bs0-zap-check`, not pushed. Local ZAP and VulnerableApp containers are running from `infra/`.
+2026-10-31. Trigger: `BS0` to `BS4` passed, each pushed to `main`. Work is committed per build stage on branch `feat/bs0-zap-check`, not pushed. Local ZAP and VulnerableApp containers are running from `infra/`.
 
 ## 2. Architecture
 
@@ -60,11 +60,11 @@ Config names and default values live in the Config reference in `docs/architectu
 
 | Milestone | Build stages | Status | Evidence |
 |---|---|---|---|
-| M1 spine | `BS0` to `BS5` | in progress | `BS0` to `BS3` exit tests below. `BS4` and `BS5` not done. |
+| M1 spine | `BS0` to `BS5` | in progress | `BS0` to `BS4` exit tests below. `BS5` not done. |
 | M2 core | `BS6` to `BS9` | not started | None |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS4`. Not started.
+Current build stage: `BS5`. Not started.
 
 ## 5. Done
 
@@ -80,6 +80,9 @@ Current build stage: `BS4`. Not started.
 | `BS3` | Own sink finder on `.targets/VulnerableApp`, compared with its `expectedIssues.csv` | CWE-89: all 9 expected sinks found on the exact line. All 9 are `dynamic`. Other CWEs not built yet. |
 | `BS3` | Hypotheses on the same source | 11 directed, 239 sweep, 13 params skipped by type. Every `expected_pairs` entry has a directed hypothesis. |
 | `BS3` | `uv run --locked pytest -q`, `ruff check .` | 178 passed, 3 skipped. Ruff passed. |
+| `BS4` | `uv run --locked pytest -q tests/probe` | 38 passed: attribution (missing header, zero/two-param diffs unlinked), oracle, seeds, preflight, coordinator (reproduced hit links, non-reproducing makes no record, foreign host reported). |
+| `BS4` | `scripts/bs4_live_check.py` against live ZAP and VulnerableApp | 11 directed SQL jobs ran. 4 Confirmed error-based SQL findings (ErrorBased LEVEL_1 to LEVEL_4), each fired 3/3 on replay with unique lineage. attribution_rate 0.965, header_propagation_rate 1.0, no foreign hosts. Context path /VulnerableApp from config. |
+| `BS4` | `uv run --locked pytest -q`, `ruff check .` | 216 passed, 3 skipped. Ruff passed. |
 
 Not run: the updated CI workflow on GitHub. No correlation, probe or benchmark results exist.
 
@@ -93,21 +96,21 @@ Measured: nothing beyond `BS0`. Semgrep yardstick: `[TODO: Semgrep count on Vuln
 
 The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS3` have passed.
 
-1. `BS4`: preflight and probe spine
-2. `BS5`: end-to-end spine (M1 gate)
-3. `BS6`: all classes and the scheduler
-4. `BS7`: negative evidence, ambiguity, coverage
-5. `BS8`: secrets, exports, measurement
-6. `BS9`: judging mode and generality (M2 gate)
-7. `BS10`: Should list (M3)
-8. `BS11`: Could list
+1. `BS5`: end-to-end spine (M1 gate)
+2. `BS6`: all classes and the scheduler
+3. `BS7`: negative evidence, ambiguity, coverage
+4. `BS8`: secrets, exports, measurement
+5. `BS9`: judging mode and generality (M2 gate)
+6. `BS10`: Should list (M3)
+7. `BS11`: Could list
 
 Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.md`.
 
 ## 7. Known failures and residual flaws
 
-- The existing ZAP runner reads alerts for the whole base URL and has no per-hypothesis workflow.
+- The old alert-driven `run_dast` in `producers/dast/zap_runner.py` is unused by the BS4 coordinator but still wired into the CLI `scan` command until BS5. The BS4 `ZapApi` extensions are shared.
 - XSS oracle: VulnerableApp's XSS routes reply `text/plain`, and its page inserts the text as HTML. The HTML-context oracle would not fire on them, and ZAP raised no alert. Decide in `BS6`.
+- The error-based SQL oracle fires on ErrorBased levels only. Blind and Union SQL need boolean and timing oracles (BS6).
 - Routes whose handler reads every param have no param name to seed. `XSSWithHtmlTagInjection` is one. Decide in `BS6`.
 - The answer key's line on a multi-line call is the argument's, not the call's. `BS3` follows it. Confirm with the organisers' key at kickoff.
 - Two safe VulnerableApp SQL sinks stay `dynamic` because their input is filtered before the call. They need a probe to clear them. One unreachable config sink is `dynamic` with `no_callers`, so it would report as Code-only.
@@ -135,7 +138,7 @@ Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.m
 
 ## 9. Next action
 
-Decide how to build `BS4`. Commit after each build stage passes its exit test.
+Build `BS5`: wire the CLI to run index -> static -> hypotheses -> preflight -> probe -> correlate -> verify -> output, rework correlation to lineage with link_status, link_origin, confidence and confidence_reasons, and clear the M1 gate (a Confirmed error-based SQL issue whose sink file and line match expected_pairs).
 
 ## 10. Resume instructions
 
