@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 
 from common.pipeline import ProbeJob
 
-
 DIRECTED_SHARE = 0.6  # [proposed]: share of the budget the directed pass may use
 
 
