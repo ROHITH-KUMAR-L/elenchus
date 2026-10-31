@@ -36,18 +36,21 @@ The repo predates this architecture. The table lists what exists in the tree and
 | 9 | Judging-mode profile | all | Person B | M2 |
 | 10 | `tested_negative` adequacy logic: baseline valid for every candidate param, every candidate param probed, all payload families for the CWE tried within budget. It fills the suppressed file with real content. | 6, 7 | Person B | M2 |
 
-The four classes: SQL injection, XSS, command injection, open redirect. Path traversal is stretch `[proposed]`, though its oracle is listed in the architecture.
+The four classes: SQL injection, XSS, command injection, open redirect. Path traversal (CWE-22) is Should, M3, the first item after M2. Its oracle is a file-content marker. With the secrets pass it covers all six PRD vulnerability types.
 
 ## Should
 
 | Item | Stage | Owner |
 |---|---|---|
-| Typed seeds with AI repair | 4 | Person B |
+| Path traversal class (CWE-22): sink catalogue entries and hypotheses, file-content oracle | 2 to 4 | Person A for the catalogue and hypotheses. Person B for the oracle. First item after M2. |
+| Scan comparison (B-5): new, fixed and still-open issues, from stored runs and the dedupe key | 7 | Person B. M3. |
+| AI fix text and link explanations (B-3, B-4). Advisory. Zero metric risk. | 7 | Person B. M3. |
+| AI with/without measurement harness. Built before any AI task. | all | Person B. M3. |
+| AI seeds from DTOs, with repair. Only after non-AI typed seeds work. | 4 | Person B. M3. |
 | Session manager | 4 | Person B |
 | ZAP passive pass | 4 | Person B |
-| AI triage (judge `tested_negative`, demote only) | 6 | Person B |
 | Best-effort preflight items | 0 | Person B |
-| Back-guided static search, relaxed mode only. Producer entry `run_back_guided(target, route_map, runtime_only_findings)`. Config `backguided.enabled`, default false until measured. | 5 | Person A. Reads A's index and sink catalogue. Person B consumes the evidence through the cli seam. |
+| Back-guided static search, relaxed mode only. Producer entry `run_back_guided(target, route_map, runtime_only_findings)`. Config `backguided.enabled`, off until measured. | 5 | Person A. Reads A's index and sink catalogue. Person B consumes the evidence through the cli seam. |
 | Own flow engine (narrows `candidate_params`). Built after M2. Never blocks M1 or M2. Gate for making it the default: matches the measured Semgrep count on VulnerableApp, Semgrep run offline as the yardstick. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality. | 2 | Person A |
 
 ## Could
@@ -56,13 +59,14 @@ The four classes: SQL injection, XSS, command injection, open redirect. Path tra
 |---|---|---|
 | Semgrep optional adapter (fallback and cross-check) | 2 | Person A |
 | App-log tail (`TRACE`). Never in judging mode. | 4 | Person B |
-| AI payload adaptation | 4 | Person B |
+| AI payload variants when blocked | 4 | Person B |
+| AI source, sink and sanitiser spec proposals | 2 | Person A |
+| AI judging of `tested_negative` findings (demote only). The adequacy rule already demotes. | 6 | Person B |
 | Chromium-confirmed XSS | 4 | Person B |
 | Patch re-verification | 4 | Person B |
 | Second-order route pairs | 4 | Person B |
 | Refined `sink_id` | 2 | Person A |
-| JAX-RS adapter | 1 to 2 | Person A `[proposed: in the earlier plan, absent from this tier list]` |
-| Scan comparison (B-5) | 7 | Person B `[proposed: in the earlier plan, absent from this tier list]` |
+| JAX-RS adapter. Promote to Should only if kickoff shows the graded app is not Spring. It would also earn PRD bonus B-7. | 1 to 2 | Person A |
 
 ## PRD bonus items
 
@@ -70,11 +74,11 @@ The four classes: SQL injection, XSS, command injection, open redirect. Path tra
 |---|---|
 | B-1 Auto-verify Code-only | Directed probes (Must item 4) |
 | B-2 Cut SAST noise | `tested_negative` suppression (Must item 10, M2) |
-| B-3 Explain links | Confidence reasons stored (Must item 6). Report display `[TODO]`. |
-| B-4 Fix suggestion | AI advisory `[TODO: tier]` |
-| B-5 Compare two scans | Could `[proposed]` |
+| B-3 Explain links | Confidence reasons stored (Must item 6). AI link explanations (Should, M3). Report display `[TODO]`. |
+| B-4 Fix suggestion | AI fix text (Should, M3) |
+| B-5 Compare two scans | Should, M3 |
 | B-6 SARIF and CI exit | Must item 7 |
-| B-7 Second framework | JAX-RS, Could `[proposed]` |
+| B-7 Second framework | JAX-RS, Could. Promote to Should only if kickoff shows the graded app is not Spring. |
 
 ## Milestones
 
@@ -155,10 +159,12 @@ If scope must shrink, drop in this order. M1 and M2 items are never cut.
 1. Could items, last row first
 2. Own flow engine
 3. Back-guided search
-4. ZAP passive pass
-5. AI triage and typed-seed AI repair
-6. Session manager
-7. Best-effort preflight items
+4. B-5 scan comparison
+5. ZAP passive pass
+6. AI items
+7. Session manager
+8. Best-effort preflight items
+9. Path traversal (cut last among the Should items, because it covers a PRD type)
 
 Never cut: the contract, the code index, the own sink finder, hypothesis linking with ambiguity marking, the probe engine with its baseline gate, the run store, the CLI report, the judging profile.
 

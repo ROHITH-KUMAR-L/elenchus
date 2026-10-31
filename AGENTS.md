@@ -25,14 +25,14 @@ Static-guided dynamic testing. Static analysis produces hypotheses. The probe en
 - `TRACE` evidence needs the optional log tail. It is not available in judging mode. Do not rely on it.
 - A third sink that was never found can still produce a misleading link. Say so where it matters.
 - `link_status` (`unique` or `ambiguous`) and `link_origin` (`directed`, `sweep` or `back_guided`) are both required once a link exists. They are orthogonal. `link_origin` alone would hide ambiguity on sweep links.
-- Confidence is a float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands and the scoring weights live in config `[proposed bands: low below 0.4, medium 0.4 to below 0.7, high 0.7 and above]`. Cut points are tuned on `expected_pairs` runs.
+- Confidence is a float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Bands and scoring weights live in config. Cut points are tuned on `expected_pairs` runs.
 - `confidence_reasons` is a list of `{factor, delta}`. The engine (Person B) writes it. Producers never set it. It is a contract field added before the freeze.
-- `backguided.min_confidence_to_confirm` is 0.4 `[proposed]`. A unique back-guided match starts at 0.55 and loses 0.1 per unresolved hop `[proposed]`, so 2 or more hops stay Runtime-only. A conflict case usually falls below the threshold and exports as Runtime-only with `conflict: true`.
-- Header counting follows config `header.count_mode` (`per_app` or `per_url`, default `per_app`) `[TODO: confirm at kickoff against the answer key]`.
-- Back-guided search (Should, owner Person A) is for runtime-only hits with no hypothesis. It runs in relaxed mode only: call name alone when the receiver type is unresolved, up to N = 3 unresolved hops, with `unresolved_hops` and `match_mode: relaxed` recorded. Strict mode is the default `match_mode` and is already covered by the stage 2 hypotheses.
+- Back-guided confidence starts at `backguided.start_confidence` and loses `backguided.hop_penalty` per unresolved hop. Below `backguided.min_confidence_to_confirm` the finding stays Runtime-only. A conflict case usually falls below it and exports as Runtime-only with `conflict: true`.
+- Header counting follows config `header.count_mode` `[TODO: confirm at kickoff against the answer key]`.
+- Back-guided search (Should, owner Person A) is for runtime-only hits with no hypothesis. It runs in relaxed mode only: call name alone when the receiver type is unresolved, up to `backguided.max_unresolved_hops` unresolved hops, with `unresolved_hops` and `match_mode: relaxed` recorded. Strict mode is the default `match_mode`. It matches only when the receiver type resolves, and the stage 2 hypotheses already cover it.
 - One candidate sink gives `link_origin: back_guided`, `link_status: unique`, low confidence. Label it Confirmed only at or above `backguided.min_confidence_to_confirm`. Several candidates stay Runtime-only, `ambiguous`, with `candidate_sinks` as hints. Export no Confirmed link for them.
-- `backguided.enabled` is false until measured. Measure with it on and off against `expected_pairs`. If it adds no correct links, or adds any wrong link, leave it off.
-- Conflict rule: an `ORACLE` hit on a `(route, param, CWE)` that matches a `tested_negative` sink is replayed up to 3 times. At least 2 of 3 firing: un-suppress, clear `tested_negative`, set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`, record the reason "directed probes negative, positive hit on replay", lower the confidence, move it to the primary report. At or above `backguided.min_confidence_to_confirm`: label Confirmed. Below it: label Runtime-only, keep `conflict: true` and `link_status: ambiguous`, list the sink in `candidate_sinks` as a hint, export no Confirmed link. Not reproduced: keep `tested_negative`, set `oracle_flaky: true` on the evidence entry, make no link, leave the hit Runtime-only.
+- `backguided.enabled` stays off until measured. Measure with it on and off against `expected_pairs`. If it adds no correct links, or adds any wrong link, leave it off.
+- Conflict rule: an `ORACLE` hit on a `(route, param, CWE)` that matches a `tested_negative` sink is replayed up to `replay.count` times. At least `replay.min_hits` firing: un-suppress, clear `tested_negative`, set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`, record the reason "directed probes negative, positive hit on replay", lower the confidence, move it to the primary report. At or above `backguided.min_confidence_to_confirm`: label Confirmed. Below it: label Runtime-only, keep `conflict: true` and `link_status: ambiguous`, list the sink in `candidate_sinks` as a hint, export no Confirmed link. Not reproduced: keep `tested_negative`, set `oracle_flaky: true` on the evidence entry, make no link, leave the hit Runtime-only.
 - Never run back-guided search on, or force-link, header, cookie or info-leak findings.
 
 ## Static stage rules
@@ -42,7 +42,7 @@ Static-guided dynamic testing. Static analysis produces hypotheses. The probe en
 - Semgrep is allowed as a fallback sink source for a non-Java target, as a cross-check that marks corroborated sinks, and as an offline benchmark yardstick.
 - The static stage does not say which param reaches the sink. Never fill `param` from static output. Fill `candidate_params` with all params of the route. The oracle resolves `param`.
 - The own flow engine is Should, built after M2. It never blocks M1 or M2. Gate for making it the default: it matches the measured Semgrep count on VulnerableApp, with Semgrep run offline. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality.
-- Unresolved calls are flagged. Never drop them.
+- Unresolved calls are flagged. Never drop them. Call sites that match a catalogue name with an unresolved receiver stay in the index. Only the relaxed back-guided search uses them. Never add a fallback to strict mode.
 
 ## Deterministic core, AI advisory
 
@@ -52,12 +52,14 @@ Static-guided dynamic testing. Static analysis produces hypotheses. The probe en
 
 AI hard rules:
 
+- All AI is off by default (`ai.enabled`) and off in judging mode.
 - AI never creates or deletes a finding.
 - AI never sets an oracle verdict.
 - AI never decides a link.
-- AI may demote confidence, and may judge `tested_negative` findings. It demotes only, with a written reason.
-- Every AI output is validated against a JSON schema, cached by content hash and call-budgeted.
-- Use AI only where the task is fuzzy, the output is machine-checkable and a wrong answer is caught. Allowed tasks: propose source, sink and sanitiser specs for custom wrappers (must name real symbols); generate seeds from DTOs (the baseline must pass, at most 3 repairs); propose payload variants when blocked (the oracle decides, strict budget); judge `tested_negative` findings; write fix text.
+- AI may demote confidence. Judging `tested_negative` findings is Could and demotes only, with a written reason.
+- Every AI output is validated against a JSON schema, cached by content hash and call-budgeted (`ai.max_calls`).
+- Use AI only where the task is fuzzy, the output is machine-checkable and a wrong answer is caught. Tiers: Should (M3): fix text and link explanations, seeds from DTOs with repair (only after non-AI typed seeds work), the with/without measurement harness (built before any AI task). Could: source, sink and sanitiser spec proposals (must name real symbols), payload variants when blocked (the oracle decides, strict budget), judging `tested_negative` findings.
+- No AI task becomes default-on until a with/without run on VulnerableApp against `expected_pairs` shows no loss in correct links or false alarms.
 
 AI measurement: run VulnerableApp with and without AI. Report the recall and link difference. Do not report AI as helping without that run.
 
@@ -65,9 +67,10 @@ AI measurement: run VulnerableApp with and without AI. Report the recall and lin
 
 - A finding with `status: tested_negative` is suppressed. Keep it in Postgres.
 - Exclude suppressed findings from the primary report and the graded export. Write them to the separate suppressed file.
-- `tested_negative` needs all three: baseline valid for every candidate param, every candidate param probed, all payload families for the CWE tried within budget. If any is missing, the status is `blocked` or `untested`.
-- Config flags: `export.include_suppressed` (default false) and `export.suppress_no_http_path` (default false).
-- The SAST grader payload includes primary and alternative sinks (`export.include_alternatives`, default true). In the primary report, alternatives are attributes of the primary issue, not separate issues.
+- Status is assigned in this order: oracle fired (linked); no route reaches the sink (`no_http_path`); any candidate param `blocked_by_validation` with no oracle fired (`blocked`); every param probed, baseline valid, all payload families tried within budget (`tested_negative`); otherwise `untested`.
+- Config flags: `export.include_suppressed` and `export.suppress_no_http_path`. Values: [Config reference in docs/architecture.md](docs/architecture.md#config-reference).
+- `no_http_path` has a reason code: `no_callers` or `walk_unresolved`. Only `no_callers` findings in injection CWEs are ever eligible for suppression. Never suppress `walk_unresolved` or secrets/crypto findings.
+- The SAST grader payload includes primary and alternative sinks (`export.include_alternatives`). In the primary report, alternatives are attributes of the primary issue, not separate issues.
 - Secrets and crypto findings (CWE-798 and similar) are Code-only by nature. Never label them `no_http_path`.
 
 ## Judging mode
@@ -75,12 +78,13 @@ AI measurement: run VulnerableApp with and without AI. Report the recall and lin
 The organisers run the target. In judging mode:
 
 - No log tail. No target restarts.
-- Zero config. Detect the base URL, context path and routes. Assume nothing.
+- The target base URL is the only required input (`--target` or an environment variable). Detect the context path and routes. Assume nothing. Never guess the context path silently.
 - One command to run.
 - A time budget per stage. Total runtime stays under 5 minutes.
-- AI off, or call-capped with a deterministic fallback.
+- AI off.
 - ZAP off.
 - Semgrep off.
+- `judging.profile` forces `semgrep.enabled`, `zap.enabled`, `logtail.enabled` and `ai.enabled` to false.
 
 ## Schema first
 
@@ -92,6 +96,7 @@ The organisers run the target. In judging mode:
 - The SARIF export is lossy. The internal record is the source of truth.
 - The VulnerableApp grader takes its own JSON. Do not send it SARIF.
 - The `expected_pairs` file is for measurement only. It never feeds scanner logic.
+- Config names and default values live only in the [Config reference in docs/architecture.md](docs/architecture.md#config-reference). Do not repeat values elsewhere. Keys are dotted lower_snake.
 
 ## Adapter boundary
 
@@ -120,7 +125,7 @@ The organisers run the target. In judging mode:
 - CLI only. Do not build a UI, API, server, login or cloud deployment.
 - No automatic code fixes.
 - One target framework per run.
-- Four vulnerability classes first: SQL injection, XSS, command injection, open redirect. Path traversal is stretch.
+- Four vulnerability classes first: SQL injection, XSS, command injection, open redirect. Path traversal is Should, M3, the first item after M2.
 
 ## Honesty
 
