@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-10-31. Trigger: the user settled the remaining open questions. Fixes F1 to F6 were applied. Branch `docs/merged-architecture`, not pushed. Local `main` and `origin/main` are both at `4df8f3c`, the earlier docs tip. The branch is ahead of them. `main` was fast-forwarded to `4df8f3c` at the user's request.
+2026-10-31. Trigger: the user settled the confidence bands, back-guided values and header count mode. G1 to G7 were applied. Local `main` is ahead of `origin/main` and not pushed. `main` was fast-forwarded to the docs branch tip twice, at the user's request. Branch `docs/merged-architecture` is at an earlier commit than `main`.
 
 ## 2. Architecture
 
@@ -34,7 +34,10 @@ Static-guided dynamic testing. Static analysis makes hypotheses. The probe engin
 - R8: the M1 and M2 split of the Must items is accepted.
 - F3: stage 3 lives in `producers/hypotheses/` `[proposed, not created]`.
 - F4: fallback dedupe keys. Secrets `(cwe, file, line)`. Runtime-only injection `(cwe, normalised_route, method, param)`. Headers `(cwe, header_name)`.
-- F5: confidence is a float from 0 to 1 with three named bands in config. Scoring weights live in config.
+- F5, G1: confidence is a float from 0 to 1 with three named bands in config `[proposed: low below 0.4, medium 0.4 to below 0.7, high 0.7 and above]`. Cut points are tuned on `expected_pairs` runs. Scoring weights live in config.
+- G2: `confidence_reasons` is a list of `{factor, delta}`. The engine (Person B) writes it. Producers never set it. A contract field added before the freeze.
+- G3: `backguided.min_confidence_to_confirm` is 0.4. A unique back-guided match starts at 0.55 and loses 0.1 per unresolved hop `[proposed]`. 2 or more hops stay Runtime-only. A conflict case usually exports as Runtime-only with `conflict: true`.
+- G4: config `header.count_mode` is `per_app` or `per_url`, default `per_app` `[TODO: confirm at kickoff against the answer key]`.
 - No id: Semgrep is optional. No pipeline stage imports or requires it.
 - No id: the own probe engine owns every runtime verdict. ZAP is optional and off in judging mode.
 - No id: AI never creates or deletes a finding, sets a verdict, or decides a link.
@@ -63,14 +66,14 @@ Code from earlier work, built for the older architecture:
 
 What ran: `uv run python -m pytest -q` at save time: 66 passed. These tests cover the older components. They say nothing about M1 to M3.
 
-Measured: nothing is recorded. Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]`
+Measured: nothing is recorded. Semgrep yardstick (protocol in section 6, item 2): `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]`
 
 Not run in this session: a VulnerableApp scan, ZAP, Docker.
 
 ## 6. Not done, in dependency order
 
 1. Update `common/record.py`, the engine and the fixtures to the revised record (joint change with Person B).
-2. Re-run Semgrep on VulnerableApp with unfitted rules. Record the count, date and rule version in section 5. Person A runs this.
+2. Semgrep yardstick. Use the public OWASP rule pack as shipped. Make no edits after seeing results. Run it once on VulnerableApp. Record the count, date and rule pack version in section 5. Person A runs this.
 3. Define the sink catalogue and secrets rule YAML formats.
 4. Make Semgrep an optional dependency so tests pass without it.
 5. Rewrite `README.md` before submission and before the demo run. It still carries pre-redesign content under its banner.
@@ -79,8 +82,9 @@ Not run in this session: a VulnerableApp scan, ZAP, Docker.
 8. Stage 2 and 3: own sink finder, secrets/crypto pass, hypotheses (`producers/hypotheses/`).
 9. Stage 0 and 4: preflight, probe engine, baseline gate, differential oracles, canary, replay log.
 10. Stage 5 to 7: correlation rework, `tested_negative` logic, suppressed file, scoring config, `expected_pairs`, benchmark adapter.
-11. Judging-mode profile.
-12. Should items: back-guided search, own flow engine, session manager, AI items.
+11. Measure `export.include_alternatives`. Run it on and off against `expected_pairs`. Record code detection and false-alarm rate for each. Keep the setting that meets the Great targets on both (code detection over 85%, false alarms under 10%). If both settings do, keep the one with the lower false-alarm rate. If neither does, keep the one with code detection above 60% and the lower false-alarm rate.
+12. Judging-mode profile.
+13. Should items: back-guided search, own flow engine, session manager, AI items.
 
 Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.md`.
 
@@ -101,13 +105,12 @@ Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.m
 - JAX-RS adapter and scan comparison (B-5) sit in Could as proposed. Confirm.
 - Path traversal: its oracle is listed, Must says four classes. Treated as stretch. Confirm.
 - Keep or drop `handler_file`, `handler_line_start`, `handler_line_end`.
-- Is `confidence_reasons` a field of its own? Band names and cut points for the three confidence bands.
-- Source of the context path. Base URL detection at judging while staying localhost-only. Header findings: counted per URL or per app, confirm at kickoff.
+- Source of the context path. Base URL detection at judging while staying localhost-only.
 - Default for `export.suppress_no_http_path` and for suppression overall.
 - Does `blocked_by_validation` map to `status: blocked`?
 - Tier of two AI tasks: spec proposals for custom wrappers, and fix text.
 - Stage 2 with an unresolved receiver: flag only, or fall back?
-- Proposed names: `corroborated`, `semgrep.enabled`, `backguided.enabled`, `backguided.min_confidence_to_confirm`, `export.include_alternatives`.
+- Proposed names: `corroborated`, `semgrep.enabled`, `backguided.enabled`, `backguided.min_confidence_to_confirm`, `export.include_alternatives`, `header.count_mode`.
 - `oracle_flaky` sits inside the evidence entry. `conflict` is a boolean. Confirm.
 
 ## 9. Next action
