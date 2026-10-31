@@ -76,12 +76,15 @@ def _finding(target: ScanTarget, index: CodeIndex, site: SinkSite, callers, rout
             params.update(p.name for p in entry.params)
     only = entry_paths[0] if len(entry_paths) == 1 else None
     unlinked_reason = None
-    status = "untested"
-    if not entry_paths:
+    if site.arg_shape in {"constant", "sanitised"}:
+        status = "safe_pattern"
+    elif not entry_paths:
         status = "no_http_path"
         unlinked_reason = (
             "walk_unresolved" if _unresolved_call_could_reach(index, visited) else "no_callers"
         )
+    else:
+        status = "untested"
     return Finding.from_dict(
         {
             "run_id": target.run_id,

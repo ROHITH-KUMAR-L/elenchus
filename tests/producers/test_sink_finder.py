@@ -4,6 +4,7 @@ The decoy tests are the static layer of the decoy plan. Each decoy has a
 vulnerable twin, so a rule that clears too much also fails.
 """
 
+from dataclasses import replace
 from pathlib import Path
 from textwrap import dedent
 
@@ -58,6 +59,7 @@ def one_method(tmp_path, body, fields="private JdbcTemplate jdbc;", params="Stri
 def test_decoys_are_constant(tmp_path, body):
     [finding] = one_method(tmp_path, body)
     assert finding.arg_shape == "constant"
+    assert finding.status == "safe_pattern"
 
 
 @pytest.mark.parametrize(
@@ -118,6 +120,29 @@ def test_sanitiser_gives_sanitised_only_when_catalogued(tmp_path):
         "C.a": "sanitised",
         "C.b": "dynamic",
     }
+    index = build_code_index(source)
+    found = run_static(
+        ScanTarget(str(source), "http://localhost/", "r", "spring-mvc"),
+        replace(index, sinks=tuple(sites)),
+    )
+    assert {item.sink_id.enclosing_method: item.status for item in found} == {
+        "C.a": "safe_pattern",
+        "C.b": "no_http_path",
+    }
+
+
+def test_constant_sink_without_http_route_is_safe_pattern_not_no_http_path(tmp_path):
+    write(tmp_path, "src/C.java", """
+        public class C {
+            private JdbcTemplate jdbc;
+            private static final String QUERY = "select 1";
+            public Object orphan() { return jdbc.query(QUERY, null); }
+        }
+        """)
+    [finding], _ = findings(tmp_path)
+    assert finding.arg_shape == "constant"
+    assert finding.status == "safe_pattern"
+    assert finding.unlinked_reason is None
 
 
 def test_line_is_the_argument_line_and_sink_id_is_the_call(tmp_path):
