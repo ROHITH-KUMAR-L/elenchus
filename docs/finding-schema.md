@@ -19,7 +19,7 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `reached_via` (handler span, one hop) | `entry_paths`: `{route, method, hops, call_chain}` |
 | `param` filled from the route map or a taint source | `candidate_params` (all params of the route) and `param` (resolved by the oracle, nullable) |
 | `evidence` object | `evidence` list of `{type, detail}` |
-| `confidence` tier A / B / C | A float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands in config. Scoring weights also live in config. Reasons stored. |
+| `confidence` tier A / B / C | A float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands in config `[proposed: low below 0.4, medium 0.4 to below 0.7, high 0.7 and above]`. Scoring weights also live in config. Each factor is stored in `confidence_reasons`. |
 | `risk_score` from severity, exploit ease, confidence | Computed from config: CWE severity table, exploit factor, evidence-based link factor |
 | Dedupe key `(cwe, file, line)`, else `(cwe, route, method, param)` | `(sink_id, cwe)` `[proposed]`. See [Contract logic](#contract-logic). |
 | `taint_trace` from Semgrep | Kept, optional. Null in the Must plan. The own sink finder gives locations only. |
@@ -66,8 +66,8 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `severity` | string \| null | Producer's severity claim. Shown in the report (FR-1). | Producer |
 | `wasc_id` | integer \| null | Passthrough for the VulnerableApp grader. Not used inside the engine. | ZAP alert, or own mapping |
 | `label` | `"Confirmed"` \| `"Code-only"` \| `"Runtime-only"` | FR-7 label. Set by correlation, not by producers. | Correlation |
-| `confidence` | number (0 to 1) \| null | Deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands in config `[TODO: band names and cut points]`. | Correlation |
-| `confidence_reasons` | array \| null | Reasons behind `confidence` `[proposed field]`. | Correlation |
+| `confidence` | number (0 to 1) \| null | Deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands in config `[proposed: low below 0.4, medium 0.4 to below 0.7, high 0.7 and above]`. | Correlation |
+| `confidence_reasons` | array \| null | List of `{factor, delta}`: each factor behind `confidence` and its effect. Written by the engine (Person B). Producers never set it. A contract field added before the freeze. | Correlation |
 | `risk_score` | number \| null | Our ranking number. Drives FR-9 ordering. Weights live in config. | Correlation |
 
 `severity` and `risk_score` are two fields. Do not collapse them.
@@ -143,7 +143,7 @@ Findings with no `sink_id` use a fallback key:
 |---|---|
 | Secrets | `(cwe, file, line)` |
 | Runtime-only injection | `(cwe, normalised_route, method, param)` |
-| Header findings | `(cwe, header_name)` `[TODO: per URL or per app. Confirm at kickoff against the answer key.]` |
+| Header findings | Under `header.count_mode = per_app` (the default): `(cwe, header_name)`. Under `per_url`: `(cwe, header_name, normalised_route)` `[proposed]`. `[TODO: confirm at kickoff against the answer key]` |
 
 ### Merge rule
 
@@ -165,14 +165,38 @@ A firing probe proves that route, param and CWE are exploitable. It does not pro
 | One hypothesis in the `(route, param, CWE)` group | `unique` | `directed` | Linked by lineage: `hypothesis_id` carried through the probe |
 | More than one hypothesis in the group | `ambiguous` | `directed` | Lower confidence. All candidate sinks attached in `alternatives`. One primary chosen. |
 | Sweep hit matches a static finding of the same CWE whose `entry_paths` include the route `[proposed meaning]` | by count | `sweep` | Lower confidence |
-| Back-guided search finds exactly one sink | `unique` | `back_guided` | `PATH` evidence. Confidence low. Confirmed only at or above `backguided.min_confidence_to_confirm` `[TODO: set value]`. |
+| Back-guided search finds exactly one sink | `unique` | `back_guided` | `PATH` evidence. Starts at 0.55, loses 0.1 per unresolved hop `[proposed]`. Confirmed only at or above `backguided.min_confidence_to_confirm` (0.4 `[proposed]`). |
 | Back-guided search finds several sinks | `ambiguous` | `back_guided` | Label stays Runtime-only. `candidate_sinks` hold the hints. No Confirmed link is exported. |
 | Back-guided search finds none | null | null | Stays Runtime-only. `unlinked_reason` set. |
 | Header, cookie or info-leak finding | null | null | Never searched. Stays Runtime-only. |
 | Positive oracle hit on a `tested_negative` sink, reproduces in 2 of 3 replays | `ambiguous` | `sweep` | `conflict: true`. Un-suppressed. At or above `backguided.min_confidence_to_confirm`: Confirmed. Below it: Runtime-only, sink listed in `candidate_sinks` as a hint, no Confirmed export. |
 | Same hit, does not reproduce | null | null | `tested_negative` kept. `oracle_flaky: true`. Hit stays Runtime-only. |
 
-Confidence is a deterministic function of the evidence present, `link_status` and `link_origin`. Weights live in config.
+### Confidence
+
+Confidence is a float from 0 to 1. It is a deterministic function of the evidence present, `link_status` and `link_origin`. Weights live in config. `confidence_reasons` records each factor and its delta. The engine writes it. Producers never set it.
+
+Bands (config, `[proposed]` values):
+
+| Band | Range |
+|---|---|
+| low | below 0.4 |
+| medium | 0.4 to below 0.7 |
+| high | 0.7 and above |
+
+The cut points are tuned on `expected_pairs` runs.
+
+Back-guided values (config, `[proposed]`):
+
+| Setting | Value |
+|---|---|
+| `backguided.min_confidence_to_confirm` | 0.4 |
+| Unique back-guided match, starting confidence | 0.55 |
+| Loss per unresolved hop | 0.1 |
+
+One unresolved hop gives 0.45, which confirms. Two or more hops give 0.35 or less, which is below the threshold, so the finding stays Runtime-only.
+
+A conflict case will usually fall below the threshold. It then exports as Runtime-only with `conflict: true`.
 
 Primary choice rule `[proposed: more specific catalogue match first, then shorter call path, then source order; Semgrep corroboration counts only if the adapter ran]`. A match on receiver type and call name is more specific than a match on call name alone `[proposed meaning]`. `TRACE` resolves ambiguity when present. `TRACE` needs the optional log tail, which is off in judging mode.
 
@@ -369,7 +393,11 @@ After correlation the two merge into one issue. The group `(/api/orders/{id}, id
     { "type": "FAMILY", "detail": { "payload_family": "sqli-error", "cwe": 89 } }
   ],
   "confidence": "[TODO: float 0 to 1]",
-  "confidence_reasons": ["oracle fired", "one hypothesis in group", "path exists"],
+  "confidence_reasons": [
+    { "factor": "oracle_fired", "delta": "[TODO: from config]" },
+    { "factor": "one_hypothesis_in_group", "delta": "[TODO: from config]" },
+    { "factor": "path_exists", "delta": "[TODO: from config]" }
+  ],
   "risk_score": null
 }
 ```
@@ -406,10 +434,10 @@ A second SQL sink, `OrderRepository.load`, sits behind the same route. Both sink
   ],
   "confidence": "[TODO: float 0 to 1]",
   "confidence_reasons": [
-    "oracle fired",
-    "2 hypotheses in group",
-    "primary by rule: more specific catalogue match",
-    "no TRACE evidence"
+    { "factor": "oracle_fired", "delta": "[TODO: from config]" },
+    { "factor": "two_hypotheses_in_group", "delta": "[TODO: from config]" },
+    { "factor": "primary_by_rule_more_specific_catalogue_match", "delta": "[TODO: from config]" },
+    { "factor": "no_trace_evidence", "delta": "[TODO: from config]" }
   ]
 }
 ```
@@ -446,17 +474,15 @@ A sweep hit on `GET /api/reports/{id}` had no hypothesis. The handler calls `rep
                   "match_mode": "relaxed", "unresolved_hops": 1 } },
     { "type": "ORACLE", "detail": { "oracle": "db_error", "canary_id": "elx-9d20" } }
   ],
-  "confidence": "[TODO: float 0 to 1]",
+  "confidence": 0.45,
   "confidence_reasons": [
-    "oracle fired",
-    "back-guided relaxed match",
-    "1 unresolved hop",
-    "one candidate sink"
+    { "factor": "back_guided_unique_match", "delta": 0.55 },
+    { "factor": "unresolved_hop", "delta": -0.1 }
   ]
 }
 ```
 
-`label` is Confirmed only if the confidence is at or above `backguided.min_confidence_to_confirm`. Below that, the label stays Runtime-only and the record keeps the same evidence. With two candidate sinks the record would have `link_status: ambiguous`, `sink_id: null`, the candidates in `candidate_sinks`, and the label Runtime-only.
+The values are `[proposed]`. The confidence starts at 0.55 and loses 0.1 for one unresolved hop, giving 0.45. That is at or above 0.4, so the label is Confirmed. With two unresolved hops it would be 0.35, below the threshold, and the label would stay Runtime-only with the same evidence. With two candidate sinks the record would have `link_status: ambiguous`, `sink_id: null`, the candidates in `candidate_sinks`, and the label Runtime-only.
 
 ### Conflict case
 
@@ -464,17 +490,18 @@ The sink `OrderService.find` was marked `tested_negative`: every candidate param
 
 ```json
 {
-  "label": "Confirmed",
+  "label": "Runtime-only",
   "route": "/api/orders/{id}",
   "method": "GET",
   "param": "id",
   "cwe": 89,
-  "sink_id": {
-    "file": "src/main/java/com/example/shop/OrderService.java",
-    "enclosing_method": "OrderService.find",
-    "start_line": 88,
-    "start_col": 31
-  },
+  "sink_id": null,
+  "candidate_sinks": [
+    { "file": "src/main/java/com/example/shop/OrderService.java",
+      "enclosing_method": "OrderService.find",
+      "start_line": 88,
+      "start_col": 31 }
+  ],
   "status": null,
   "suppressed": false,
   "conflict": true,
@@ -485,14 +512,16 @@ The sink `OrderService.find` was marked `tested_negative`: every candidate param
       "detail": { "oracle": "db_error", "canary_id": "elx-31ab",
                   "replays": 3, "fired": 2, "oracle_flaky": false } }
   ],
-  "confidence": "[TODO: float 0 to 1]",
+  "confidence": "[TODO: float below 0.4]",
   "confidence_reasons": [
-    "directed probes negative, positive hit on replay",
-    "oracle fired in 2 of 3 replays"
+    { "factor": "directed_probes_negative_positive_hit_on_replay", "delta": "[TODO: from config]" },
+    { "factor": "oracle_fired_2_of_3_replays", "delta": "[TODO: from config]" }
   ]
 }
 ```
 
-The finding leaves the suppressed file and enters the primary report. This example is at or above `backguided.min_confidence_to_confirm` `[TODO: set value]`, so the label is Confirmed. Below that threshold the label would be Runtime-only, `conflict` would stay true, `link_status` would stay `ambiguous`, `sink_id` would be null, and the sink would be listed in `candidate_sinks` as a hint. No Confirmed link would be exported. The oracle hit is real, so it is not suppressed.
+This is the usual outcome. The confidence falls below `backguided.min_confidence_to_confirm` (0.4 `[proposed]`), so the label is Runtime-only, `conflict` stays true, `link_status` stays `ambiguous`, `sink_id` is null, and the sink is a hint in `candidate_sinks`. No Confirmed link is exported. The oracle hit is real, so it is not suppressed. The hit and the sink leave the suppressed file and enter the primary report.
+
+At or above the threshold, the label would be Confirmed and `sink_id` would be set.
 
 If the hit had fired in fewer than 2 of 3 replays, the sink would keep `status: tested_negative`. The `ORACLE` entry would carry `"oracle_flaky": true`. No link would be made. The hit would stay Runtime-only.

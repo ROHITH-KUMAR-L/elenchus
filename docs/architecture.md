@@ -175,9 +175,9 @@ Two link fields. Both are required and orthogonal.
 - Primary rule `[proposed: more specific catalogue match first, then shorter call path, then source order; Semgrep corroboration counts only if the adapter ran]`. A match on receiver type and call name is more specific than a match on call name alone `[proposed meaning]`.
 - `TRACE` resolves ambiguity when present.
 - Sweep hits (oracle fired, no directed hypothesis): matched to a static finding by route and CWE with `link_origin: sweep`, lower confidence. Otherwise see [Back-guided static search](#back-guided-static-search).
-- Confidence is a float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands in config. Scoring weights also live in config. Reasons are stored.
+- Confidence is a float from 0 to 1, a deterministic function of the evidence present, `link_status` and `link_origin`. Three named bands in config `[proposed: low below 0.4, medium 0.4 to below 0.7, high 0.7 and above]`. The cut points are tuned on `expected_pairs` runs. Scoring weights also live in config. Each factor is stored in `confidence_reasons`, a list of `{factor, delta}` written by the engine.
 - `sink_id` for the Must set is `(file, enclosing_method, start_line, start_col)`. Refining it to `(method, call-site ordinal, arg index)` is Could.
-- Dedupe key is `(sink_id, cwe)` `[proposed]`. The resolved param is an attribute. Several firing params on one sink are several evidence entries on one issue. Findings with no `sink_id` use the fallback keys in [finding-schema.md](finding-schema.md#contract-logic).
+- Dedupe key is `(sink_id, cwe)` `[proposed]`. The resolved param is an attribute. Several firing params on one sink are several evidence entries on one issue. Findings with no `sink_id` use the fallback keys in [finding-schema.md](finding-schema.md#contract-logic). Header findings follow config `header.count_mode` (`per_app` or `per_url`, default `per_app`) `[TODO: confirm at kickoff against the answer key]`.
 - One sink reached from several routes is one issue with several `entry_paths`. A config flag decides how the export counts it.
 
 ### Back-guided static search
@@ -198,12 +198,13 @@ Method: start at the hit route's handler, walk the call graph forward, look for 
 
 | Candidates of the same CWE reachable from the handler | Result |
 |---|---|
-| Exactly one | Attach as `PATH` evidence. `link_origin: back_guided`, `link_status: unique`, confidence low. Label Confirmed only if confidence is at or above config `backguided.min_confidence_to_confirm` `[TODO: set value]`. Below that, the label stays Runtime-only and the candidate stays attached `[proposed]`. |
+| Exactly one | Attach as `PATH` evidence. `link_origin: back_guided`, `link_status: unique`. Confidence starts at 0.55 and loses 0.1 per unresolved hop `[proposed]`. Label Confirmed only if confidence is at or above `backguided.min_confidence_to_confirm`, 0.4 `[proposed]`. Below that, the label stays Runtime-only and the candidate stays attached. |
 | More than one | Label stays Runtime-only. `link_status: ambiguous`. Candidates go in `candidate_sinks` as hints. No Confirmed link is exported. |
 | None | Stays Runtime-only. `unlinked_reason` set. |
 
 Rules:
 
+- One unresolved hop gives 0.45 and confirms. Two or more give 0.35 or less, below the threshold, and the finding stays Runtime-only.
 - Never runs for header, cookie or info-leak findings.
 - A back-guided link never overrides a directed link on the same issue `[proposed]`.
 - Producer entry: `run_back_guided(target, route_map, runtime_only_findings)`. Person A implements it, reading A's index and sink catalogue. The CLI calls it after the probe stage and passes the result to correlation `[proposed order]`. Person B consumes the resulting evidence through the cli seam.
@@ -231,9 +232,9 @@ The adequacy logic and the suppressed file are M2. The suppressed file has real 
 Case: an `ORACLE` hit matches the `(route, param, CWE)` of a sink marked `tested_negative`.
 
 1. Replay the probe up to 3 times.
-2. Fires in at least 2 of 3 replays: un-suppress the finding and clear `tested_negative`. Set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`. Record the reason "directed probes negative, positive hit on replay". Lower the confidence. Move it to the primary report. Then apply the threshold `backguided.min_confidence_to_confirm`, the same one used by back-guided search `[TODO: set value]`:
+2. Fires in at least 2 of 3 replays: un-suppress the finding and clear `tested_negative`. Set `link_origin: sweep`, `link_status: ambiguous` and `conflict: true`. Record the reason "directed probes negative, positive hit on replay". Lower the confidence. Move it to the primary report. Then apply the threshold `backguided.min_confidence_to_confirm`, the same one used by back-guided search (0.4 `[proposed]`):
    - At or above it: label Confirmed, with `sink_id` set.
-   - Below it: label Runtime-only. Keep `conflict: true` and `link_status: ambiguous`. Set `sink_id` to null and list the sink in `candidate_sinks` as a hint. Export no Confirmed link. The oracle hit is real, so it is not suppressed. It is not confident enough to claim a code location.
+   - Below it: label Runtime-only. Keep `conflict: true` and `link_status: ambiguous`. Set `sink_id` to null and list the sink in `candidate_sinks` as a hint. Export no Confirmed link. The oracle hit is real, so it is not suppressed. It is not confident enough to claim a code location. A conflict case will usually fall below the threshold, so it usually exports as Runtime-only with `conflict: true`.
 3. Does not reproduce: keep `tested_negative`. Set `oracle_flaky: true` on that evidence entry. Create no link. The hit stays Runtime-only.
 
 Rationale: a positive oracle is stronger evidence than a failed probe. One unconfirmed hit is not enough to override an adequately tested negative.
