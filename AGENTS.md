@@ -2,7 +2,7 @@
 
 Rules for AI coding agents working in this repo.
 
-- Ownership: the split in [docs/implementation-plan.md](docs/implementation-plan.md). Person A owns stages 1, 2 and 3, the back-guided search, the flow engine and the fixtures. Person B owns stages 0, 4, 5, 6 and 7, the `expected_pairs` file, the judging profile and fixture review. `common/` and `infra/` are joint. [docs/repo-structure.md](docs/repo-structure.md) is stale on this point until it is updated. Respect directory ownership.
+- Ownership: the split in [docs/implementation-plan.md](docs/implementation-plan.md). Person A owns stages 1, 2 and 3, the back-guided search, the flow engine and the fixtures. Person B owns stages 0, 4, 5, 6 and 7, the `expected_pairs` file, the judging profile and fixture review. `common/` and `infra/` are joint. Directory ownership map: [docs/repo-structure.md](docs/repo-structure.md). Respect directory ownership.
 - Never edit the schema in `common/` without flagging it as a joint change.
 
 ## Languages

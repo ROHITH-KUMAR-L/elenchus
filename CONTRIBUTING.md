@@ -5,27 +5,24 @@ Two-person team. Rules to avoid merge conflicts. Ownership map: [docs/repo-struc
 ## Ownership
 
 - [ ] Nobody edits another person's directory without asking.
-- [ ] `producers/` is Person A.
+- [ ] `producers/` is Person A: stages 1, 2 and 3, the back-guided search, the flow engine.
+- [ ] The HTTP probe code is Person B: stages 0 and 4. Until `probe/` exists (proposed, not created), `producers/dast/` is Person B's.
 - [ ] `engine/` and `cli/` are Person B.
 - [ ] `common/` and `infra/` are joint.
 - [ ] Tests live under `tests/<component>/`, owned by the component owner.
 
 ## Schema is a joint call
 
-- [ ] Freeze the record schema in `common/` in hour one.
+- [ ] Freeze the record schema in `common/` before anyone codes against it.
 - [ ] Any change to it is decided together.
 - [ ] After a schema change merges, both pull immediately.
 - [ ] A mid-build schema change is stop-the-world. It is never a casual edit.
 
 ## Fixtures first
 
-- [ ] Once the schema is frozen, Person A writes 5–6 sample records into `common/fixtures/`:
-  - one Confirmed pair
-  - one Spring case with the sink in a service class outside the handler span (Tier B target)
-  - one Code-only
-  - one Runtime-only
-  - one decoy that must not link
-- [ ] Person B builds and tests the engine against these before real scanners exist.
+- [ ] Once the schema is frozen, Person A writes the fixtures listed in `docs/implementation-plan.md`.
+- [ ] Person B reviews each fixture against the correlation cases before the freeze.
+- [ ] Person B builds and tests stages 4 to 7 against the fixtures before Person A's stages exist.
 
 ## Branches
 
