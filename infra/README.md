@@ -1,11 +1,22 @@
 # infra/
 
-**Owner:** joint. Rare edits, coordinated like `common/`.
+**Owner:** joint.
 
-Intended home for our own stack's Docker definitions: the Postgres service, our Docker network and our named volume. Proposed names: `sastdast-postgres`, `sastdast-net`, `sastdast-pgdata`. See [docs/architecture.md](../docs/architecture.md).
+`compose.yaml` runs the Person B CLI container and the official `postgres:17-alpine` image. PostgreSQL uses the named volume `sastdast-pgdata` and private `sastdast-net` network. It has no published host port. Keep the target app's Compose project separate.
 
-The target app's Docker Compose is not kept here. The target runs from its own files on its own network.
+Set credentials in the shell; do not commit them:
 
-Nothing is defined here yet. No compose file exists.
+```sh
+export POSTGRES_DB=elenchus
+export POSTGRES_USER=elenchus
+read -rsp "PostgreSQL password: " POSTGRES_PASSWORD
+export POSTGRES_PASSWORD
+printf '\n'
+docker compose -f infra/compose.yaml up -d postgres
+docker compose -f infra/compose.yaml run --rm cli correlate \
+  --sast /workspace/sast.json --dast /workspace/dast.json
+```
 
-Do not edit this dir without the other person's agreement.
+The CLI container mounts the repository read-only at `/workspace`. Input record files must be in the repository or another mounted location. The consumer only reads records; it does not scan source files or make HTTP requests.
+
+Stop the database with `docker compose -f infra/compose.yaml down`. The volume persists. `docker compose -f infra/compose.yaml down -v` deletes the stored data; use that only for an intentional reset.

@@ -1,13 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "elenchus"
 version = "0.1.0"
+description = "Deterministic SAST and DAST finding correlation"
 requires-python = ">=3.14"
 dependencies = [
+    "psycopg[binary]>=3.2,<4",
     "tree-sitter>=0.26.0",
     "tree-sitter-java>=0.23.5",
 ]
+
+[project.scripts]
+elenchus = "cli.main:main"
 
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["cli*", "engine*", "producers*"]
+namespaces = true

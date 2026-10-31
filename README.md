@@ -2,7 +2,7 @@
 
 CyberForge hackathon entry. Spec: [docs/prd.md](docs/prd.md). Agent rules: [AGENTS.md](AGENTS.md). Build order: [docs/implementation-plan.md](docs/implementation-plan.md). Who owns what: [docs/repo-structure.md](docs/repo-structure.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Status: design stage. Nothing has been built, run or measured yet.
+Status: the Spring route-map parser and initial Person B consumer path are implemented. End-to-end scanning and benchmark metrics are not yet available.
 
 ## 1. What it is
 
