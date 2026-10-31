@@ -22,5 +22,5 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["cli*", "engine*", "producers*"]
+include = ["cli*", "common*", "engine*", "producers*"]
 namespaces = true
