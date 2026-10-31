@@ -1,0 +1,21 @@
+{
+  "frozen": "2026-11-01",
+  "note": "Catalogue freeze. Any change after this date is recorded as fitted in docs/STATE.md if it is based on the test app's results. Update this file deliberately when adding a general entry.",
+  "sink_entries": [
+    "hibernate-session",
+    "java-processbuilder-command",
+    "java-processbuilder-new",
+    "java-runtime-exec",
+    "jdbc-connection",
+    "jdbc-statement",
+    "jpa-entity-manager",
+    "spring-jdbc-template",
+    "spring-named-jdbc-template"
+  ],
+  "secret_rules": [
+    "hardcoded_secret",
+    "weak_cipher",
+    "weak_hash",
+    "weak_random"
+  ]
+}
