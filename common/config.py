@@ -68,7 +68,7 @@ DEFAULTS: dict[str, Any] = {
     "confidence.weight.family_match": 0.1,
     "export.include_alternatives": True,
     "export.include_suppressed": False,
-    "export.suppress_cwes": (79, 78, 601, 22),
+    "export.suppress_cwes": (89, 79, 78, 601, 22),
     "export.suppress_no_http_path": False,
     "export.no_http_path_suppress_cwes": (22, 78, 79, 89, 601),
     "export.count_multi_entry": None,

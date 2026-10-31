@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-11-01. `BS9` passed and **M2 cleared**: judging-profile rehearsal ran in 3:35 (<5 min). State guard, generality CI and catalogue freeze in place. 307 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
+2026-11-01. M1 and M2 cleared. `BS10a`-`d` done: path-traversal catalogue+oracle, blind/union SQL confirmed live via `sql_boolean`, back-guided and flow engine built (off by default). 317 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
 
 ## 2. Architecture
 
@@ -59,7 +59,7 @@ Config names and default values live in the Config reference in `docs/architectu
 | M2 core | `BS6` to `BS9` | PASSED | M2 gate cleared 2026-11-01 (judging rehearsal, 3:35). Exit tests below. |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS9` passed, M2 cleared. `BS10` (M3, Should list) is next. Details: section 9.
+Current build stage: `BS10a`-`d` done (M3 Should list). `BS10e`-`j` next. Details: section 9.
 
 ## 5. Done
 
@@ -91,6 +91,8 @@ Current build stage: `BS9` passed, M2 cleared. `BS10` (M3, Should list) is next.
 | `BS9` | `uv run --locked pytest -q`, `ruff check .` | 307 passed, ruff clean. New: state guard (risk-ordered jobs, GET-sample drift detection, stop state-changing jobs on drift → `skipped_drift`, `drift_detected`); `--judging` + `ELENCHUS_BASE_URL`; generality CI test (bans the app package in detection code/config, app names in detection YAML); catalogue freeze (`catalogue/freeze.json`). Forced-drift unit test passes. |
 | `BS9` | **M2 gate:** `elenchus scan --judging --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store` | exit 0, wall 3:35 (<5 min). One command, judging profile (AI+Semgrep off, ZAP on, no restarts), context path detected. 5 Confirmed CWE-89, attribution 0.952, no foreign hosts, drift_detected False. Generality CI green. Static-only hold-out run not done (no hold-out repo provisioned). |
 
+| `BS10a-d` | **Live run:** `elenchus scan ... --expected-pairs`, ZAP 2.17.0, 317 tests pass | exit 0, wall 3:41. **9 Confirmed CWE-89** (ErrorBased LEVEL_1-4, Blind LEVEL_1-2 and Union LEVEL_1-2 via `sql_boolean`, AuthLoginService.java:51), all confidence 0.95. recall CWE-89 9/9, `wrong_suppression_count` CWE-89 = 0 (union/blind now Confirmed, not tested_negative), so 89 returned to `export.suppress_cwes`. ambiguity 0/9, attribution 0.957, no foreign hosts, no drift. probe stage 221s. Path-traversal oracle built+unit-tested but not Confirmed live (route not reached in budget / no passwd content elicited). back-guided and flow engine off by default, no effect on this run. |
+
 Not run: the updated CI workflow on GitHub.
 
 Older code still running on the new record with its older logic: tier correlation (reworked in `BS5`), alert-driven ZAP runner (`BS4`), `elenchus scan` (`BS5`), which still needs the Semgrep extra.
@@ -103,7 +105,7 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS9` have passed (M1 and M2 cleared).
 
-1. `BS10`: Should list (M3). 2. `BS11`: Could list
+1. `BS10e`-`j`: scan comparison, session manager, ZAP passive ingestion, preflight extras, AI harness, advisory AI. 2. `BS11`: Could list
 
 Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
@@ -137,13 +139,11 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-`BS9` passed, M1 and M2 cleared. `BS10` (M3, Should list) is next, in order:
-1. Path traversal (CWE-22): catalogue entries, hypotheses, file-content oracle.
-2. Back-guided static search (relaxed, off until measured against `expected_pairs`).
-3. Own flow engine (narrows `candidate_params`); gate = matches offline Semgrep count.
-4. Scan comparison (new/fixed/open) from stored runs; session manager; ZAP passive ingestion; AI harness then advisory AI.
+`BS10a`-`d` done (path traversal, blind/union SQL, back-guided, flow engine). `BS10e`-`j` next, in order:
+1. BS10e scan comparison (new/fixed/open from two stored runs via dedupe key). BS10g ZAP passive ingestion (advisory). BS10h preflight extras. BS10f session manager (auth-gated routes; reuse the `target.auth` replacer seam).
+2. BS10i AI with/without harness (OpenAI-compatible, env in `.env.example`; off by default and in judging). BS10j advisory AI (fix text, link explanations, DTO seeds) each behind a with/without run.
 
-Carried over (good BS10 fits): wire a union/blind SQL oracle (`sql_boolean` built) so CWE-89 can return to `export.suppress_cwes`; register `timing_slower`; live-check command-injection/XSS/redirect oracles on suitable routes; `target.auth.*` wired, app login need unknown. M2 margin is ~86s (3:35 of 5:00); tune budgets if a larger target needs it.
+Gates and carry-overs: Semgrep yardstick count (unfitted) not recorded — gates `flow.enabled` on (BS10d) and is a BS11 item. `timing_slower` built, unwired (needs `probe.timing_repeats` + live baseline). Path-traversal oracle not yet Confirmed live. `target.auth.*` wired; app login need unknown. M2 margin ~80s.
 
 ## 10. Resume instructions
 

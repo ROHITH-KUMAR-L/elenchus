@@ -54,8 +54,11 @@ def test_defaults_load_without_a_file():
     assert config.rule_map()[79] == ("40012",)
 
 
-def test_sql_injection_is_not_suppressed_after_live_wrong_suppression():
-    assert 89 not in DEFAULTS["export.suppress_cwes"]
+def test_sql_injection_is_suppressible_once_blind_and_union_are_confirmed():
+    # BS10b wired sql_boolean, so the live run confirms blind and union SQL
+    # instead of marking them tested_negative: wrong_suppression_count for CWE-89
+    # fell to 0 and 89 returns to suppress_cwes.
+    assert 89 in DEFAULTS["export.suppress_cwes"]
 
 
 def test_toml_file_then_overrides(tmp_path):
