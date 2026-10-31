@@ -4,7 +4,8 @@ Reads Java source with tree-sitter and returns one entry per (route, method)
 handler, in the RouteMap field shape from docs/finding-schema.md:
 route, method, file, func, line_start, line_end, params, calls.
 
-Entries are plain dicts until common/record.py defines RouteMap.
+build_route_map() returns plain dicts; route_map() returns the canonical
+RouteMap from common/record.py.
 
 Generic over the target app: custom annotations are resolved through their
 Spring meta-annotations (@RequestMapping, @RestController, @AliasFor), and
@@ -19,6 +20,8 @@ from pathlib import Path
 
 import tree_sitter_java
 from tree_sitter import Language, Parser
+
+from common.record import RouteEntry, RouteMap, ScanTarget
 
 JAVA = Language(tree_sitter_java.language())
 
@@ -409,6 +412,11 @@ def build_route_map(source_root):
                                 "calls": calls,
                             })
     return sorted(entries, key=lambda e: (e["route"], e["method"]))
+
+
+def route_map(target: ScanTarget) -> RouteMap:
+    """Producer entry (D-16). The CLI calls this first."""
+    return tuple(RouteEntry.from_dict(e) for e in build_route_map(target.source_path))
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY cli ./cli
+COPY common ./common
 COPY engine ./engine
 COPY producers ./producers
 

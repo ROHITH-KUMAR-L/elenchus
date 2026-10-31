@@ -7,9 +7,9 @@ import json
 from collections import defaultdict
 from typing import Iterable
 
+from common.record import Finding, dedupe_key, normalize_file
 from engine.correlate.models import (
     SEVERITY_ORDER,
-    Finding,
     FindingCluster,
     Issue,
 )
@@ -81,20 +81,7 @@ def _deduplicate(findings: list[Finding]) -> list[FindingCluster]:
 
 
 def _finding_identity(finding: Finding) -> tuple[object, ...]:
-    header_name = finding.evidence.get("header_name")
-    if isinstance(header_name, str) and header_name:
-        identity = ("header", finding.cwe, header_name.casefold())
-    elif finding.file is not None and finding.line is not None:
-        identity = ("code", finding.cwe, _normalize_file(finding.file), finding.line)
-    else:
-        identity = (
-            "route",
-            finding.cwe,
-            finding.route,
-            finding.method,
-            finding.param,
-        )
-    return (finding.source, *identity)
+    return (finding.source, *dedupe_key(finding))
 
 
 def _unambiguous_matches(
@@ -163,17 +150,8 @@ def _same_route_and_method(sast: Finding, dast: Finding) -> bool:
     )
 
 
-def _normalize_file(file: str | None) -> str | None:
-    if file is None:
-        return None
-    normalized = file.replace("\\", "/")
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    return normalized
-
-
 def _same_file(left: str, right: str) -> bool:
-    return _normalize_file(left) == _normalize_file(right)
+    return normalize_file(left) == normalize_file(right)
 
 
 def _issue_key(sast: tuple[FindingCluster, ...], dast: tuple[FindingCluster, ...]) -> str:
@@ -185,7 +163,7 @@ def _issue_key(sast: tuple[FindingCluster, ...], dast: tuple[FindingCluster, ...
         identity = (
             "code",
             representative.cwe,
-            _normalize_file(representative.file),
+            normalize_file(representative.file),
             representative.line,
         )
     else:

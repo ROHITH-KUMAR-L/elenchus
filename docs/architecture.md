@@ -112,13 +112,13 @@ Our stack and the target app are separate. They share no Docker network and no v
 ```mermaid
 flowchart LR
     subgraph host[Host machine]
-        subgraph ours["sastdast-net [proposed]"]
-            cli["CLI tool [placement: TODO]"]
-            pg[("sastdast-postgres [proposed]")]
-            vol[/"volume: sastdast-pgdata [proposed]"/]
-            cli --> pg
+        cli["CLI tool (on host)"]
+        subgraph ours["sastdast-net (internal)"]
+            pg[("sastdast-postgres")]
+            vol[/"volume: sastdast-pgdata"/]
             pg --- vol
         end
+        cli -- "127.0.0.1 only" --> pg
         port(("localhost:port"))
         subgraph theirs["Target's own network (own Docker Compose)"]
             target["Target app (organisers' or VulnerableApp)"]
@@ -152,7 +152,7 @@ Rules:
 - Postgres is not reachable from the target. It is not exposed beyond our network.
 - The store holds our tool's own state. It does not change the localhost-only rule or CLI-only delivery.
 
-Open: if the CLI or ZAP runs as a container on `sastdast-net`, `localhost` inside it is the container, not the host. Reaching the host then needs another hostname. If the CLI runs on the host instead, Postgres must publish a port to the host loopback. Placement of the CLI and ZAP: `[TODO: open question]`
+Placement (D-14): the DAST-capable CLI runs on the host. Postgres publishes its port on `127.0.0.1` only, through a second bridge network `sastdast-hostport`, because Docker does not publish ports from internal-only networks. ZAP placement: `[TODO: confirm]`
 
 Credentials handling for Postgres: `[TODO]`. Never commit them.
 

@@ -12,7 +12,9 @@ Change from the earlier draft: this record is the internal working format only. 
 
 Code in `common/` is canonical. This doc is the human-readable description. When they disagree, the code wins.
 
-Authoritative definition: `common/record.py` `[TODO: not written yet; model style (dataclass / TypedDict / Pydantic) to decide]`
+Authoritative definition: [`common/record.py`](../common/record.py) (frozen dataclasses with validation in `Finding.from_dict`). It also defines `ScanTarget`, `RouteMap`, `normalise_route()`, `dedupe_key()` and `route_key()`.
+
+`normalise_route(url, route_map, base_path="")` takes an optional `base_path` (from `ScanTarget.base_path`). It strips a servlet context path such as `/VulnerableApp` before matching, because route templates leave it out.
 
 ## Fields
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from engine.correlate.models import Finding, Issue
+from common.record import Finding
+from engine.correlate.models import Issue
 
 
 def to_sarif(issues: list[Issue]) -> dict[str, Any]:

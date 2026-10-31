@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from engine.correlate.models import Finding, Issue
+from common.record import Finding, dedupe_key, route_key
+from engine.correlate.models import Issue
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS scan_runs (
@@ -121,20 +122,11 @@ class PostgresStore:
                 )
 
 
-def _finding_identity(finding: Finding) -> tuple[object, ...]:
-    header_name = finding.evidence.get("header_name")
-    if isinstance(header_name, str) and header_name:
-        return "header", finding.cwe, header_name.casefold()
-    if finding.file is not None and finding.line is not None:
-        return "code", finding.cwe, _normalize_file(finding.file), finding.line
-    return "route", finding.cwe, finding.route, finding.method, finding.param
-
-
 def _finding_fingerprint(finding: Finding) -> str:
     import hashlib
     import json
 
-    encoded = json.dumps(_finding_identity(finding), separators=(",", ":"), ensure_ascii=True)
+    encoded = json.dumps(dedupe_key(finding), separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -153,21 +145,7 @@ def _alias_for_finding(finding: Finding) -> str:
     import hashlib
     import json
 
-    if isinstance(finding.evidence.get("header_name"), str):
-        identity = _finding_identity(finding)
-    elif finding.file is not None and finding.line is not None:
-        identity = _finding_identity(finding)
-    else:
-        identity = _route_identity(finding)
-    encoded = json.dumps(identity, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _code_alias(finding: Finding) -> str:
-    import hashlib
-    import json
-
-    identity = ("code", finding.cwe, _normalize_file(finding.file), finding.line)
+    identity = dedupe_key(finding)
     encoded = json.dumps(identity, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -176,23 +154,9 @@ def _route_alias(finding: Finding) -> str:
     import hashlib
     import json
 
-    identity = _route_identity(finding)
+    identity = route_key(finding)
     encoded = json.dumps(identity, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _route_identity(finding: Finding) -> tuple[object, ...]:
-    header_name = finding.evidence.get("header_name")
-    if isinstance(header_name, str) and header_name:
-        return "header", finding.cwe, header_name.casefold()
-    return "route", finding.cwe, finding.route, finding.method, finding.param
-
-
-def _normalize_file(file: str) -> str:
-    normalized = file.replace("\\", "/")
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    return normalized
 
 
 def _save_issue(cursor: Any, run_id: str, issue: Issue, jsonb: Any) -> None:
