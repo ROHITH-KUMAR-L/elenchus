@@ -64,7 +64,7 @@ Config names and default values live in the Config reference in `docs/architectu
 | M2 core | `BS6` to `BS9` | not started | None |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS6`. Not started.
+Current build stage: `BS6`, partly done. Offline work only. Not wired into the coordinator or pipeline. Not live-tested. Details: section 9.
 
 ## 5. Done
 
@@ -109,9 +109,7 @@ Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.m
 
 ## 7. Known failures and residual flaws
 
-- The old alert-driven `run_dast` in `producers/dast/zap_runner.py` is now unused (the CLI uses the coordinator). It and its helpers are dead code to remove in BS6; its test still passes.
-- XSS oracle: VulnerableApp's XSS routes reply `text/plain`, and its page inserts the text as HTML. The HTML-context oracle would not fire on them, and ZAP raised no alert. Decide in `BS6`.
-- Only the error-based SQL oracle exists. Blind and Union SQL (boolean/timing), XSS, command injection and open redirect are BS6, so their routes show as Code-only now.
+- Oracles built offline: SQL error, XSS (`text/html` only), open redirect, boolean SQL. Not wired live. Command injection and timing SQL: not built.
 - Routes whose handler reads every param have no param name to seed. `XSSWithHtmlTagInjection` is one. Decide in `BS6`.
 - The answer key's line on a multi-line call is the argument's, not the call's. `BS3` follows it. Confirm with the organisers' key at kickoff.
 - Two safe VulnerableApp SQL sinks stay `dynamic` because their input is filtered before the call. They need a probe to clear them. One unreachable config sink is `dynamic` with `no_callers`, so it would report as Code-only.
@@ -139,7 +137,13 @@ Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.m
 
 ## 9. Next action
 
-Build `BS6`: catalogue entries and oracles for XSS, command injection and open redirect, plus Blind/Union SQL (boolean and timing); the two-pass deadline scheduler; sweep with type pruning; own header and cookie checks; `target.auth.*`. Remove the dead `run_dast`. Confidence weights are proposed; tune on expected_pairs in BS7/BS8.
+1. Live check first, once ZAP and VulnerableApp are up (`infra/`, Docker). Re-run `elenchus scan` against VulnerableApp. The earlier BS4 and BS5 results used the replay bug and count for nothing until re-run.
+2. Wire `run_two_pass` into the coordinator run loop, with `probe.stage_budget_seconds.zap_jobs` as the budget.
+3. Wire the header checks (`probe/headers.py`) into the baseline pass, as runtime-only findings.
+4. Wire `sql_boolean` into the coordinator as a true and false replay pair per candidate.
+5. Catalogue kinds `return_value`, `annotation`, `template`, `xml` in `sink_finder.py`, then XSS and redirect entries. Check offline against `expectedIssues.csv`.
+6. Decide the `target.auth.*` scheme with the user. Credentials from environment variables only.
+7. Command-injection oracle: needs a verified timing signal from ZAP, checked live.
 
 ## 10. Resume instructions
 
