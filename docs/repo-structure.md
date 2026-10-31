@@ -18,8 +18,8 @@ Person A and Person B are role labels. Who is who: `[TODO: confirm at kickoff]`
 │   ├── sast/            stages 1 and 2: code index, sink finder, secrets/crypto pass,
 │   │                    route table, back-guided search, flow engine, Semgrep adapter (optional)
 │   ├── hypotheses/      stage 3 [proposed, not created]
-│   └── dast/            current ZAP runner. Ownership moves to PERSON B (see below)
-├── probe/               PERSON B [proposed, not created]: stage 0 preflight, stage 4 probe engine
+│   └── dast/            current ZAP runner. Person B owns its active-scan integration
+├── probe/               PERSON B [proposed, not created]: stage 0 preflight and ZAP scan coordinator
 ├── engine/              PERSON B
 │   ├── correlate/       stages 5 and 6: correlation, verify, labels, scoring
 │   ├── store/           Postgres persistence
@@ -44,8 +44,8 @@ Stage 3 (hypotheses) is Person A's. Its code lives in `producers/hypotheses/` `[
 | `common/fixtures/` | Person A writes. Person B reviews each fixture before the contract freeze. | Hand-made sample records and the `expected_pairs` file `[proposed path: common/fixtures/expected_pairs/vulnerableapp.yaml]` |
 | `producers/sast/` | Person A | Stages 1 and 2, back-guided search, flow engine, optional Semgrep adapter |
 | `producers/hypotheses/` `[proposed, not created]` | Person A | Stage 3: directed and sweep hypotheses |
-| `producers/dast/` | Person B | Current ZAP runner and its oracles. Becomes the optional passive pass. |
-| `probe/` `[proposed, not created]` | Person B | Stage 0 preflight, stage 4 probe engine: baseline gate, differential oracles, canary, replay log, header and cookie checks |
+| `producers/dast/` | Person B | ZAP API client and active-scan integration; ZAP generates and sends payload requests. Project-owned deterministic oracles validate captured responses. |
+| `probe/` `[proposed, not created]` | Person B | Stage 0 preflight and stage 4 ZAP scan coordinator: hypothesis/job mapping, baseline gates, differential oracles, canary/header propagation, replay log, header and cookie checks |
 | `engine/correlate/` | Person B | Stage 5 correlation, stage 6 verify, labels, scoring |
 | `engine/store/` | Person B | Postgres persistence |
 | `engine/report/` | Person B | Report, SARIF export, suppressed file |
@@ -54,13 +54,13 @@ Stage 3 (hypotheses) is Person A's. Its code lives in `producers/hypotheses/` `[
 | `docs/` | Per file | See [Doc ownership](#doc-ownership) |
 | `tests/<component>/` | Component owner | Tests against `common/fixtures/` |
 
-### HTTP probe code
+### ZAP active-scan integration
 
 The HTTP probe code is Person B's, not Person A's. An earlier version of this map gave all HTTP attack logic to Person A.
 
 - Stages 0 and 4 are Person B's.
 - Until `probe/` exists, `producers/dast/` is Person B's.
-- When code starts, create `probe/` and move the stage 0 and stage 4 code there `[proposed]`. This pass does not create the directory.
+- When code starts, create `probe/` for the stage 0 and stage 4 coordinator. Keep the ZAP API integration in `producers/dast/` unless the team jointly chooses to move it. ZAP is the active probe engine, not a passive-only optional adapter.
 
 ## Doc ownership
 
@@ -90,7 +90,7 @@ The cut follows the finding record and the stage boundary.
 flowchart LR
     stat["producers/ (Person A): stages 1, 2, 3, back-guided search"]
     contract["Contract (common/): records, Hypothesis, CodeIndex"]
-    probe["probe/ (Person B, proposed): stages 0, 4"]
+    probe["probe/ (Person B, proposed): preflight + ZAP scan coordination"]
     eng["engine/ (Person B): stages 5, 6, 7"]
     cli["cli/ (Person B)"]
     stat -- writes --> contract

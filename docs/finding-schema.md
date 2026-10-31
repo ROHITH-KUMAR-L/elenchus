@@ -44,10 +44,10 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `entry_paths` | array \| null | Routes that reach the sink. Each: `route`, `method`, `hops` (calls from handler to the sink's method), `call_chain` (list of `{method, file, line}`, the handler is the first hop). One sink reached from several routes is one record with several entry paths. | Static stage, from the call graph |
 | `hypothesis_id` | string \| null | Id of the hypothesis that produced the finding. Kept through the probe and into the evidence. Null for findings with no hypothesis (own header checks). | Stage 3 |
 | `candidate_params` | array \| null | Params the probe will try. Directed: all params of the route. | Stage 3 |
-| `param` | string \| null | Param the oracle fired on. Null until a probe resolves it, and for static-only findings. | Probe engine |
-| `param_location` | string \| null | Where the param is bound: `query`, `path`, `header`, `cookie`, `body` `[proposed values]`. | Probe engine, from the index |
-| `param_path` | string \| null | Path inside a structured value, e.g. a JSON field `[proposed meaning]`. | Probe engine |
-| `payload` | string \| null | Payload that fired. | Probe engine |
+| `param` | string \| null | Param the project oracle verified from a ZAP-captured response. Null until a probe resolves it, and for static-only findings. | ZAP-backed probe coordinator |
+| `param_location` | string \| null | Where the param is bound: `query`, `path`, `header`, `cookie`, `body` `[proposed values]`. | ZAP-backed probe coordinator, from the index |
+| `param_path` | string \| null | Path inside a structured value, e.g. a JSON field `[proposed meaning]`. | ZAP-backed probe coordinator |
+| `payload` | string \| null | ZAP-generated payload associated with the oracle-confirmed request. | ZAP-backed probe coordinator |
 | `evidence` | array | List of `{type, detail}`. Types: `PATH`, `ORACLE`, `TRACE`, `FAMILY`. Raw artefacts (code snippet, request, response excerpt, canary id, replay-log reference, raw scanner severity) go inside `detail`. | All |
 | `taint_trace` | array \| null | Optional source-to-sink path. Each step: `file`, `line`, `role`. Null in the Must plan. | Own flow engine (Could) |
 | `link_status` | `"unique"` \| `"ambiguous"` \| null | How many candidate sinks the link has. Set after an oracle fires. See [Linking](#linking-and-ambiguity). | Correlation |
@@ -61,8 +61,8 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `status` | string \| null | For findings with no oracle hit: `tested_negative`, `no_http_path`, `blocked`, `untested`. See [Statuses](#statuses). | Verify stage |
 | `suppressed` | boolean | True for `tested_negative`. Excluded from the primary report and the graded export. | Verify stage |
 | `unlinked_reason` | string \| null | Why a finding has no partner. For `blocked`, `untested` and `no_http_path` findings it records the per-param probe outcomes, the `blocked_by_validation` sub-code (`validation`, `auth`, `not_found`, `server_error`, `other`) and the `no_http_path` reason code (`no_callers`, `walk_unresolved`). | Correlation |
-| `injected_route` | string \| null | Route that wrote the value (second-order flows). | Probe engine, from route-pair config |
-| `observed_route` | string \| null | Route where the value fired. | Probe engine |
+| `injected_route` | string \| null | Route that wrote the value (second-order flows). | ZAP-backed probe coordinator, from route-pair config |
+| `observed_route` | string \| null | Route where the value fired. | ZAP-backed probe coordinator |
 | `source_rev` | string \| null | Source revision the scan ran against. Best-effort. | Preflight |
 | `severity` | string \| null | Producer's severity claim. Shown in the report (FR-1). | Producer |
 | `wasc_id` | integer \| null | Passthrough for the VulnerableApp grader. Not used inside the engine. | ZAP alert, or own mapping |
@@ -88,7 +88,7 @@ A hypothesis is a pipeline object, not a finding. It lives in `common/` with the
 | `sink_id`, `call_path` | Directed only. From the static stage. |
 | `candidate_params` | Directed: all params of the route. Sweep: one param. |
 
-Directed hypotheses come from static findings. Sweep hypotheses cover every param against every supported class, for bugs static analysis missed. Both sets use this one record type. The probe engine does not care which set a hypothesis came from.
+Directed hypotheses come from static findings. Sweep hypotheses cover every param against every supported class, for bugs static analysis missed. Both sets use this one record type. The coordinator submits each hypothesis or sweep unit as a bounded ZAP active-scan job. ZAP generates attack requests; project oracles validate captured responses. The coordinator records the job-to-hypothesis mapping before scan execution because a ZAP alert does not itself carry the project's `hypothesis_id`.
 
 ## Other contract shapes
 
@@ -329,7 +329,7 @@ A SQL sink in a service class. The own sink finder matched it by call name and r
 
 ### Probe finding (stage 4 output)
 
-The probe engine tried both candidate params. The oracle fired on `id`.
+The ZAP-backed coordinator ran active-scan jobs for both candidate params. The project oracle fired on `id`. The coordinator can attach the hypothesis ID only if the matching ZAP job and alert evidence identify the route, method, parameter and CWE unambiguously.
 
 ```json
 {
@@ -359,6 +359,8 @@ The probe engine tried both candidate params. The oracle fired on `id`.
     { "type": "ORACLE",
       "detail": { "oracle": "db_error",
                   "canary_id": "elx-7c1e",
+                  "zap_scan_id": "12",
+                  "zap_message_id": "48",
                   "baseline_status": 200,
                   "request": "GET http://localhost:[TODO: port]/api/orders/1'",
                   "replay_log": "[TODO: path]" } }

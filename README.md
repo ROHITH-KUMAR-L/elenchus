@@ -6,7 +6,7 @@ Status: design stage. The pipeline described below is a plan. Nothing in it is b
 
 ## 1. What it is
 
-A Python CLI. It reads a Java web app's source code (SAST) and probes the running app on localhost (DAST). Static analysis produces hypotheses. The probe engine tests them. The result is one prioritised list in which each real bug appears once, with its code line and its runtime proof.
+A Python CLI. It reads a Java web app's source code (SAST) and uses OWASP ZAP's active scanner to probe the running app on localhost (DAST). Static analysis produces hypotheses. Project orchestration scopes ZAP scans to those hypotheses and deterministic project oracles validate the captured responses. The result is one prioritised list in which each real bug appears once, with its code line and runtime evidence.
 
 A firing probe proves that a route, param and CWE are exploitable. It does not prove which sink on that route is the cause. When several sinks could be the cause, the tool marks the link as ambiguous and keeps every candidate.
 
@@ -20,11 +20,11 @@ Details: [docs/architecture.md](docs/architecture.md).
 | Target app | Java / Spring Boot (primary). Practice target: OWASP VulnerableApp. Organisers' app framework: `[TODO: confirm at kickoff]`. JAX-RS adapter: Could. |
 | Core idea | Static-guided dynamic testing. A directed hypothesis keeps its `hypothesis_id` into the evidence, so a direct hit is linked by lineage and not by matching afterwards. |
 | Static analysis | Own code index (tree-sitter-java), own sink finder (per-CWE YAML catalogue, call name and receiver type, no dataflow) and own secrets/crypto pass. The call graph is walked backward from each sink to its routes. Static output gives route and call path, never the param. |
-| Dynamic testing | Own probe engine. Baseline gate, differential oracles, canary id, replay log, own header and cookie checks. Oracles decide every verdict. |
+| Dynamic testing | ZAP active scanner is the required payload/probe engine. Project code coordinates hypothesis-scoped scans, baseline gates, canary/header propagation, replay capture, differential oracles, and header/cookie checks. ZAP alerts alone do not decide verdicts. |
 | Linking | `link_status` (unique or ambiguous) and `link_origin` (directed, sweep or back-guided). Confidence is a float from 0 to 1 with stored reasons. |
 | Negative evidence | A finding with no oracle hit gets one status: `no_http_path`, `blocked`, `tested_negative` or `untested`. `tested_negative` findings are suppressed and written to a separate file. |
 | Labels | Confirmed, Code-only, Runtime-only (FR-7) |
-| Optional adapters | Semgrep and ZAP. Off by default. No pipeline stage requires them. |
+| Optional adapters | Semgrep is optional and off by default. ZAP active scanning is required, including judging mode. |
 | AI | Off by default and off in judging mode. It never creates or deletes a finding, sets a verdict or decides a link. |
 | Persistence | Our own Postgres on its own Docker network and volume, separate from the target |
 | Delivery | CLI only |
@@ -58,16 +58,16 @@ flowchart TD
     idx --> pre["0 Preflight (reads the route table)"]
     idx --> sta["2 Static: sink finder, secrets/crypto pass"]
     sta --> hyp["3 Hypotheses: directed and sweep"]
-    pre --> probe["4 Probe engine"]
+    pre --> probe["4 ZAP active-scan coordinator"]
     hyp --> probe
-    probe -- HTTP --> app["Target app (localhost)"]
+    probe -- "ZAP active-scan HTTP requests" --> app["Target app (localhost)"]
     probe --> corr["5 Correlation and 6 Verify"]
     hyp --> corr
     corr <--> pg[("Postgres (our network)")]
     corr --> out["7 Output: report, SARIF, suppressed file"]
 ```
 
-Our stack and the target app use separate Docker networks. The probe engine reaches the target only over `localhost:<port>`.
+Our stack and the target app use separate Docker networks. ZAP reaches the target only over `localhost:<port>`, through its host-loopback API configuration. Active scans can change application state; use a disposable target instance and test data, never production.
 
 ## 6. Milestones
 
@@ -85,6 +85,7 @@ Prerequisites:
 
 - Python 3.14 or later
 - `uv`
+- OWASP ZAP stable image or local ZAP installation with its API bound to host loopback
 - Docker and Docker Compose, for our Postgres and the target app
 
 The target app runs separately, from its own Docker Compose, on localhost. Point the tool only at it. Scanning any other host is not allowed.
@@ -128,7 +129,7 @@ GitHub Actions runs the tests, checks the CLI entry point, builds the Python dis
 
 ## 9. Third-party tools used
 
-The challenge rules require this list. The sink finder, secrets pass, probe engine, oracles, linking, correlation and scoring are our own work.
+The challenge rules require this list. The sink finder, secrets pass, ZAP scan coordinator, deterministic oracles, linking, correlation and scoring are our own work; ZAP generates and sends active-scan requests.
 
 | Tool | Role |
 |---|---|
@@ -136,11 +137,10 @@ The challenge rules require this list. The sink finder, secrets pass, probe engi
 | psycopg | Postgres client |
 | PostgreSQL (`postgres:17-alpine` image) | Run store |
 | pytest | Tests (dev) |
-| httpx | HTTP client for the probe engine. Planned. Not yet a dependency. |
 | Semgrep | Optional adapter and offline benchmark yardstick. Currently a regular dependency in `pyproject.toml`. To become optional. |
-| OWASP ZAP | Optional passive pass. Off by default. |
+| OWASP ZAP | Required active-scan engine. Its API is driven by the project coordinator; project-owned oracles validate findings. |
 
-Versions: constraints are in `pyproject.toml` and pinned in `uv.lock`. Semgrep rule pack and version for the yardstick: `[TODO: record count, date and rule pack version in docs/STATE.md]`.
+Versions: Python dependencies are constrained in `pyproject.toml` and pinned in `uv.lock`. Record the ZAP image/version and Semgrep yardstick rule-pack version in [docs/STATE.md](docs/STATE.md) when measured.
 
 ## 10. Metric targets
 

@@ -14,7 +14,7 @@ The repo predates this architecture. The table lists what exists in the tree and
 | `producers/sast/semgrep_runner.py`, `rules/` | Semgrep runner, Semgrep-format taint and pattern rules, tests | Becomes the optional Semgrep adapter (`semgrep.enabled`, off by default). It must not guess `param`. Its tests must skip when Semgrep is not installed. The rules are Semgrep syntax and do not carry over to the own sink catalogue or secrets pass `[TODO: confirm]`. |
 | `pyproject.toml` | Semgrep is a regular dependency | Move to an optional extra `[proposed]`. The pipeline and its tests must pass without it. |
 | `producers/benchmark.py` | Offline SAST score against VulnerableApp's expected-issues CSV | Part of the benchmark adapter. Results not recorded here. |
-| `producers/dast/zap_runner.py` | ZAP-driven DAST with oracle checks and tests | Becomes the optional passive pass. The own probe engine replaces it as the verdict owner. |
+| `producers/dast/zap_runner.py` | ZAP-driven active DAST with response-oracle checks and tests | Seed for the required ZAP active probe engine. Rework it to run hypothesis-scoped jobs, preserve job-to-hypothesis provenance, enforce baseline gates, capture replay evidence, and keep project oracles as verdict owners. |
 | `engine/correlate/` | Tier A/B/C correlation with tests | Rework: hypothesis lineage, `link_status`, `link_origin`, ambiguity groups, the conflict rule, evidence-based confidence. |
 | `engine/store/`, `engine/report/` | Postgres store, text report, SARIF export | Reusable as the base for stage 7. Needs the new fields and the suppressed file `[TODO: verify]`. |
 | `cli/main.py` | `correlate` and `scan` commands | Rework the scan flow to stages 0 to 7. |
@@ -28,8 +28,8 @@ The repo predates this architecture. The table lists what exists in the tree and
 | 1 | Preflight: baseline per route, context path, coverage report | 0 | Person B | M1 baseline and context path. M2 coverage report. |
 | 2 | Route table and param bindings | 1 | Person A | M1 |
 | 3 | Own sink finder and own secrets/crypto pass, plus call graph walked backward, route-granularity hypotheses (directed and sweep) | 2 to 3 | Person A | M1 SQL sinks, call graph, hypotheses. M2 other classes, secrets and crypto pass. |
-| 4 | Probe engine for four classes: differential oracles, baseline gate, canary, replay log | 4 | Person B | M1 error-based SQL injection oracle with the gate, canary and log. M2 four classes. |
-| 5 | Own header and cookie-flag checks | 4 | Person B | M2 |
+| 4 | ZAP active scanner integration for four classes: hypothesis-scoped jobs, baseline gate, deterministic differential oracles, canary/header propagation, replay log | 4 | Person B | M1 error-based SQL injection through ZAP with baseline gate, hypothesis association, evidence and replay. M2 four classes. |
+| 5 | Own header and cookie-flag checks over responses observed by ZAP | 4 | Person B | M2 |
 | 6 | Hypothesis linking with ambiguity marking, labels and scoring | 5, 7 | Person B | M1 lineage link, label, score. M2 ambiguity marking. |
 | 7 | Postgres, CLI, SARIF and the suppressed file | 6, 7 | Person B | M1 Postgres and CLI report. M2 SARIF and the suppressed file. |
 | 8 | Benchmark adapter and the `expected_pairs` file | 7 | Person B | M1 `expected_pairs` file. M2 adapter and measurement. |
@@ -48,7 +48,7 @@ The four classes: SQL injection, XSS, command injection, open redirect. Path tra
 | AI with/without measurement harness. Built before any AI task. | all | Person B. M3. |
 | AI seeds from DTOs, with repair. Only after non-AI typed seeds work. | 4 | Person B. M3. |
 | Session manager | 4 | Person B |
-| ZAP passive pass | 4 | Person B |
+| ZAP passive alert ingestion (supplemental; not verdict owner) | 4 | Person B |
 | Best-effort preflight items | 0 | Person B |
 | Back-guided static search, relaxed mode only. Producer entry `run_back_guided(target, route_map, runtime_only_findings)`. Config `backguided.enabled`, off until measured. | 5 | Person A. Reads A's index and sink catalogue. Person B consumes the evidence through the cli seam. |
 | Own flow engine (narrows `candidate_params`). Built after M2. Never blocks M1 or M2. Gate for making it the default: matches the measured Semgrep count on VulnerableApp, Semgrep run offline as the yardstick. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality. | 2 | Person A |
@@ -86,7 +86,7 @@ Order work by dependency. A milestone passes only when its test has been run and
 
 | Milestone | Scope |
 |---|---|
-| M1 spine | One command on a clean VulnerableApp run yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. No other stage is added until M1 passes. |
+| M1 spine | One command on a clean VulnerableApp run uses ZAP active scanning and yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. No other stage is added until M1 passes. |
 | M2 core | All four classes, own header and cookie checks, the `tested_negative` adequacy logic, the suppressed file with real content (not an empty placeholder), the judging-mode profile, the benchmark adapter, `expected_pairs` measurement. |
 | M3 extras | The Should list. The own flow engine is built after M2. |
 
@@ -95,16 +95,16 @@ If M1 cannot pass:
 1. Cut to open redirect and error-based SQL injection.
 2. Fix the spine first.
 
-The pipeline and its tests must pass with Semgrep not installed. Semgrep stays an optional adapter, off by default.
+The pipeline and its tests must pass with Semgrep not installed. Semgrep stays an optional adapter, off by default. ZAP is required for active runtime probing, including judging mode; the judging profile must enforce bounded ZAP use, not disable it.
 
 ## Split
 
 | Person | Owns |
 |---|---|
 | Person A | Stages 1, 2 and 3 (directed and sweep hypotheses), the back-guided search (`run_back_guided`), the own flow engine, the fixtures |
-| Person B | Stages 0, 4, 5, 6 and 7, the `expected_pairs` file, the judging profile, and review of every fixture against the correlation cases before the contract freeze |
+| Person B | Stages 0, 4, 5, 6 and 7, ZAP active-scan orchestration and deterministic probe oracles, the `expected_pairs` file, the judging profile, and review of every fixture against the correlation cases before the contract freeze |
 
-Stage 3 emits one Hypothesis record type for both sets, so the probe engine does not care which set a hypothesis came from.
+Stage 3 emits one Hypothesis record type for both sets. Person B's coordinator starts a ZAP active-scan job for each directed hypothesis and sweep unit, and preserves the job-to-hypothesis association. ZAP generates and sends attack requests; project oracles validate captured responses and own verdicts. If a ZAP alert cannot be assigned uniquely to a job and parameter, it must remain unlinked or ambiguous rather than being assigned fabricated lineage.
 
 Person B builds against fixtures first. Both test against `common/fixtures/`. Person B consumes `run_back_guided` output through the cli seam.
 
@@ -134,7 +134,7 @@ flowchart LR
     idx --> sta["2 Static"]
     sta --> hyp["3 Hypotheses"]
     idx --> pre["0 Preflight"]
-    contract --> probe["4 Probe engine + oracles"]
+    contract --> probe["4 ZAP active-scan coordinator + oracles"]
     pre --> probe
     hyp --> probe
     contract --> store["Run store (Postgres)"]
@@ -160,13 +160,13 @@ If scope must shrink, drop in this order. M1 and M2 items are never cut.
 2. Own flow engine
 3. Back-guided search
 4. B-5 scan comparison
-5. ZAP passive pass
+5. Supplemental ZAP passive alert ingestion
 6. AI items
 7. Session manager
 8. Best-effort preflight items
 9. Path traversal (cut last among the Should items, because it covers a PRD type)
 
-Never cut: the contract, the code index, the own sink finder, hypothesis linking with ambiguity marking, the probe engine with its baseline gate, the run store, the CLI report, the judging profile.
+Never cut: the contract, the code index, the own sink finder, hypothesis linking with ambiguity marking, ZAP active scanning with its baseline gate and deterministic oracles, the run store, the CLI report, the judging profile.
 
 ## Metric targets
 

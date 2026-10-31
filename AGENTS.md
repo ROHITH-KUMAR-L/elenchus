@@ -13,7 +13,7 @@ Rules for AI coding agents working in this repo.
 
 ## Architecture in one paragraph
 
-Static-guided dynamic testing. Static analysis produces hypotheses. The probe engine tests them. Read [docs/architecture.md](docs/architecture.md) before changing any stage.
+Static-guided dynamic testing. Static analysis produces hypotheses. OWASP ZAP performs active probes; project orchestration preserves hypothesis context and deterministic oracles own runtime verdicts. Read [docs/architecture.md](docs/architecture.md) before changing any stage.
 
 ## Linking rules
 
@@ -46,8 +46,9 @@ Static-guided dynamic testing. Static analysis produces hypotheses. The probe en
 
 ## Deterministic core, AI advisory
 
-- Oracles decide every runtime verdict. Never let an LLM decide that an exploit worked.
+- Project deterministic oracles decide every runtime verdict. A ZAP alert or risk rating alone never proves an exploit. Never let an LLM decide that an exploit worked.
 - Correlation is deterministic. Confidence is a function of the evidence present. Store the reasons. Weights live in config.
+- ZAP active scanning is required, including in judging mode. Its API must stay bound to loopback and scans must stay within the target route table.
 - The pipeline must pass its tests with AI off.
 
 AI hard rules:
@@ -82,9 +83,9 @@ The organisers run the target. In judging mode:
 - One command to run.
 - A time budget per stage. Total runtime stays under 5 minutes.
 - AI off.
-- ZAP off.
+- ZAP active scanning on, with a bounded stage budget. ZAP is the probe engine, not an optional judging-mode adapter.
 - Semgrep off.
-- `judging.profile` forces `semgrep.enabled`, `zap.enabled`, `logtail.enabled` and `ai.enabled` to false.
+- `judging.profile` forces `semgrep.enabled`, `logtail.enabled` and `ai.enabled` to false, requires ZAP active scanning, and allows no target restarts.
 
 ## Schema first
 
@@ -108,7 +109,7 @@ The organisers run the target. In judging mode:
 
 - DAST targets `localhost` only. Never point the probe engine, ZAP or any scanner at another host. That is disqualification.
 - Scan only the organisers' app or VulnerableApp, run locally from their Docker Compose.
-- Probe only routes in the route table. Send `X-Elenchus-Probe` and a canary id on every probe. Keep a replay log.
+- Probe only routes in the route table. Ensure `X-Elenchus-Probe` and a canary id are attached to each ZAP-generated probe request; verify header/canary propagation rather than assuming it. Keep a replay log with the originating ZAP scan job and hypothesis id.
 - Probes are safe test requests, as the PRD says for B-1.
 
 ## Our infrastructure

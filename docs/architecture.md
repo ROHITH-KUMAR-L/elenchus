@@ -19,6 +19,8 @@ What this does and does not buy:
 - The target app runs from its own Docker Compose on our machine: the organisers' app at judging, OWASP VulnerableApp for practice.
 - Our tool is a Python CLI. It reads the target's source folder and scans the target on `localhost`.
 - DAST targets `localhost` only. Any other host is disqualification.
+- ZAP performs active scans against the already-running target. Use an isolated, disposable test instance; active requests may change application state.
+- The ZAP API is bound to host loopback and is controlled locally by the CLI coordinator.
 - One target framework per run.
 - Our own stack (CLI + Postgres) runs separately from the target. See [Topology](#topology).
 
@@ -33,7 +35,7 @@ flowchart TD
     sta["2 Static: own sink finder, secrets/crypto pass, call graph walked backward to routes"]
     semgrep["Semgrep adapter (optional, off by default)"]
     hyp["3 Hypotheses: directed and sweep"]
-    probe["4 Probe engine (httpx): baseline gate, differential oracles, canary, replay log"]
+    probe["4 ZAP active probe engine + project coordinator: baseline gate, differential oracles, canary, replay log"]
     corr["5 Correlation: evidence, link_status, link_origin, dedupe"]
     bg["5 Back-guided search: relaxed mode (Should, off by default)"]
     ver["6 Verify: status for findings with no oracle hit (tested_negative, blocked, untested, no_http_path)"]
@@ -66,7 +68,7 @@ Stage numbers are labels, not run order. The route table (stage 1, static, no ne
 | 1 Code index | Own code | Route table, param bindings, call graph, sink inventory |
 | 2 Static | Own code | `(route, CWE, sink_id, call_path)` per finding, plus secrets and crypto findings |
 | 3 Hypotheses | Own code | Directed and sweep hypotheses |
-| 4 Probe engine | Own oracles | Probe records with `hypothesis_id` and `ORACLE` evidence |
+| 4 ZAP-backed probe | ZAP sends active-scan requests; project oracles own verdicts | Probe records with `hypothesis_id` and `ORACLE` evidence |
 | 5 Correlation | Own code, deterministic | Linked issues with `link_status`, `link_origin` and confidence |
 | 6 Verify | Own code, deterministic | `status` for every finding with no oracle hit |
 | 7 Output | Own code | Labels, scores, Postgres rows, report, SARIF |
@@ -131,24 +133,28 @@ Strict mode matches only when the receiver type resolves. Call sites that match 
 | Directed | `(route, CWE, sink_id, call_path)` with `candidate_params` = all params of the route | The probe tries each param. The oracle shows which one fires. |
 | Sweep | Every param by every supported class | Bugs static analysis missed |
 
-Owner: Person A, both sets. Stage 3 emits one Hypothesis record type for both sets. The probe engine does not care which set a hypothesis came from.
+Owner: Person A, both sets. Stage 3 emits one Hypothesis record type for both sets. The project coordinator turns each hypothesis into a ZAP active-scan job. Directed jobs are scoped to the hypothesis route, method, parameter and supported CWE scan policy where ZAP provides that precision. Sweep jobs scan supported route/parameter/class combinations without a static sink hypothesis.
 
-### Stage 4: Probe engine
+### Stage 4: ZAP-backed probe engine
 
-Own code, httpx.
+OWASP ZAP's active scanner generates and sends attack requests. Project-owned code coordinates ZAP through its local API, applies the baseline gate, associates each scan job with its originating hypothesis, captures request/response evidence, and applies deterministic oracles. A ZAP alert by itself is not a runtime verdict.
 
 | Part | Behaviour |
 |---|---|
-| Typed seeds | Valid values built from the index types. AI repair is Should, and only after non-AI typed seeds work. |
-| Baseline gate | Attack a param only if its baseline returns the expected status. Otherwise record the probe outcome `blocked_by_validation` for that param, with a sub-code: `validation` (400, 422), `auth` (401, 403), `not_found` (404), `server_error` (5xx), `other`. |
-| Canary id | Unique id in every payload |
-| Probe header | `X-Elenchus-Probe` on every request |
-| Replay log | Full request and response for every probe |
-| Header and cookie checks | Own code, about 30 lines. Covers the planted runtime-only class. Needs no correlation. |
+| Job construction | One controlled ZAP active-scan job per hypothesis or sweep unit, with route, method, candidate parameter and supported CWE scan policy recorded before execution. |
+| Typed seeds | Supply valid route and parameter values from the index. ZAP generates attack variants. AI repair is Should, only after non-AI seeds work. |
+| Baseline gate | Start an active scan only if the parameter baseline returns the expected status. Otherwise record `blocked_by_validation` with a sub-code: `validation` (400, 422), `auth` (401, 403), `not_found` (404), `server_error` (5xx), `other`. |
+| Hypothesis lineage | Keep a coordinator-side mapping from each ZAP scan job to its `hypothesis_id`. Copy that ID to probe evidence only when the alert's route, method, parameter and CWE fit the job. Do not infer a directed link from a broad alert after the fact. |
+| Canary id | Associate a unique canary with each job and include it in relevant requests where ZAP's API/add-on configuration permits. Validate propagation before relying on canary-based oracles. |
+| Probe header | Add `X-Elenchus-Probe` to every request where ZAP can reliably propagate it through active-scan mutations. Validate this behavior before treating the header as guaranteed. |
+| Replay log | Capture full request/response messages for alerts and their originating scan-job metadata. Store references and redact secrets. |
+| Header and cookie checks | Project-owned deterministic checks over responses observed by ZAP. Covers the planted runtime-only class and needs no sink link. |
 | Session manager | Should |
 | App-log tail | Could. Never in judging mode. |
 
-Oracles are differential: each compares the probe response with the baseline.
+Oracles are differential: each compares a ZAP-captured probe response with the route/parameter baseline. An alert without required response evidence is not confirmed. ZAP scans the locally running target; active scans can change application state, so use a disposable target instance and test data.
+
+ZAP may not natively expose a one-to-one mapping from every generated mutation to its originating hypothesis. The coordinator must isolate or serialize jobs and validate alert attribution. If an alert cannot be assigned to one job and parameter, record it as an unlinked sweep/runtime hit or ambiguous result; never manufacture directed lineage. Implementing and testing this adapter is part of stage 4, not a feature verified by the current runner.
 
 | Class | Oracle |
 |---|---|
@@ -160,7 +166,7 @@ Oracles are differential: each compares the probe response with the baseline.
 
 Path traversal (CWE-22) is Should, M3, the first item after M2. With the secrets pass it covers all six PRD vulnerability types.
 
-ZAP is an optional corroborating passive pass for the runtime-only bucket. It never owns a verdict. It is off the critical path and off in judging mode.
+ZAP is the required active-scan engine in practice and judging mode. Its passive analysis may also inspect observed responses. In both cases, the project's deterministic oracles—not ZAP's risk label alone—own the verdict.
 
 ### Stage 5: Correlation
 
@@ -293,11 +299,11 @@ The organisers run the target at judging. A separate config profile applies.
 | Log tail | Off |
 | Target restarts | None |
 | Required input | The target base URL: `--target` or an environment variable. The context path and routes are detected. |
-| Profile | `judging.profile` forces `semgrep.enabled`, `zap.enabled`, `logtail.enabled` and `ai.enabled` to false. |
+| Profile | `judging.profile` forces `semgrep.enabled`, `logtail.enabled` and `ai.enabled` to false. ZAP active scanning remains enabled and bounded by the stage budget. |
 | Command | One |
 | Time budget per stage | `probe.stage_budget_seconds.<stage>` `[TODO: set values]` |
 | AI | Off |
-| ZAP | Off |
+| ZAP | On: required active probe engine |
 | Semgrep | Off |
 | `TRACE` evidence | Unavailable. Ambiguous links stay ambiguous. |
 | Total runtime target | Under 5 minutes |
@@ -313,9 +319,11 @@ The single source for config names and default values. Other docs point here and
 | `target.base_url` | [required] | Target app base URL on localhost |
 | `target.source_path` | [required] | Target source folder |
 | `target.context_path` | [auto-detected] | Servlet context path. See Stage 0. |
-| `judging.profile` | [false] | When true: forces `semgrep.enabled`, `zap.enabled`, `logtail.enabled` and `ai.enabled` to false, and allows no target restarts |
+| `judging.profile` | [false] | When true: forces `semgrep.enabled`, `logtail.enabled` and `ai.enabled` to false, requires ZAP active scanning, and allows no target restarts |
 | `semgrep.enabled` | [false] | Optional Semgrep adapter |
-| `zap.enabled` | [false] | Optional ZAP passive pass |
+| `zap.enabled` | [true] | Required ZAP active scan engine and passive response analysis. Must stay enabled in judging mode. |
+| `zap.api_url` | [`http://127.0.0.1:8090`] | Local ZAP API endpoint. Must be host loopback; never expose it to an untrusted network. |
+| `zap.api_key` | [`ZAP_API_KEY` environment variable] | Local API access key. Never commit or print it. |
 | `logtail.enabled` | [false] | App-log tail for `TRACE` evidence |
 | `ai.enabled` | [false] | Master AI switch |
 | `ai.max_calls` | [30] | Cap on AI calls per run |
@@ -385,7 +393,7 @@ No AI task becomes default-on until a with/without run on VulnerableApp against 
 | Semgrep adapter | Optional | Off by default (`semgrep.enabled`). Fallback sink source, cross-check, benchmark yardstick. |
 | Preflight | No | Stage 0 |
 | Hypothesis builder | No | Stage 3 |
-| Probe engine | No | Stage 4. httpx. Oracles, canary, replay log. |
+| ZAP-backed probe coordinator | No | Stage 4. Starts scoped ZAP active scans, maintains hypothesis/job association, applies oracles, and captures evidence. ZAP generates and sends payload requests. |
 | Correlation + verify | No | Stages 5 and 6. Deterministic. |
 | Output | No | Stage 7. Scoring, Postgres, CLI, SARIF, benchmark adapter. |
 | AI advisor | No | Optional. Advisory only. |
@@ -419,7 +427,7 @@ flowchart LR
         subgraph theirs["Target's own network (own Docker Compose)"]
             target["Target app (organisers' or VulnerableApp)"]
         end
-        cli -- HTTP, probe engine only --> port
+        cli -- "ZAP API on loopback; ZAP probes target over localhost" --> port
         port -- published port --> target
     end
 ```
@@ -445,10 +453,10 @@ What the store holds:
 
 Rules:
 
-- The probe engine reaches the target over the host at `localhost:<port>`. It never joins the target's network.
+- ZAP reaches the target over host loopback at `localhost:<port>`. It never joins the target's network.
 - Postgres is not reachable from the target. It is not exposed beyond our network.
 - The store holds our tool's own state. It does not change the localhost-only rule or CLI-only delivery.
-- The CLI runs on the host (D-14). If ZAP runs, it runs on the host or in host-network mode with its API on `127.0.0.1`. It never joins the target's Docker network.
+- The CLI runs on the host (D-14). ZAP runs on the host or in host-network mode, with its API bound to `127.0.0.1`. It never joins the target's Docker network.
 
 Credentials handling for Postgres: `[TODO]`. Never commit them.
 
@@ -456,13 +464,14 @@ Credentials handling for Postgres: `[TODO]`. Never commit them.
 
 1. Start Postgres. `[TODO: exact command]`
 2. Start the target app with its own Docker Compose on `localhost`.
-3. Run the CLI with the source folder and the localhost URL. A new `run_id` is recorded. `[TODO: exact CLI]`
-4. Build the code index.
-5. Run preflight. Write the coverage report.
-6. Run the static stage (own sink finder and secrets/crypto pass). Build hypotheses.
-7. Probe. Write the replay log.
-8. Correlate and verify.
-9. Write Postgres rows, the primary report, the graded export and the suppressed file.
+3. Start ZAP's API on host loopback and configure its local API key.
+4. Run the CLI with the source folder and the localhost URL. A new `run_id` is recorded. `[TODO: exact CLI]`
+5. Build the code index.
+6. Run preflight. Write the coverage report.
+7. Run the static stage (own sink finder and secrets/crypto pass). Build hypotheses.
+8. The coordinator starts ZAP active scans for eligible hypotheses and sweep units. Capture scan IDs, alerts, relevant messages and replay-log references. Apply deterministic oracles.
+9. Correlate and verify.
+10. Write Postgres rows, the primary report, the graded export and the suppressed file.
 
 ## Self-scoring harness (VulnerableApp)
 
