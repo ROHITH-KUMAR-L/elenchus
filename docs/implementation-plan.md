@@ -180,4 +180,4 @@ VulnerableApp's grader measures detection only. Semgrep is run offline as a yard
 
 ## Docs rule
 
-Only these files are kept current while coding: `AGENTS.md`, `docs/architecture.md`, `docs/finding-schema.md`, `docs/implementation-plan.md` and `docs/STATE.md`. ADRs and README polish wait until the code runs. The stale files are listed in [doc-update-tracker.md](doc-update-tracker.md).
+Only these files are kept current while coding: `AGENTS.md`, `docs/architecture.md`, `docs/finding-schema.md`, `docs/implementation-plan.md` and `docs/STATE.md`. ADRs and README polish wait until the code runs. The stale files are listed in [STATE.md](STATE.md).

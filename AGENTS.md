@@ -149,7 +149,6 @@ Context handoff. Before the context window runs out, write the current system st
 | [docs/finding-schema.md](docs/finding-schema.md) | Internal finding record, hypothesis shape, SARIF mapping |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones M1 to M3, tiers, split, fixtures |
 | [docs/STATE.md](docs/STATE.md) | Current system state. Read at session start. Overwritten at each save. |
-| [docs/doc-update-tracker.md](docs/doc-update-tracker.md) | Stale docs and open questions from this revision |
 | [docs/decisions.md](docs/decisions.md) | Decisions. Stale until the code runs. |
 
 Only `AGENTS.md`, `architecture.md`, `finding-schema.md` and `implementation-plan.md` are kept current while coding.
