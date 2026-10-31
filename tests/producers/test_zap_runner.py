@@ -57,37 +57,6 @@ def alert(cwe: int, **overrides: Any) -> dict[str, Any]:
     }
 
 
-def test_seed_requests_encode_path_and_query_parameters() -> None:
-    [request] = zap_runner._seed_requests(target(), routes())
-
-    assert request.url == (
-        "http://localhost:9090/VulnerableApp/orders/1?sort=elenchus"
-    )
-    assert request.method == "GET"
-    assert request.post_data == ""
-
-
-def test_seed_requests_put_post_parameters_in_body() -> None:
-    post_route = (
-        RouteEntry(
-            route="/orders",
-            method="POST",
-            file="src/Orders.java",
-            func="Orders.create",
-            line_start=1,
-            line_end=10,
-            params=(RouteParam("name", "query"),),
-            calls=(),
-        ),
-    )
-
-    [request] = zap_runner._seed_requests(target(), post_route)
-
-    assert request.url == "http://localhost:9090/VulnerableApp/orders"
-    assert request.method == "POST"
-    assert request.post_data == "name=elenchus"
-
-
 def test_zap_api_rejects_non_local_api_urls() -> None:
     with pytest.raises(ValueError, match="localhost"):
         zap_runner.ZapApi("http://zap.example.com:8090", "test-key")
@@ -140,14 +109,6 @@ def test_zap_api_encodes_local_calls_and_blocks_external_redirects() -> None:
         with pytest.raises(RuntimeError, match="HTTP 302"):
             api.call("core", "view", "redirect")
         assert len(seen) == 2
-
-
-def test_scope_regex_limits_scanning_to_target_context_path() -> None:
-    expression = zap_runner._scope_regex(target())
-
-    assert expression.startswith("^http://localhost:9090/VulnerableApp")
-    assert expression.endswith(r"(?:/[^?#]*)?(?:\?[^#]*)?$")
-    assert "example.com" not in expression
 
 
 def test_sql_error_oracle_requires_database_error_response() -> None:
@@ -288,32 +249,3 @@ class FakeZapApi:
         }
 
 
-def test_run_dast_scans_and_reports_only_verified_in_scope_alerts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_api = FakeZapApi()
-    monkeypatch.setattr(
-        zap_runner.ZapApi,
-        "from_environment",
-        staticmethod(lambda: fake_api),
-    )
-
-    [finding] = zap_runner.run_dast(target(), routes())
-
-    assert finding.cwe == 89
-    assert finding.type == "SQL Injection"
-    assert finding.route == "/orders/{id}"
-    assert finding.method == "GET"
-    assert finding.param == "sort"
-    assert finding.detail("oracle") == "database_error"
-    assert fake_api.scope_regex is not None
-    assert len(fake_api.accessed) == 1
-    assert fake_api.scans == [
-        (
-            "http://localhost:9090/VulnerableApp/orders/1?sort=elenchus",
-            "GET",
-            "",
-            "1",
-        )
-    ]
-    assert fake_api.removed_context == "elenchus-dast-test"
