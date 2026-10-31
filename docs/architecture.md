@@ -34,7 +34,8 @@ flowchart TD
     semgrep["Semgrep adapter (optional, off by default)"]
     hyp["3 Hypotheses: directed and sweep"]
     probe["4 Probe engine (httpx): baseline gate, differential oracles, canary, replay log"]
-    corr["5 Correlation: evidence, link_status, dedupe"]
+    corr["5 Correlation: evidence, link_status, link_origin, dedupe"]
+    bg["5 Back-guided search: relaxed mode (Should, off by default)"]
     ver["6 Verify: status for findings with no oracle hit"]
     out["7 Output: labels, scoring, Postgres, CLI, SARIF"]
     src --> idx
@@ -48,6 +49,8 @@ flowchart TD
     hyp --> probe
     probe -- probes --> app
     probe --> corr
+    probe --> bg
+    bg --> corr
     hyp --> corr
     corr --> ver
     ver --> out
@@ -64,7 +67,7 @@ Stage numbers are labels. The baseline step in stage 0 needs the route table fro
 | 2 Static | Own code | `(route, CWE, sink_id, call_path)` per finding, plus secrets and crypto findings |
 | 3 Hypotheses | Own code | Directed and sweep hypotheses |
 | 4 Probe engine | Own oracles | Probe records with `hypothesis_id` and `ORACLE` evidence |
-| 5 Correlation | Own code, deterministic | Linked issues with `link_status` and confidence |
+| 5 Correlation | Own code, deterministic | Linked issues with `link_status`, `link_origin` and confidence |
 | 6 Verify | Own code, deterministic | `status` for every finding with no oracle hit |
 | 7 Output | Own code | Labels, scores, Postgres rows, report, SARIF |
 
@@ -109,7 +112,7 @@ Semgrep is not part of the pipeline. It is an optional adapter, off by default, 
 
 The pipeline and its tests must pass with Semgrep not installed.
 
-Own flow engine: Could. It would narrow `candidate_params` from all to the specific param. Promotion gate: it matches Semgrep's 35 of 45 on VulnerableApp, with Semgrep run offline as the yardstick.
+Own flow engine: Should, built after M2. It narrows `candidate_params` from all to the specific param. It never blocks M1 or M2. Gate for making it the default: it matches Semgrep's 35 of 45 on VulnerableApp, with Semgrep run offline as the yardstick.
 
 Receiver-type matching needs the type information in the code index. Calls whose receiver type does not resolve are flagged, not dropped `[TODO: define the fallback match]`.
 
@@ -158,32 +161,51 @@ After an oracle fires, hypotheses are grouped by `(route, param, CWE)`.
 | One | `unique` | Linked by lineage |
 | More than one | `ambiguous` | Lower confidence. All candidate sinks attached as `alternatives`. One primary chosen. |
 
+Two link fields. Both are required and orthogonal.
+
+| Field | Values | Meaning |
+|---|---|---|
+| `link_status` | `unique`, `ambiguous` | How many candidate sinks the link has |
+| `link_origin` | `directed`, `sweep`, `back_guided` | How the link was produced |
+
+`link_origin` alone would hide ambiguity on sweep links. `sweep` means a sweep hit matched a static finding of the same CWE whose `entry_paths` include the hit route `[proposed meaning]`.
+
 - Primary rule `[proposed: more specific catalogue match first, then shorter call path, then source order; Semgrep corroboration counts only if the adapter ran]`. A match on receiver type and call name is more specific than a match on call name alone `[proposed meaning]`.
 - `TRACE` resolves ambiguity when present.
-- Sweep hits (oracle fired, no directed hypothesis): see [Back-guided static search](#back-guided-static-search).
-- Confidence is a deterministic function of the evidence present. Reasons are stored. Weights live in config.
+- Sweep hits (oracle fired, no directed hypothesis): matched to a static finding by route and CWE with `link_origin: sweep`, lower confidence. Otherwise see [Back-guided static search](#back-guided-static-search).
+- Confidence is a deterministic function of the evidence present, `link_status` and `link_origin`. Reasons are stored. Weights live in config.
 - `sink_id` for the Must set is `(file, enclosing_method, start_line, start_col)`. Refining it to `(method, call-site ordinal, arg index)` is Could.
 - Dedupe key is `(sink_id, cwe)` `[proposed]`. The resolved param is an attribute. Several firing params on one sink are several evidence entries on one issue.
 - One sink reached from several routes is one issue with several `entry_paths`. A config flag decides how the export counts it.
 
 ### Back-guided static search
 
-Scope: runtime-only hits from the broad sweep. The oracle fired and no directed hypothesis exists.
+Tier: Should. Owner: Person A. Config `backguided.enabled`, default false until measured.
 
-1. Start at the hit route's handler in the code index.
-2. Walk the call graph forward from the handler.
-3. Look for a sink of the same CWE in the sink inventory.
-4. A sink is found: attach it as `PATH` evidence. Confidence is lower than for a directed link. Mark the link `link_origin: sweep_derived`. One sink gives `link_status: unique`. Several give `ambiguous`, with alternatives and the primary rule.
-5. No sink is found: the finding stays Runtime-only. Set `unlinked_reason`.
+Purpose: for a runtime-only hit (sweep, oracle fired, no hypothesis), try to attach a code location.
+
+Strict mode (receiver type resolved, same catalogue) is already covered by the stage 2 directed hypotheses. It is not a separate pass. This pass exists for relaxed mode only.
+
+Relaxed mode:
+
+- Match the call name alone when the receiver type is unresolved.
+- Walk through unresolved calls up to N hops `[proposed: N = 3]`. Record the count in `unresolved_hops`.
+- Every match carries `match_mode: relaxed`.
+
+Method: start at the hit route's handler, walk the call graph forward, look for sinks of the same CWE.
+
+| Candidates of the same CWE reachable from the handler | Result |
+|---|---|
+| Exactly one | Attach as `PATH` evidence. `link_origin: back_guided`, `link_status: unique`, confidence low. Label Confirmed only if confidence is at or above config `backguided.min_confidence_to_confirm` `[TODO: set value]`. Below that, the label stays Runtime-only and the candidate stays attached `[proposed]`. |
+| More than one | Label stays Runtime-only. `link_status: ambiguous`. Candidates go in `candidate_sinks` as hints. No Confirmed link is exported. |
+| None | Stays Runtime-only. `unlinked_reason` set. |
 
 Rules:
 
-- Header and cookie findings are never force-linked. They are not searched. They stay Runtime-only.
-- The sweep hit supplies the resolved `param`. The found sink supplies `sink_id`, so the dedupe key `(sink_id, cwe)` merges the hit with any static finding for that sink.
-- A sweep-derived link never overrides a directed link on the same issue `[proposed]`.
-- Confidence reasons record that the link is sweep-derived.
-
-Open point: with the same catalogue and call graph, a sink reachable from the handler already has a directed hypothesis from stage 2. The search adds value only where it uses something stage 2 did not. `[proposed: relaxed matching, call name alone when the receiver type is unresolved, and a walk through calls flagged as unresolved]` `[TODO: decide]`. With the strict rules it will rarely find anything new.
+- Never runs for header, cookie or info-leak findings.
+- A back-guided link never overrides a directed link on the same issue `[proposed]`.
+- Producer entry: `run_back_guided(target, route_map, runtime_only_findings)`. Person A implements it, reading A's index and sink catalogue. The CLI calls it after the probe stage and passes the result to correlation `[proposed order]`. Person B consumes the resulting evidence through the cli seam.
+- Measurement: run VulnerableApp with it on and off against `expected_pairs`. If it adds no correct links, or adds any wrong link, leave it off.
 
 ### Stage 6: Verify and negative evidence
 
@@ -200,12 +222,22 @@ Every static finding without an oracle hit gets exactly one status.
 - `no_http_path` for injection CWEs: suppress or keep `[TODO: decide]`. Flag `export.suppress_no_http_path`, default false.
 - Tradeoff: suppression cuts false alarms. It lowers code-detection recall if the probe missed a real bug. `[TODO: choose the default by running VulnerableApp with and without suppression]`
 
+### Conflict: positive oracle versus tested_negative
+
+Case: an `ORACLE` hit matches the `(route, param, CWE)` of a sink marked `tested_negative`.
+
+1. Replay the probe up to 3 times.
+2. Fires in at least 2 of 3 replays: un-suppress the finding and clear `tested_negative`. Set `link_status: ambiguous` and `conflict: true`. Record the reason "directed probes negative, positive hit on replay". Lower the confidence. Move it to the primary report.
+3. Does not reproduce: keep `tested_negative`. Set `oracle_flaky: true` on that evidence entry. Create no link. The hit stays Runtime-only.
+
+Rationale: a positive oracle is stronger evidence than a failed probe. One unconfirmed hit is not enough to override an adequately tested negative.
+
 ### Stage 7: Output
 
 - Labels: Confirmed, Code-only, Runtime-only.
 - Scoring from config: CWE severity table, exploit factor, evidence-based link factor.
 - Postgres, CLI report, SARIF at the boundary, VulnerableApp benchmark adapter.
-- Measurement: a hand-made expected-pairs file for VulnerableApp (about 15 minutes of work). Each pair: route, param, CWE, sink file, sink line. `[proposed path: common/fixtures/expected_pairs/vulnerableapp.yaml]`. It measures correct-link and wrong-link rates, because the grader scores SAST and DAST separately. It is used for measurement only and never feeds scanner logic. Replace or extend it with the organisers' answer key at kickoff.
+- Measurement: a hand-made expected-pairs file for VulnerableApp. Each pair: route, param, CWE, sink file, sink line. `[proposed path: common/fixtures/expected_pairs/vulnerableapp.yaml]`. It measures correct-link and wrong-link rates, because the grader scores SAST and DAST separately. It is used for measurement only and never feeds scanner logic. Replace or extend it with the organisers' answer key at kickoff.
 
 ### Graded export and suppressed file
 
@@ -235,6 +267,16 @@ The organisers run the target at judging. A separate config profile applies.
 | Total runtime target | Under 5 minutes |
 
 Everything is detected. Nothing is assumed.
+
+## Milestones
+
+Time is not a constraint. Work is ordered by dependency. Milestone gates replace hour gates. Details: [implementation-plan.md](implementation-plan.md#milestones).
+
+| Milestone | Scope |
+|---|---|
+| M1 spine | One command on a clean VulnerableApp run yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs`. No other stage is added until M1 passes. |
+| M2 core | All four classes, own header and cookie checks, the suppressed file, the judging-mode profile, the benchmark adapter, `expected_pairs` measurement. |
+| M3 extras | The Should list. |
 
 ## AI advisor (optional side channel)
 

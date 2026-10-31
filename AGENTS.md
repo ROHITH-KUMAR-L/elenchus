@@ -24,8 +24,13 @@ Static-guided dynamic testing. Static analysis produces hypotheses. The probe en
 - Wrong links come from same-route sink ambiguity. Report how often it happens. Do not hide it.
 - `TRACE` evidence needs the optional log tail. It is not available in judging mode. Do not rely on it.
 - A third sink that was never found can still produce a misleading link. Say so where it matters.
-- A sweep hit with no directed hypothesis may be linked by the back-guided static search. Mark it `link_origin: sweep_derived` and lower the confidence. If no sink is found, it stays Runtime-only.
-- Never force-link header and cookie findings.
+- `link_status` (`unique` or `ambiguous`) and `link_origin` (`directed`, `sweep` or `back_guided`) are both required once a link exists. They are orthogonal. `link_origin` alone would hide ambiguity on sweep links.
+- Confidence is a deterministic function of the evidence present, `link_status` and `link_origin`. Weights live in config.
+- Back-guided search (Should, owner Person A) is for runtime-only hits with no hypothesis. It runs in relaxed mode only: call name alone when the receiver type is unresolved, up to N unresolved hops `[proposed: N = 3]`, with `unresolved_hops` and `match_mode: relaxed` recorded. Strict mode is already covered by the stage 2 hypotheses.
+- One candidate sink gives `link_origin: back_guided`, `link_status: unique`, low confidence. Label it Confirmed only at or above `backguided.min_confidence_to_confirm`. Several candidates stay Runtime-only, `ambiguous`, with `candidate_sinks` as hints. Export no Confirmed link for them.
+- `backguided.enabled` is false until measured. Measure with it on and off against `expected_pairs`. If it adds no correct links, or adds any wrong link, leave it off.
+- Conflict rule: an `ORACLE` hit on a `(route, param, CWE)` that matches a `tested_negative` sink is replayed up to 3 times. At least 2 of 3 firing: un-suppress, clear `tested_negative`, set `link_status: ambiguous` and `conflict: true`, record the reason "directed probes negative, positive hit on replay", lower the confidence, move it to the primary report. Not reproduced: keep `tested_negative`, set `oracle_flaky: true` on the evidence entry, make no link, leave the hit Runtime-only.
+- Never run back-guided search on, or force-link, header, cookie or info-leak findings.
 
 ## Static stage rules
 
@@ -33,7 +38,7 @@ Static-guided dynamic testing. Static analysis produces hypotheses. The probe en
 - No pipeline stage may import or require Semgrep. Semgrep is an optional adapter, off by default, enabled by `semgrep.enabled`. The pipeline and its tests must pass with Semgrep not installed.
 - Semgrep is allowed as a fallback sink source for a non-Java target, as a cross-check that marks corroborated sinks, and as an offline benchmark yardstick.
 - The static stage does not say which param reaches the sink. Never fill `param` from static output. Fill `candidate_params` with all params of the route. The oracle resolves `param`.
-- The own flow engine is Could. Do not build it before the hour-2 gate passes. Promotion gate: it matches Semgrep's 35 of 45 on VulnerableApp, with Semgrep run offline.
+- The own flow engine is Should, built after M2. It never blocks M1 or M2. Gate for making it the default: it matches Semgrep's 35 of 45 on VulnerableApp, with Semgrep run offline.
 - Unresolved calls are flagged. Never drop them.
 
 ## Deterministic core, AI advisory
@@ -107,6 +112,7 @@ The organisers run the target. In judging mode:
 
 ## Scope
 
+- Time is not a constraint. Order work by dependency, not by clock. Milestones M1 to M3 replace hour gates.
 - CLI only. Do not build a UI, API, server, login or cloud deployment.
 - No automatic code fixes.
 - One target framework per run.
@@ -129,7 +135,7 @@ The organisers run the target. In judging mode:
 | [docs/prd.md](docs/prd.md) | Organisers' spec. Do not edit. |
 | [docs/architecture.md](docs/architecture.md) | Pipeline, judging mode, ambiguity, export, residual flaws, topology |
 | [docs/finding-schema.md](docs/finding-schema.md) | Internal finding record, hypothesis shape, SARIF mapping |
-| [docs/implementation-plan.md](docs/implementation-plan.md) | Must, Should, Could, gate, split, fixtures |
+| [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones M1 to M3, tiers, split, fixtures |
 | [docs/doc-update-tracker.md](docs/doc-update-tracker.md) | Stale docs and open questions from this revision |
 | [docs/decisions.md](docs/decisions.md) | Decisions. Stale until the code runs. |
 

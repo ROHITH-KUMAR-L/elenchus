@@ -19,11 +19,11 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `reached_via` (handler span, one hop) | `entry_paths`: `{route, method, hops, call_chain}` |
 | `param` filled from the route map or a taint source | `candidate_params` (all params of the route) and `param` (resolved by the oracle, nullable) |
 | `evidence` object | `evidence` list of `{type, detail}` |
-| `confidence` tier A / B / C | Deterministic function of the evidence present. Reasons stored. Scale `[TODO: confirm at kickoff]`. |
+| `confidence` tier A / B / C | Deterministic function of the evidence present, `link_status` and `link_origin`. Reasons stored. Scale `[TODO: confirm at kickoff]`. |
 | `risk_score` from severity, exploit ease, confidence | Computed from config: CWE severity table, exploit factor, evidence-based link factor |
 | Dedupe key `(cwe, file, line)`, else `(cwe, route, method, param)` | `(sink_id, cwe)` `[proposed]`. See [Contract logic](#contract-logic). |
 | `taint_trace` from Semgrep | Kept, optional. Null in the Must plan. The own sink finder gives locations only. |
-| Tiers A / B / C | Evidence types `PATH`, `ORACLE`, `TRACE`, `FAMILY` and `link_status` |
+| Tiers A / B / C | Evidence types `PATH`, `ORACLE`, `TRACE`, `FAMILY`, plus `link_status` and `link_origin` |
 
 ## Fields
 
@@ -49,10 +49,14 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `payload` | string \| null | Payload that fired. | Probe engine |
 | `evidence` | array | List of `{type, detail}`. Types: `PATH`, `ORACLE`, `TRACE`, `FAMILY`. Raw artefacts (code snippet, request, response excerpt, canary id, replay-log reference, raw scanner severity) go inside `detail`. | All |
 | `taint_trace` | array \| null | Optional source-to-sink path. Each step: `file`, `line`, `role`. Null in the Must plan. | Own flow engine (Could) |
-| `link_status` | `"unique"` \| `"ambiguous"` \| null | Set after an oracle fires. See [Linking](#linking-and-ambiguity). | Correlation |
-| `link_origin` | `"directed"` \| `"sweep_derived"` \| null | How the link was made: by hypothesis lineage, or by the back-guided static search `[proposed field]`. | Correlation |
+| `link_status` | `"unique"` \| `"ambiguous"` \| null | How many candidate sinks the link has. Set after an oracle fires. See [Linking](#linking-and-ambiguity). | Correlation |
+| `link_origin` | `"directed"` \| `"sweep"` \| `"back_guided"` \| null | How the link was produced. Orthogonal to `link_status`. Both are required once a link exists. | Correlation |
 | `ambiguity_group_id` | string \| null | Shared by hypotheses in one `(route, param, CWE)` group of more than one. | Correlation |
 | `alternatives` | array \| null | `sink_id` of every other candidate in the group. | Correlation |
+| `candidate_sinks` | array \| null | `sink_id` of each candidate when the back-guided search finds several. Hints only. No link is made. | Back-guided search |
+| `match_mode` | `"strict"` \| `"relaxed"` \| null | How a sink was matched. `relaxed` means call name alone with the receiver type unresolved. Every back-guided match is `relaxed`. `strict` for catalogue matches with a resolved receiver `[proposed value]`. | Static stage; back-guided search |
+| `unresolved_hops` | integer \| null | Unresolved calls walked to reach the sink. Back-guided search only. | Back-guided search |
+| `conflict` | boolean | True when a positive oracle hit overrode `tested_negative`. | Correlation |
 | `status` | string \| null | For findings with no oracle hit: `tested_negative`, `no_http_path`, `blocked`, `untested`. See [Statuses](#statuses). | Verify stage |
 | `suppressed` | boolean | True for `tested_negative`. Excluded from the primary report and the graded export. | Verify stage |
 | `unlinked_reason` | string \| null | Why a finding has no partner. | Correlation |
@@ -62,11 +66,13 @@ Code in `common/` is canonical. This doc is the human-readable description. When
 | `severity` | string \| null | Producer's severity claim. Shown in the report (FR-1). | Producer |
 | `wasc_id` | integer \| null | Passthrough for the VulnerableApp grader. Not used inside the engine. | ZAP alert, or own mapping |
 | `label` | `"Confirmed"` \| `"Code-only"` \| `"Runtime-only"` | FR-7 label. Set by correlation, not by producers. | Correlation |
-| `confidence` | `[TODO: scale]` \| null | Deterministic function of the evidence present. | Correlation |
+| `confidence` | `[TODO: scale]` \| null | Deterministic function of the evidence present, `link_status` and `link_origin`. | Correlation |
 | `confidence_reasons` | array \| null | Reasons behind `confidence` `[proposed field]`. | Correlation |
 | `risk_score` | number \| null | Our ranking number. Drives FR-9 ordering. Weights live in config. | Correlation |
 
 `severity` and `risk_score` are two fields. Do not collapse them.
+
+`oracle_flaky` is a key inside an `ORACLE` evidence entry's `detail`, not a record field `[proposed placement]`. It is true when a replay did not reproduce the hit.
 
 `handler_file`, `handler_line_start` and `handler_line_end` are unchanged in the earlier record. They have no consumer in the revised correlation, because Tier A and Tier B are gone. `[TODO: keep or drop]`
 
@@ -119,7 +125,8 @@ Signatures `[TODO: ratify]`.
 | 2 Static | Static findings: records with `source: sast`, `status: untested`, `entry_paths`, no `param` |
 | 3 Hypotheses | Hypothesis list |
 | 4 Probe | Records with `source: dast`, `hypothesis_id`, resolved `param`, `ORACLE` evidence |
-| 5 to 6 Correlate, verify | Issues with label, `link_status`, `status` |
+| 5 Back-guided search (optional) | `run_back_guided(target, route_map, runtime_only_findings)`. Person A. Evidence for runtime-only hits. |
+| 5 to 6 Correlate, verify | Issues with label, `link_status`, `link_origin`, `status` |
 
 ### Contract logic
 
@@ -142,14 +149,26 @@ A new probe or static finding searches stored issues by `dedupe_key` and merges 
 
 A firing probe proves that route, param and CWE are exploitable. It does not prove which sink on that route is the cause.
 
-| Case | `link_status` | Result |
+`link_status` and `link_origin` are orthogonal. `link_origin` alone would hide ambiguity on sweep links.
+
+| Field | Values | Meaning |
 |---|---|---|
-| One hypothesis in the `(route, param, CWE)` group | `unique` | Linked by lineage: `hypothesis_id` carried through the probe |
-| More than one hypothesis in the group | `ambiguous` | Lower confidence. All candidate sinks attached in `alternatives`. One primary chosen. |
-| Sweep hit, back-guided search finds one sink | `unique` | `link_origin: sweep_derived`. `PATH` evidence attached. Lower confidence. |
-| Sweep hit, back-guided search finds several sinks | `ambiguous` | `link_origin: sweep_derived`. Alternatives attached. Lower confidence. |
-| Sweep hit, no sink found | null | Stays Runtime-only. `unlinked_reason` set. |
-| Header or cookie finding | null | Never force-linked. Stays Runtime-only. |
+| `link_status` | `unique`, `ambiguous` | How many candidate sinks the link has |
+| `link_origin` | `directed`, `sweep`, `back_guided` | How the link was produced |
+
+| Case | `link_status` | `link_origin` | Result |
+|---|---|---|---|
+| One hypothesis in the `(route, param, CWE)` group | `unique` | `directed` | Linked by lineage: `hypothesis_id` carried through the probe |
+| More than one hypothesis in the group | `ambiguous` | `directed` | Lower confidence. All candidate sinks attached in `alternatives`. One primary chosen. |
+| Sweep hit matches a static finding of the same CWE whose `entry_paths` include the route `[proposed meaning]` | by count | `sweep` | Lower confidence |
+| Back-guided search finds exactly one sink | `unique` | `back_guided` | `PATH` evidence. Confidence low. Confirmed only at or above `backguided.min_confidence_to_confirm` `[TODO: set value]`. |
+| Back-guided search finds several sinks | `ambiguous` | `back_guided` | Label stays Runtime-only. `candidate_sinks` hold the hints. No Confirmed link is exported. |
+| Back-guided search finds none | null | null | Stays Runtime-only. `unlinked_reason` set. |
+| Header, cookie or info-leak finding | null | null | Never searched. Stays Runtime-only. |
+| Positive oracle hit on a `tested_negative` sink, reproduces in 2 of 3 replays | `ambiguous` | `sweep` `[proposed]` | `conflict: true`. Un-suppressed. Lower confidence. |
+| Same hit, does not reproduce | null | null | `tested_negative` kept. `oracle_flaky: true`. Hit stays Runtime-only. |
+
+Confidence is a deterministic function of the evidence present, `link_status` and `link_origin`. Weights live in config.
 
 Primary choice rule `[proposed: more specific catalogue match first, then shorter call path, then source order; Semgrep corroboration counts only if the adapter ran]`. A match on receiver type and call name is more specific than a match on call name alone `[proposed meaning]`. `TRACE` resolves ambiguity when present. `TRACE` needs the optional log tail, which is off in judging mode.
 
@@ -213,7 +232,7 @@ The grader takes its own JSON. It is a third boundary format, separate from our 
 | `sink_id` | `locations[0]`, plus `partialFingerprints` `[proposed]` | Column kept only in fingerprint |
 | `entry_paths`, `hypothesis_id`, `provenance` | `properties` | Ignored by most viewers |
 | `alternatives`, `link_status`, `ambiguity_group_id` | `properties`. Alternative sinks also in `relatedLocations` `[proposed]`. | Viewers show only related locations |
-| `evidence`, `confidence_reasons`, `corroborated`, `link_origin` | `properties` | Ignored by most viewers |
+| `evidence`, `confidence_reasons`, `corroborated`, `link_origin`, `match_mode`, `unresolved_hops`, `candidate_sinks`, `conflict` | `properties` | Ignored by most viewers |
 | `suppressed` | SARIF `suppressions` `[verify against the 2.1.0 spec]` | None if supported |
 | `status`, `param`, `payload`, `method`, `route` | `properties` | Ignored by most viewers |
 | `severity` | `level` (`error` / `warning` / `note`) | Coarser scale |
@@ -394,3 +413,82 @@ A second SQL sink, `OrderRepository.load`, sits behind the same route. Both sink
 The oracle proves the route and param. It does not say whether line 88 or line 41 is the cause. The primary is chosen by the stated rule. The alternative stays attached.
 
 Whether the alternative sink also stays in the SAST export as its own finding `[TODO: decide]`. The code-detection score counts SAST findings by file and line.
+
+### Back-guided link
+
+A sweep hit on `GET /api/reports/{id}` had no hypothesis. The handler calls `reportEngine.run(...)`. The receiver type of `reportEngine` is unresolved. The relaxed search matched the call name `run` and found one SQL sink, one unresolved hop away.
+
+```json
+{
+  "label": "Confirmed",
+  "route": "/api/reports/{id}",
+  "method": "GET",
+  "param": "id",
+  "cwe": 89,
+  "sink_id": {
+    "file": "src/main/java/com/example/shop/ReportQuery.java",
+    "enclosing_method": "ReportQuery.run",
+    "start_line": 52,
+    "start_col": 24
+  },
+  "link_status": "unique",
+  "link_origin": "back_guided",
+  "match_mode": "relaxed",
+  "unresolved_hops": 1,
+  "candidate_sinks": null,
+  "evidence": [
+    { "type": "PATH",
+      "detail": { "call_chain": ["ReportController.get", "reportEngine.run", "ReportQuery.run"],
+                  "match_mode": "relaxed", "unresolved_hops": 1 } },
+    { "type": "ORACLE", "detail": { "oracle": "db_error", "canary_id": "elx-9d20" } }
+  ],
+  "confidence": "[TODO: scale]",
+  "confidence_reasons": [
+    "oracle fired",
+    "back-guided relaxed match",
+    "1 unresolved hop",
+    "one candidate sink"
+  ]
+}
+```
+
+`label` is Confirmed only if the confidence is at or above `backguided.min_confidence_to_confirm`. Below that, the label stays Runtime-only and the record keeps the same evidence. With two candidate sinks the record would have `link_status: ambiguous`, `sink_id: null`, the candidates in `candidate_sinks`, and the label Runtime-only.
+
+### Conflict case
+
+The sink `OrderService.find` was marked `tested_negative`: every candidate param was probed and no oracle fired. A sweep probe then fired on `id`. The probe was replayed 3 times and fired in 2.
+
+```json
+{
+  "label": "Confirmed",
+  "route": "/api/orders/{id}",
+  "method": "GET",
+  "param": "id",
+  "cwe": 89,
+  "sink_id": {
+    "file": "src/main/java/com/example/shop/OrderService.java",
+    "enclosing_method": "OrderService.find",
+    "start_line": 88,
+    "start_col": 31
+  },
+  "status": null,
+  "suppressed": false,
+  "conflict": true,
+  "link_status": "ambiguous",
+  "link_origin": "sweep",
+  "evidence": [
+    { "type": "ORACLE",
+      "detail": { "oracle": "db_error", "canary_id": "elx-31ab",
+                  "replays": 3, "fired": 2, "oracle_flaky": false } }
+  ],
+  "confidence": "[TODO: scale]",
+  "confidence_reasons": [
+    "directed probes negative, positive hit on replay",
+    "oracle fired in 2 of 3 replays"
+  ]
+}
+```
+
+The finding leaves the suppressed file and enters the primary report `[proposed label: Confirmed, low confidence]`.
+
+If the hit had fired in fewer than 2 of 3 replays, the sink would keep `status: tested_negative`. The `ORACLE` entry would carry `"oracle_flaky": true`. No link would be made. The hit would stay Runtime-only.
