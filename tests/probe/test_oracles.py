@@ -1,26 +1,82 @@
-"""The error-based SQL oracle is differential and deterministic."""
+"""The oracles are differential and deterministic."""
 
-from probe.oracles import Response, oracle_for, sql_error
+from probe.oracles import Response, open_redirect, oracle_for, sql_error, xss_reflected
 
 OK = Response(200, "", '{"isCarPresent": true}')
 H2_ERROR = Response(
     200, "", "bad SQL grammar [select * from cars where id=1']; JdbcSQLSyntaxErrorException"
 )
+HTML = "Content-Type: text/html;charset=UTF-8\r\n"
+PLAIN = "Content-Type: text/plain\r\n"
+ATTACK = '<img src=x onerror=alert(1)>'
 
 
-def test_fires_when_the_payload_adds_a_sql_error():
+def test_sql_fires_when_the_payload_adds_a_sql_error():
     assert sql_error(OK, H2_ERROR) is True
 
 
-def test_does_not_fire_when_the_baseline_already_errors():
+def test_sql_does_not_fire_when_the_baseline_already_errors():
     # A route that always errors is not proof of injection.
     assert sql_error(H2_ERROR, H2_ERROR) is False
 
 
-def test_does_not_fire_without_an_error_signature():
+def test_sql_does_not_fire_without_an_error_signature():
     assert sql_error(OK, OK) is False
 
 
-def test_registry_exposes_sql_and_nothing_unbuilt_yet():
+def test_xss_fires_on_verbatim_markup_in_an_html_response():
+    baseline = Response(200, HTML, "<p>hello</p>")
+    probe = Response(200, HTML, f"<p>hello {ATTACK}</p>")
+    assert xss_reflected(baseline, probe, ATTACK) is True
+
+
+def test_xss_does_not_fire_on_an_escaped_reflection():
+    baseline = Response(200, HTML, "<p>hello</p>")
+    escaped = Response(200, HTML, "<p>hello &lt;img src=x onerror=alert(1)&gt;</p>")
+    assert xss_reflected(baseline, escaped, ATTACK) is False
+
+
+def test_xss_does_not_fire_on_text_plain_even_if_the_markup_comes_back():
+    # VulnerableApp's XSS routes reply text/plain: not confirmed by this oracle.
+    baseline = Response(200, PLAIN, "hello")
+    probe = Response(200, PLAIN, f"hello {ATTACK}")
+    assert xss_reflected(baseline, probe, ATTACK) is False
+
+
+def test_xss_needs_markup_in_the_attack_value():
+    baseline = Response(200, HTML, "x")
+    probe = Response(200, HTML, "x plain text")
+    assert xss_reflected(baseline, probe, "plain text") is False
+
+
+def test_xss_does_not_fire_when_the_baseline_already_shows_it():
+    both = Response(200, HTML, f"<p>{ATTACK}</p>")
+    assert xss_reflected(both, both, ATTACK) is False
+
+
+def test_redirect_fires_on_a_location_host_taken_from_the_attack():
+    baseline = Response(200, "", "")
+    probe = Response(302, "Location: https://evil.example/landing\r\n", "")
+    assert open_redirect(baseline, probe, "https://evil.example/landing") is True
+
+
+def test_redirect_does_not_fire_on_a_local_location():
+    probe = Response(302, "Location: http://localhost:9090/home\r\n", "")
+    assert open_redirect(OK, probe, "http://localhost:9090/home") is False
+
+
+def test_redirect_does_not_fire_when_the_host_is_not_in_the_attack():
+    probe = Response(302, "Location: https://evil.example/\r\n", "")
+    assert open_redirect(OK, probe, "/search?q=1") is False
+
+
+def test_redirect_needs_a_3xx_status():
+    probe = Response(200, "Location: https://evil.example/\r\n", "")
+    assert open_redirect(OK, probe, "https://evil.example/") is False
+
+
+def test_registry_maps_sql_xss_and_redirect_and_leaves_command_injection_open():
     assert oracle_for(89) is sql_error
-    assert oracle_for(79) is None
+    assert oracle_for(79) is xss_reflected
+    assert oracle_for(601) is open_redirect
+    assert oracle_for(78) is None  # timing signal not verified yet

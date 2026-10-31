@@ -198,11 +198,12 @@ class Coordinator:
                 continue
             stats["attributed"] += 1
             oracle = oracle_for(found.cwe)
-            if oracle is not None and oracle(baseline, _response(message)):
+            attack = _attack_value(header, message, found.param)
+            if oracle is not None and oracle(baseline, _response(message), attack):
                 key = (found.param, found.cwe)
                 candidates.setdefault(
                     key,
-                    _Candidate(found.param, found.cwe, _attack_value(header, message), found.rule_id, message_id),
+                    _Candidate(found.param, found.cwe, attack, found.rule_id, message_id),
                 )
 
         findings = [
@@ -226,7 +227,7 @@ class Coordinator:
             replayed = self.api.send_request(
                 self._replay_request(seed, candidate), follow_redirects=False
             )
-            if oracle(baseline, _response(replayed)):
+            if oracle(baseline, _response(replayed), candidate.payload):
                 fired += 1
         if fired < self.config["replay.min_hits"]:
             return None  # Not reproduced: no record. oracle_flaky lives in the log only.
@@ -313,12 +314,16 @@ class Coordinator:
         return self._raw(replace(seed, url=url))
 
 
-def _attack_value(request_header: str, message: dict[str, Any]) -> str:
-    from urllib.parse import urlsplit
+def _attack_value(request_header: str, message: dict[str, Any], param: str) -> str:
+    """The decoded value ZAP put in `param`, from the query or else the body."""
+    from urllib.parse import parse_qsl, urlsplit
 
     parts = request_header.splitlines()
     target = parts[0].split(" ")[1] if parts and len(parts[0].split(" ")) >= 2 else ""
-    return urlsplit(target).query or message.get("requestBody", "")
+    pairs = parse_qsl(urlsplit(target).query, keep_blank_values=True)
+    if not pairs:
+        pairs = parse_qsl(message.get("requestBody", ""), keep_blank_values=True)
+    return next((value for key, value in pairs if key == param), "")
 
 
 def _response(message: dict[str, Any]) -> Response:
