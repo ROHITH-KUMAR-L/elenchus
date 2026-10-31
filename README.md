@@ -1,117 +1,107 @@
-Design stage. See docs/architecture.md for the current design.
-
 # SAST and DAST Correlation
 
-CyberForge hackathon entry. Spec: [docs/prd.md](docs/prd.md). Agent rules: [AGENTS.md](AGENTS.md). Build order: [docs/implementation-plan.md](docs/implementation-plan.md). Who owns what: [docs/repo-structure.md](docs/repo-structure.md), [CONTRIBUTING.md](CONTRIBUTING.md).
+CyberForge hackathon entry. Spec: [docs/prd.md](docs/prd.md). Current state: [docs/STATE.md](docs/STATE.md). Agent rules: [AGENTS.md](AGENTS.md).
 
-Status: the Spring route-map parser, Semgrep SAST producer, localhost-scoped ZAP producer, consumer engine, and CLI scan orchestration are implemented. Producer tests pass; a real ZAP/VulnerableApp DAST run and fresh benchmark metrics have not been verified.
+Status: design stage. The pipeline described below is a plan. Nothing in it is built, tested or measured. The code in the tree is an older pipeline (route-map parser, Semgrep and ZAP producers, a tier-based engine, a CLI). It is being reworked. See [docs/implementation-plan.md](docs/implementation-plan.md).
 
 ## 1. What it is
 
-A Python CLI. It scans a web app's source code (SAST) and its running instance on localhost (DAST). It correlates the two sets of findings into one prioritised list. Each real bug appears once, with its code line and its runtime proof.
+A Python CLI. It reads a Java web app's source code (SAST) and probes the running app on localhost (DAST). Static analysis produces hypotheses. The probe engine tests them. The result is one prioritised list in which each real bug appears once, with its code line and its runtime proof.
+
+A firing probe proves that a route, param and CWE are exploitable. It does not prove which sink on that route is the cause. When several sinks could be the cause, the tool marks the link as ambiguous and keeps every candidate.
 
 ## 2. Approach
 
-Details: [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/decisions.md).
+Details: [docs/architecture.md](docs/architecture.md).
 
 | Area | Decision |
 |---|---|
 | Tool language | Python |
-| Target app | Java / Spring Boot (primary). Practice target: OWASP VulnerableApp. Organisers' app framework: `[TODO: confirm at kickoff]` |
-| Framework adapters | SAST rules and route-map parser per framework. Spring MVC first, JAX-RS second. Core is framework-agnostic. |
-| SAST | Semgrep taint and pattern rules for injection and selected secrets/crypto cases. SARIF is ingested into internal findings. |
-| Secrets/crypto pass | Semgrep pattern rules for hard-coded credentials, weak hashes/ciphers, weak random, and password-hash work factor. |
-| DAST | ZAP API, scoped to localhost and seeded from the route map. Deterministic response oracles filter alerts. |
-| Route map | Source → URL template → file, handler, line range, params, and bounded call edges. Parsed with tree-sitter-java. |
-| Correlation | Our own logic. Confidence tiers A / B / C. Tier B is the main path on Spring. |
-| Runtime verdicts | Deterministic oracles only. The AI never decides an exploit worked. |
-| Labels | Confirmed / Code-only / Runtime-only (FR-7) |
-| Result format | Internal finding record inside the engine. SARIF 2.1.0 at the edges only: Semgrep SARIF in, correlated SARIF out (B-6). |
-| Persistence | Our own Postgres on its own Docker network and volume, separate from the target. Runs, findings, issues, evidence, benchmark results. |
+| Target app | Java / Spring Boot (primary). Practice target: OWASP VulnerableApp. Organisers' app framework: `[TODO: confirm at kickoff]`. JAX-RS adapter: Could. |
+| Core idea | Static-guided dynamic testing. A directed hypothesis keeps its `hypothesis_id` into the evidence, so a direct hit is linked by lineage and not by matching afterwards. |
+| Static analysis | Own code index (tree-sitter-java), own sink finder (per-CWE YAML catalogue, call name and receiver type, no dataflow) and own secrets/crypto pass. The call graph is walked backward from each sink to its routes. Static output gives route and call path, never the param. |
+| Dynamic testing | Own probe engine. Baseline gate, differential oracles, canary id, replay log, own header and cookie checks. Oracles decide every verdict. |
+| Linking | `link_status` (unique or ambiguous) and `link_origin` (directed, sweep or back-guided). Confidence is a float from 0 to 1 with stored reasons. |
+| Negative evidence | A finding with no oracle hit gets one status: `no_http_path`, `blocked`, `tested_negative` or `untested`. `tested_negative` findings are suppressed and written to a separate file. |
+| Labels | Confirmed, Code-only, Runtime-only (FR-7) |
+| Optional adapters | Semgrep and ZAP. Off by default. No pipeline stage requires them. |
+| AI | Off by default and off in judging mode. It never creates or deletes a finding, sets a verdict or decides a link. |
+| Persistence | Our own Postgres on its own Docker network and volume, separate from the target |
 | Delivery | CLI only |
 
-### Correlation tiers
+Run order: the route table is built first (static, no network). Preflight runs against it. Then static analysis, hypotheses, probing, correlation, verification and output.
 
-CWE must match in every tier. Param match guards against wrong links.
-
-| Tier | Rule |
-|---|---|
-| A | SAST sink line inside the DAST route's handler span, same param |
-| B | DAST route is in the SAST record's `reached_via`: a handler calls the method holding the sink (Spring controller → service) |
-| C | Route + param only. Low confidence. |
-
-- Linked pair → **Confirmed**
-- SAST finding with no link → **Code-only**
-- DAST finding with no code location → **Runtime-only** (e.g. missing security headers)
-
-Dedupe key: `(cwe, file, line)` when present, else `(cwe, route, method, param)`. A newly linked pair merges into any stored issue matching either key.
-
-Tier B uses one-hop call edges from the route-map parser, not a cross-file taint trace. Semgrep OSS taint stays inside one function.
-
-### Oracles
-
-Every runtime verdict comes from a deterministic check. The AI never decides that an exploit worked.
-
-| Type | Oracle |
-|---|---|
-| SQL injection | Database error signature in response; time-only alerts are not confirmed. |
-| XSS | ZAP attack string reflected unescaped in response. |
-| Command injection | Recognized command-output marker reflected; time-only alerts are not confirmed. |
-| Open redirect | Redirect response has an absolute external `Location`; it is not followed. |
-| Missing security header | Named header absent from response headers. |
-
-Alerts without matching deterministic evidence are discarded. Exact API setup and remaining limitations are in [docs/architecture.md](docs/architecture.md).
+Config names and defaults: the Config reference in [docs/architecture.md](docs/architecture.md#config-reference).
 
 ## 3. Vulnerability types covered
 
-| Type | CWE | Found by | Status |
+| Type | CWE | Found by | Tier |
 |---|---|---|---|
-| SQL injection | CWE-89 | Code and runtime | Committed |
-| Cross-site scripting | CWE-79 | Code and runtime | Committed |
-| Command injection | CWE-78 | Code and runtime | Committed |
-| Open redirect | CWE-601 | Code and runtime | Committed |
-| Path traversal | CWE-22 | Code and runtime | Stretch |
+| SQL injection | CWE-89 | Code and runtime | Must |
+| Cross-site scripting | CWE-79 | Code and runtime | Must |
+| Command injection | CWE-78 | Code and runtime | Must |
+| Open redirect | CWE-601 | Code and runtime | Must |
+| Path traversal | CWE-22 | Code and runtime | Should, M3, first after M2 |
+| Hard-coded secrets | CWE-798 | Code only | Must (own secrets pass) |
 
-Hard-coded secrets (CWE-798) are code-only. The secrets/crypto pass reports them as Code-only. VulnerableApp has no secrets module, so its crypto or JWT module stands in during practice.
+Weak hashes, ciphers and random values are also reported as Code-only. VulnerableApp has no secrets module. Which of its modules stands in for the code-only path: `[TODO: crypto or JWT]`.
 
-## 4. Finding schema
+## 4. Finding record
 
-Draft contract: [docs/finding-schema.md](docs/finding-schema.md). The internal finding record is frozen first. Every component reads and writes it. SARIF is used only for ingest and export, and the export is lossy. `type` and `cwe` align to the VulnerableApp grader vocabulary.
+Contract: [docs/finding-schema.md](docs/finding-schema.md). Code in `common/` is canonical. Every component reads and writes that record. SARIF is used only at the boundaries and is lossy. The VulnerableApp grader takes its own JSON.
 
 ## 5. Architecture
 
 ```mermaid
 flowchart TD
-    src[Target source] --> semgrep[Semgrep]
-    src --> rmap[Route-map adapter]
-    zap[ZAP + oracles] -- HTTP --> app[localhost app]
-    semgrep -- SARIF in --> rec[Internal finding record]
-    rmap --> rec
-    zap --> rec
-    rec --> corr["Correlation + merge (tiers A/B/C)"]
+    src[Target source] --> idx["1 Code index"]
+    idx --> pre["0 Preflight (reads the route table)"]
+    idx --> sta["2 Static: sink finder, secrets/crypto pass"]
+    sta --> hyp["3 Hypotheses: directed and sweep"]
+    pre --> probe["4 Probe engine"]
+    hyp --> probe
+    probe -- HTTP --> app["Target app (localhost)"]
+    probe --> corr["5 Correlation and 6 Verify"]
+    hyp --> corr
     corr <--> pg[("Postgres (our network)")]
-    corr --> report[Prioritised CLI report]
-    corr -- SARIF out --> sarif["SARIF file (B-6)"]
+    corr --> out["7 Output: report, SARIF, suppressed file"]
 ```
 
-Our stack and the target app use separate Docker networks. Our scanner reaches the target only over `localhost:<port>`. Details: [docs/architecture.md](docs/architecture.md).
+Our stack and the target app use separate Docker networks. The probe engine reaches the target only over `localhost:<port>`.
 
-## 6. Getting started
+## 6. Milestones
+
+| Milestone | Scope |
+|---|---|
+| M1 spine | One command on a clean VulnerableApp run yields at least one Confirmed error-based SQL injection issue whose sink file and line match `expected_pairs` |
+| M2 core | All four classes, secrets pass, header and cookie checks, the `tested_negative` logic and suppressed file, judging profile, benchmark adapter |
+| M3 extras | Path traversal, back-guided search, own flow engine, scan comparison, session manager, AI items |
+
+None has passed. Status and evidence: [docs/STATE.md](docs/STATE.md).
+
+## 7. Getting started
 
 Prerequisites:
 
-- Python 3.14+
-- `uv` for the locked environment (Semgrep is installed as a project dependency)
-- OWASP ZAP with its API bound to `127.0.0.1:8090`
-- Docker and Docker Compose for Postgres and the target app
+- Python 3.14 or later
+- `uv`
+- Docker and Docker Compose, for our Postgres and the target app
 
-The target app runs separately, from its own Docker Compose, on localhost. The DAST scanner refuses non-local target URLs. Do not point it at any other host.
+The target app runs separately, from its own Docker Compose, on localhost. Point the tool only at it. Scanning any other host is not allowed.
 
-Steps:
+Redesigned pipeline: the run command `[TODO]`. The target base URL will be a required input (`--target`). Everything else is detected.
 
-1. Install the locked dependencies with `uv sync --locked`.
-2. Start the target app using its own Compose instructions and note its localhost URL.
-3. Start OWASP ZAP with its API bound to loopback and set `ZAP_API_KEY`. For Docker on Linux, host networking keeps both the API and localhost-only target reachable on host loopback:
+Install and test (these run the older components):
+
+```sh
+uv sync --locked
+uv run python -m pytest -q
+```
+
+Older pipeline commands (the code that exists today). ZAP is required for the `scan` command until it is reworked:
+
+1. Start the target app with its own Compose instructions.
+2. Start ZAP with its API bound to loopback, and set `ZAP_API_KEY`:
 
    ```sh
    export ZAP_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
@@ -121,7 +111,7 @@ Steps:
      -config api.key="$ZAP_API_KEY"
    ```
 
-4. Run the producers from the host, not from the CLI container:
+3. Run the producers from the host:
 
    ```sh
    uv run elenchus scan \
@@ -130,31 +120,31 @@ Steps:
      --no-store
    ```
 
-   Omit `--no-store` to persist results; start our PostgreSQL service and configure `DATABASE_URL` first.
-5. Read the prioritized report. Add `--sarif-output report.sarif` to write SARIF.
+   Omit `--no-store` to persist results. Start our Postgres first and set `DATABASE_URL`. Postgres setup: [infra/README.md](infra/README.md).
 
-## 7. Continuous integration
+## 8. Continuous integration
 
-GitHub Actions runs the test suite, checks the CLI entry point, builds the Python distributions, and builds the CLI container image on pushes to `main` and pull requests targeting `main`. The workflow can also be started manually from the Actions tab. It does not publish an image or deploy the CLI.
+GitHub Actions runs the tests, checks the CLI entry point, builds the Python distributions and builds the CLI container image on pushes to `main` and on pull requests. Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+## 9. Third-party tools used
 
-## 8. Open-source scanners used
+The challenge rules require this list. The sink finder, secrets pass, probe engine, oracles, linking, correlation and scoring are our own work.
 
-The challenge rules require this list. The correlation logic (route map join, tiers, merging, labelling, prioritisation) is our own work.
+| Tool | Role |
+|---|---|
+| tree-sitter, tree-sitter-java | Parser for the code index |
+| psycopg | Postgres client |
+| PostgreSQL (`postgres:17-alpine` image) | Run store |
+| pytest | Tests (dev) |
+| httpx | HTTP client for the probe engine. Planned. Not yet a dependency. |
+| Semgrep | Optional adapter and offline benchmark yardstick. Currently a regular dependency in `pyproject.toml`. To become optional. |
+| OWASP ZAP | Optional passive pass. Off by default. |
 
-| Tool | Role | Rulesets / config |
-|---|---|---|
-| Semgrep | SAST, taint mode | OWASP Java ruleset `[TODO: exact rulesets]` |
-| gitleaks or Semgrep secret rules | Secrets/crypto pass | `[TODO: confirm]` |
-| OWASP ZAP | DAST | `[TODO: scan policy]` |
-| Nuclei | Optional, bonus only | `[TODO]` |
+Versions: constraints are in `pyproject.toml` and pinned in `uv.lock`. Semgrep rule pack and version for the yardstick: `[TODO: record count, date and rule pack version in docs/STATE.md]`.
 
-Versions: `[TODO]`
+## 10. Metric targets
 
-## 9. Metric targets
-
-From the PRD. Good qualifies; Great stands out. No results measured yet.
+From the PRD. Good qualifies. Great stands out. No results are measured yet.
 
 | What we measure | Good | Great |
 |---|---|---|
@@ -167,3 +157,26 @@ From the PRD. Good qualifies; Great stands out. No results measured yet.
 | Run time | Under 15 minutes | Under 5 minutes |
 
 Test app facts: 36 planted vulnerabilities (20 pairs, 10 code-only, 6 runtime-only), about 8 safe decoys, and an unseen second app at judging.
+
+## 11. Scope, team and licence
+
+Non-goals, per the PRD:
+
+- No UI, API or server. CLI report only.
+- No automatic code fixes.
+- No login, users or cloud deployment.
+- One target framework per run.
+
+Team: `[TODO: names]`
+
+Licence: `[TODO]`
+
+Docs:
+
+| Doc | Content |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | Pipeline, judging mode, config reference, residual flaws |
+| [docs/finding-schema.md](docs/finding-schema.md) | Record contract, statuses, examples |
+| [docs/implementation-plan.md](docs/implementation-plan.md) | Milestones, tiers, ownership split, fixtures |
+| [docs/repo-structure.md](docs/repo-structure.md) | Directory ownership |
+| [docs/STATE.md](docs/STATE.md) | Current state and open questions |
