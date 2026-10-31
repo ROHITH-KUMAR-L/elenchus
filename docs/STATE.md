@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-11-01. `BS6` passed its live exit run; 5 Confirmed CWE-89. BS7 is on `feat/bs7-negative-evidence-ambiguity-coverage`. Wave A is committed as `31624cc`; Wave B is implemented but not committed. Full suite: 254 passed, 3 skipped. Ruff passed.
+2026-11-01. `BS6` passed its live exit run; 5 Confirmed CWE-89. BS7 is on `feat/bs7-negative-evidence-ambiguity-coverage`. Wave A (`31624cc`) and Wave B (`a0f557b`) are committed. Wave C primary ranking is implemented; 12 focused tests and Ruff passed.
 
 ## 2. Architecture
 
@@ -136,7 +136,7 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-Wave B implements suppression, coverage, and ADEQUACY evidence; full suite and Ruff passed. Commit Wave B, then implement Wave C: ambiguity ranking, conflict/replay semantics, and response-trace resolution. Run the BS7 live exit measurement against local VulnerableApp/ZAP and report wrong suppressions per CWE.
+Wave B implements suppression, coverage, and ADEQUACY evidence; full suite: 254 passed, 3 skipped. Wave C primary ranking is implemented. Next: conflict/replay semantics, response-trace resolution, then the BS7 live exit measurement against local VulnerableApp/ZAP.
 
 BS8 follow-up: tune probe budgets; the last live scan ran 216s against a 170s job-start deadline. Deferred BS6: live-check boolean/timing SQLi, command injection, XSS, and open redirect oracles. `target.auth.*` is wired but the app's login requirement is unknown.
 

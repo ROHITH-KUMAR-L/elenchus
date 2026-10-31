@@ -277,7 +277,7 @@ Two link fields. Both are required and orthogonal.
 
 `link_origin` alone would hide ambiguity on sweep links. `sweep` means a sweep hit matched a static finding of the same CWE whose `entry_paths` include the hit route `[proposed meaning]`.
 
-- Primary rule `[proposed: more specific catalogue match first, then shorter call path, then source order; Semgrep corroboration counts only if the adapter ran]`. A match on receiver type and call name is more specific than a match on call name alone `[proposed meaning]`.
+- Primary rule: strict catalogue matches before relaxed matches, then shorter call path, then corroboration when Semgrep ran, then normalized source file/line/column order. A match on receiver type and call name is more specific than a match on call name alone.
 - `TRACE` resolves ambiguity when present.
 - `RESPONSE_TRACE` can resolve ambiguity, including in judging mode. If a verification replay's response holds a stack trace, the adapter's frame parser turns it into generic frames, and correlation compares them with the group's sinks. Correlation itself stays framework-free.
 

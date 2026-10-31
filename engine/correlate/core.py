@@ -54,16 +54,27 @@ def correlate(findings: Iterable[Finding], config: Mapping[str, Any] | None = No
     # both reaching one auth query) are one issue with several evidence entries,
     # per the (sink_id, cwe) dedupe key. Group by resolved identity, then build one
     # issue per identity.
-    probe_groups: dict[tuple[str | None, str | None, int], list[Finding]] = defaultdict(list)
+    probe_groups: dict[
+        tuple[str | None, str | None, str | None, int], list[Finding]
+    ] = defaultdict(list)
     for probe in probes:
-        probe_groups[(probe.route, probe.param, probe.cwe)].append(probe)
+        probe_groups[(probe.route, probe.method, probe.param, probe.cwe)].append(probe)
 
     linked: dict[str, tuple[list[Finding], list[int]]] = {}
     runtime: list[list[Finding]] = []
     for key, group in sorted(probe_groups.items(), key=lambda item: str(item[0])):
-        route, param, cwe = key
+        route, method, param, cwe = key
         lineage = _lineage_ids(group)
-        candidates = _candidate_sinks(static, route, param, cwe, lineage)
+        origin = _link_origin(group)
+        candidates = _candidate_sinks(
+            static,
+            route,
+            method,
+            param,
+            cwe,
+            lineage,
+            origin,
+        )
         if not candidates:
             runtime.append(group)
             continue
@@ -98,6 +109,14 @@ def _lineage_ids(group: list[Finding]) -> set[str]:
     return ids
 
 
+def _link_origin(group: list[Finding]) -> str | None:
+    if any(probe.detail("job_pass") == "directed" for probe in group):
+        return "directed"
+    if any(probe.detail("job_pass") == "sweep" for probe in group):
+        return "sweep"
+    return "directed" if _lineage_ids(group) else None
+
+
 def _static_hypothesis_ids(finding: Finding) -> set[str]:
     if finding.sink_id is None or not finding.entry_paths:
         return set()
@@ -109,21 +128,28 @@ def _static_hypothesis_ids(finding: Finding) -> set[str]:
 
 
 def _candidate_sinks(
-    static: list[Finding], route: str | None, param: str | None, cwe: int, lineage: set[str]
+    static: list[Finding],
+    route: str | None,
+    method: str | None,
+    param: str | None,
+    cwe: int,
+    lineage: set[str],
+    origin: str | None,
 ) -> list[int]:
-    """Indices of the static sinks a probe hit links to, preferring lineage."""
+    """Resolve directed hits only by lineage and sweep hits by route and param."""
     by_route: list[int] = []
     for index, finding in enumerate(static):
         if finding.cwe != cwe or finding.sink_id is None:
             continue
-        reaches = any(path.route == route for path in finding.entry_paths or ())
+        reaches = any(
+            path.route == route and path.method == method
+            for path in finding.entry_paths or ()
+        )
         if reaches and (param is None or param in (finding.candidate_params or ())):
             by_route.append(index)
-    if lineage:
-        linked = [i for i in by_route if _static_hypothesis_ids(static[i]) & lineage]
-        if linked:
-            return linked
-    return by_route
+    if origin == "directed":
+        return [i for i in by_route if _static_hypothesis_ids(static[i]) & lineage]
+    return by_route if origin == "sweep" else []
 
 
 def _linked_issue(
@@ -150,8 +176,10 @@ def _linked_issue(
             dast_findings=tuple(probes),
             link_reason="Oracle fired but no code path was found for this route.",
         )
-    unique = len(sinks) == 1
-    primary = sinks[0]
+    ordered_sinks = sorted(sinks, key=_primary_rank)
+    unique = len(ordered_sinks) == 1
+    primary = ordered_sinks[0]
+    origin = _link_origin(probes) or "directed"
     confidence, reasons = _confidence(
         config, oracle=True, path=True, unique=unique, ambiguous=not unique
     )
@@ -164,22 +192,28 @@ def _linked_issue(
         severity=severity,
         risk_score=_risk(severity, confidence),
         link_status="unique" if unique else "ambiguous",
-        link_origin="directed",
+        link_origin=origin,
         confidence=confidence,
         confidence_reasons=reasons,
         route=probe.route,
         method=probe.method,
         param=probe.param,
         sink=primary.sink_id,
-        alternatives=tuple(s.sink_id for s in sinks[1:] if s.sink_id is not None),
+        alternatives=tuple(
+            s.sink_id for s in ordered_sinks[1:] if s.sink_id is not None
+        ),
         file=primary.file,
         line=primary.line,
         link_reason=(
-            "Directed hypothesis fired: the probe's lineage matches this sink."
+            (
+                "Directed hypothesis fired: the probe's lineage matches this sink."
+                if origin == "directed"
+                else "Sweep probe matched this sink by its route and parameter."
+            )
             if unique
-            else "Directed hypotheses fired for several sinks on this route; link is ambiguous."
+            else f"{origin.capitalize()} probes matched several sinks on this route; link is ambiguous."
         ),
-        sast_findings=tuple(sinks),
+        sast_findings=tuple(ordered_sinks),
         dast_findings=tuple(probes),
     )
 
@@ -265,6 +299,21 @@ def _max_severity(findings: list[Finding]) -> str:
         (finding.severity or "unknown" for finding in findings),
         key=lambda value: SEVERITY_ORDER.get(value.casefold(), 1),
         default="unknown",
+    )
+
+
+def _primary_rank(finding: Finding) -> tuple[int, int, int, str, int, int]:
+    specificity = {"strict": 0, "relaxed": 1}.get(finding.match_mode, 2)
+    hops = min((path.hops for path in finding.entry_paths or ()), default=10**9)
+    corroboration = 0 if finding.corroborated is True else 1
+    sink = finding.sink_id
+    return (
+        specificity,
+        hops,
+        corroboration,
+        sink.file.casefold() if sink else "",
+        sink.start_line if sink else 0,
+        sink.start_col if sink else 0,
     )
 
 
