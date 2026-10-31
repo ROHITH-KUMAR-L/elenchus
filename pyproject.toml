@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["cli*", "common*", "engine*", "probe*", "producers*"]
+include = ["ai*", "cli*", "common*", "engine*", "probe*", "producers*"]
 namespaces = true
 
 [tool.setuptools.package-data]

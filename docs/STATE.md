@@ -2,7 +2,7 @@
 
 ## 1. Last updated
 
-2026-11-01. M1 and M2 cleared. `BS10a`-`d` done. `BS10e`-`h` done: scan comparison (B-5), session manager, passive-alert ingestion, preflight extras (banner + error-page fingerprint). See Done table. 336 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
+2026-11-01. M1 and M2 cleared. `BS10a`-`d` done. `BS10e`-`h` done (scan comparison, session manager, passive ingestion, preflight extras). `BS10i` done: `ai/` package — OpenAI-compatible client (off by default, schema-validated, cached, budgeted) and the with/without harness; runs offline with AI off. See Done table. 348 tests pass, ruff clean. Local ZAP and VulnerableApp run from `infra/`.
 
 ## 2. Architecture
 
@@ -57,7 +57,7 @@ Config names and default values live in the Config reference in `docs/architectu
 | M2 core | `BS6` to `BS9` | PASSED | M2 gate cleared 2026-11-01 (judging rehearsal, 3:35). Exit tests below. |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS10a`-`h` done (M3 Should list). `BS10i`-`j` (AI) next. Details: section 9.
+Current build stage: `BS10a`-`i` done (M3 Should list). `BS10j` (advisory AI) next. Details: section 9.
 
 ## 5. Done
 
@@ -94,6 +94,7 @@ Current build stage: `BS10a`-`h` done (M3 Should list). `BS10i`-`j` (AI) next. D
 | `BS10f` | `uv run --locked pytest -q tests/probe/test_session.py` | 11 passed. `resolve_session` logs in once (cookie/json/header token), wired into the coordinator before scanning, overriding the static header. Integration test: a cookie-gated route is `all_blocked` without the login flow and `finished` with it. Login body read from env, not config; login URL localhost-only. Not run against a live auth app. |
 | `BS10g` | `uv run --locked pytest -q tests/probe/test_passive.py` | 4 passed. `probe/passive.ingest` keeps ZAP passive alerts, drops our active-scanner plugins, dedups. Coordinator collects them best-effort (`ProbeResult.advisory_alerts`), CLI writes `advisory.json`. Test proves findings are byte-identical with and without alerts present: verdicts unchanged. Not run against a live ZAP this stage. |
 | `BS10h` | `uv run --locked pytest -q tests/probe/test_preflight.py` | 14 passed. `preflight.probe_extras` reads the `Server` banner and an error-page fingerprint (framework markers or `<title>`) from a random missing path; skips cleanly when the target is down. Wired in the CLI pipeline, written to `advisory.json`. Advisory only. Not run live. |
+| `BS10i` | `uv run --locked pytest -q tests/ai` | 20 passed. `ai/`: OpenAI-compatible `AiClient` (off by default and in judging, no call without credentials, content-hash cache, `ai.max_calls` budget, JSON-schema validation drops bad output) + `with_without` harness measuring correct/wrong links. Harness runs fully offline with AI off and emits a diff table. Transport injectable; no network in tests. No live AI call made. |
 
 Not run: the updated CI workflow on GitHub.
 
@@ -105,7 +106,7 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS9` have passed (M1 and M2 cleared).
 
-1. `BS10i`-`j`: AI with/without harness, advisory AI. 2. `BS11`: Could list
+1. `BS10j`: advisory AI (fix text, link explanations, DTO seeds). 2. `BS11`: Could list
 
 Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
@@ -139,9 +140,7 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-`BS10a`-`h` done. `BS10i`-`j` (AI) next, in order:
-1. BS10i AI with/without harness (OpenAI-compatible, env in `.env.example`; off by default and in judging). Built before any AI task; must run with AI off (no network) and produce the diff table.
-2. BS10j advisory AI (fix text, link explanations, then DTO seeds) each behind a with/without run; AI may only demote confidence, never create/delete a finding, set a verdict or decide a link.
+`BS10a`-`i` done. `BS10j` (advisory AI) next: fix text and link explanations (B-3, B-4) first, then DTO seed generation with repair, each gated behind a with/without run (`ai/harness.py`). AI may only demote confidence; it never creates/deletes a finding, sets a verdict or decides a link. Wire the harness to a real pipeline runner that toggles `ai.enabled`. Then `BS11` (Could list).
 
 Gates and carry-overs: Semgrep yardstick count (unfitted) not recorded — gates `flow.enabled` on (BS10d) and is a BS11 item. `timing_slower` built, unwired (needs `probe.timing_repeats` + live baseline). Path-traversal oracle not yet Confirmed live. `target.auth.*` wired; app login need unknown. M2 margin ~80s.
 

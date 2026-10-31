@@ -46,7 +46,8 @@ The authoritative map of what lives where. Work is split by build stage, not by 
 | `probe/` `[proposed, not created]` | Stage 0 preflight and stage 4 ZAP scan coordinator: scheduler, job records, baseline gates, request attribution, verification replay, differential oracles, probe header and canaries, state guard, replay log, header and cookie checks. BS4 built: `preflight.py`, `seeds.py`, `attribution.py`, `oracles.py`, `coordinator.py`. | `BS4` |
 | `engine/correlate/` | Stage 5 correlation (lineage links, confidence), stage 6 verify, labels, scoring | `BS5`, `BS7` |
 | `engine/store/` | Postgres persistence | `BS5` |
-| `engine/report/` | Report, SARIF export, suppressed file, coverage report | `BS5`, `BS7`, `BS8` |
+| `engine/report/` | Report, SARIF export, suppressed file, coverage report, scan comparison (B-5) | `BS5`, `BS7`, `BS8`, `BS10` |
+| `ai/` | Optional advisory side channel, off by default: OpenAI-compatible client (schema-validated, content-hash cached, `ai.max_calls` budgeted), the with/without measurement harness. Never creates/deletes a finding, sets a verdict or decides a link. | `BS10` |
 | `cli/` | Calls the stages in order | `BS5` |
 | `infra/` | `compose.yaml` for Postgres and the CLI, `zap.compose.yaml` for ZAP, `vulnerableapp.compose.yaml` for the practice target. Images are pinned by digest. | `BS0` |
 | `scripts/` | One-off checks such as `bs0_zap_check.py`. Pipeline code never imports them. | `BS0` |
