@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-11-01. BS7 is on `feat/bs7-negative-evidence-ambiguity-coverage`. Waves A/B and Wave C primary selection are committed. Conflict/trace code is implemented. Full suite: 289 passed, 3 skipped. Live run found four CWE-89 wrong suppressions; CWE-89 was removed, and the follow-up run had none.
+2026-11-01. BS7 is on `feat/bs7-negative-evidence-ambiguity-coverage`. Waves A/B and Wave C are committed through `24f078e`. Full suite: 289 passed, 3 skipped. The first live run found four CWE-89 wrong suppressions; CWE-89 was removed, and the follow-up run had none.
 
 ## 2. Architecture
 
@@ -86,7 +86,7 @@ Current build stage: `BS7` is in progress on `feat/bs7-negative-evidence-ambigui
 | `BS6` | `find_sinks` and offline pipeline plan on `.targets/VulnerableApp` | 2 CWE-78 sinks found: `CommandInjection.java` 48 and 53 (`new ProcessBuilder`), `dynamic`, matching `expectedIssues.csv` (CWE-77). CWE-89 unchanged. Plan: 17 directed jobs (78, 89), 167 sweep jobs (78/79/89/601). |
 | `BS6` | **Live exit run:** `elenchus scan --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store`, sweep wired, ZAP 2.17.0 | exit 0, wall 3:37. 5 Confirmed CWE-89: ErrorBased LEVEL_1-4 on exact pair lines 83/143/206/272, and `AuthLoginService.java:51` as one issue (dedupe fix live, was 2). 18 Code-only, 2 Runtime-only headers (693, 1021). probe `stage_seconds` 216, 38 jobs attempted (36 finished, 1 all_blocked, 1 stopped_at_limit), 146 `skipped_budget`. attribution_rate 0.950, header_propagation 1.0, no foreign hosts. |
 | `BS7` Wave A | `uv run --locked pytest -q tests/producers/test_sink_finder.py`; Ruff on changed files | 29 passed; Ruff clean. Static now prioritizes `safe_pattern` before `no_http_path`; commit `31624cc`. |
-| `BS7` Waves B/C | Full `uv run --locked pytest -q`; Ruff; `git diff --check`; two live scans against local VulnerableApp/ZAP | 289 passed, 3 skipped. Follow-up: 36 jobs finished, 148 skipped; 5 Confirmed, 18 Code-only, 2 Runtime-only; 0/5 ambiguity; attribution_rate 0.954, header propagation 1.0, no foreign hosts. First run found 4 wrong CWE-89 suppressions; CWE-89 removed. Follow-up: 0 wrong suppressions; suppressed file empty. Expected-pairs YAML is absent, so recall and attribution accuracy are unavailable. |
+| `BS7` Waves B/C (`24f078e`) | Full `uv run --locked pytest -q`; Ruff; `git diff --check`; two live scans against local VulnerableApp/ZAP | 289 passed, 3 skipped. Follow-up: 36 jobs finished, 148 skipped; 5 Confirmed, 18 Code-only, 2 Runtime-only; 0/5 ambiguity; attribution_rate 0.954, header propagation 1.0, no foreign hosts. First run found 4 wrong CWE-89 suppressions; CWE-89 removed. Follow-up: 0 wrong suppressions; suppressed file empty. Expected-pairs YAML is absent, so recall and attribution accuracy are unavailable. |
 
 Not run: the updated CI workflow on GitHub. The VulnerableApp benchmark with a complete expected-pairs file remains unavailable.
 
@@ -100,7 +100,7 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS6` have passed.
 
-1. `BS7`: finish exit checks and commit conflict/response-trace work; decoy/twin live comparison and expected-pairs measurement remain incomplete
+1. `BS7`: finish exit checks; decoy/twin live comparison and expected-pairs measurement remain incomplete
 2. `BS8`: secrets, exports, measurement
 3. `BS9`: judging mode and generality (M2 gate)
 4. `BS10`: Should list (M3). 5. `BS11`: Could list
@@ -137,7 +137,7 @@ Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 9. Next action
 
-Wave B implements suppression, coverage, and ADEQUACY evidence. Wave C implements deterministic primary ranking, replay conflict handling, flaky evidence, and response-trace resolution. Full suite: 289 passed, 3 skipped; Ruff passed. The follow-up live scan removed wrong suppressions, but BS7 is not passed: decoy/twin live checks and expected-pairs accuracy remain. Next: finish those checks, then commit Wave C.
+Wave B implements suppression, coverage, and ADEQUACY evidence. Wave C implements deterministic primary ranking, replay conflict handling, flaky evidence, and response-trace resolution. Wave C is committed as `24f078e`. Full suite: 289 passed, 3 skipped; Ruff passed. The follow-up live scan removed wrong suppressions, but BS7 is not passed: decoy/twin live checks and expected-pairs accuracy remain. Next: finish those checks.
 
 BS8 follow-up: tune probe budgets; the last live scan ran 216s against a 170s job-start deadline. Deferred BS6: live-check boolean/timing SQLi, command injection, XSS, and open redirect oracles. `target.auth.*` is wired but the app's login requirement is unknown.
 
