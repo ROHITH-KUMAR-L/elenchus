@@ -19,6 +19,7 @@ Rules:
 - Build in order. Do not start a build stage until the one before has passed.
 - A build stage passes only when its exit test has been run and the output recorded in [STATE.md](STATE.md).
 - One short-lived branch per build stage, or several for a large one.
+- Commit after each build stage passes its exit test.
 - A build stage that needs a contract change flags it as one and updates [finding-schema.md](finding-schema.md) first.
 
 | Build stage | Goal | Pipeline stages | Depends on | Milestone |
@@ -63,7 +64,7 @@ Why first: the job size in the contract, and the whole attribution design, depen
 | Set | `zap.version`, `zap.rule_map.<cwe>`, `zap.thread_per_host`, `probe.max_job_seconds`, first budget values |
 | Exit test | All eight rows have a recorded result and a recorded decision. A failed row with its fallback chosen still passes. |
 
-Known blocker: an earlier ZAP image pull failed with a connection reset.
+Passed on 2026-10-31. Results and decisions: [ZAP acceptance check](architecture.md#zap-acceptance-check).
 
 ### `BS1`: Contract, config, fixtures
 
@@ -73,7 +74,10 @@ Known blocker: an earlier ZAP image pull failed with a connection reset.
 | Update | Mechanical changes to the old engine, runner and tests, so they still run on the new record. Their logic is reworked in later build stages. |
 | Fixtures | Replace the five old fixtures with [Required fixtures](#required-fixtures) rows 1 to 7 |
 | Dependencies | Make Semgrep an optional extra. Its tests skip when it is not installed. |
+| Docker | `cli/Dockerfile` installs from `uv.lock`, in two stages, with base images pinned by digest. `.dockerignore` keeps local state and secrets out of the build. |
 | Exit test | `pytest` passes with Semgrep uninstalled. Every fixture loads through the new record. |
+
+Fixture files hold `description`, `findings` (stage 2 and stage 4 records) and `expected` (the correlated result). The `expected` values are checked for valid contract values now, and against real correlation from `BS5` and `BS7` on.
 
 ### `BS2`: Code index
 
@@ -83,12 +87,17 @@ Known blocker: an earlier ZAP image pull failed with a connection reset.
 | Hand-made | `expected_pairs` for SQL injection on VulnerableApp |
 | Exit test | Unit tests on small Java fixtures for each binding and call shape. A run on VulnerableApp's source with route, param and unresolved-call counts recorded. |
 
+Passed on 2026-10-31. Counts are in [STATE.md](STATE.md).
+
 ### `BS3`: SQL sinks and hypotheses
 
 | Item | Detail |
 |---|---|
 | Build | The catalogue YAML format with `kind` and source API. SQL entries. `arg_shape`. The backward walk to routes. `producers/hypotheses/`: directed and sweep hypotheses. |
+| Line rule | A finding's `line` is the line of the dangerous argument, not the start of the call. VulnerableApp's answer key does this on multi-line calls, and its grader matches exact lines. `sink_id` keeps the call site. Confirm against the organisers' answer key at kickoff. |
 | Exit test | On Java fixtures: a parameterised query is `constant`, a concatenated query is `dynamic`, an unreadable argument is `dynamic`. On VulnerableApp's source: SQL recall recorded with misses tagged, and the `expected_pairs` SQL sinks have a directed hypothesis. |
+
+Passed on 2026-10-31. Results are in [STATE.md](STATE.md).
 
 ### `BS4`: Preflight and probe spine
 
@@ -111,6 +120,8 @@ If M1 cannot pass: cut to open redirect and error-based SQL injection, then fix 
 | Item | Detail |
 |---|---|
 | Build | Catalogue entries for XSS, command injection and open redirect, including `return_value`, `annotation`, `template` and `xml` kinds. Their oracles: XSS payload canary, command output then timing, `Location` host, boolean and timing SQL. The two-pass deadline scheduler. Sweep with type pruning. Own header and cookie checks. `target.auth.*`. |
+| Decide | Probing a route with `params_status: unknown` whose handler reads every param. `XSSWithHtmlTagInjection` iterates its query map, so the index has no param name to seed. A generated name may work. |
+| Decide | The XSS oracle on non-HTML responses. VulnerableApp's XSS routes reply `text/plain` while its page inserts the text as HTML. Recorded as an open question in [STATE.md](STATE.md). |
 | Exit test | Each oracle passes unit tests on recorded vulnerable and safe responses. A live run on VulnerableApp finishes inside the budget, with wall time per stage, jobs run and jobs skipped recorded, and budget values updated. |
 
 ### `BS7`: Negative evidence, ambiguity, coverage
@@ -176,16 +187,16 @@ The repo predates this architecture. The table lists what exists in the tree, ho
 
 | Piece | In the tree | Relation to the target | Build stage |
 |---|---|---|---|
-| `producers/sast/spring_routes.py` | Spring route-map parser with tests. Handles composed annotations, map getters and `getParameter`. Walks one hop. | Seed of stage 1. Missing: Java types on params, DTO fields, `params_status`, multi-hop call graph, sink inventory, unresolved-call flags. | `BS2` |
+| `producers/sast/spring_routes.py`, `call_graph.py`, `code_index.py` | Stage 1: route table, param bindings, multi-hop call graph with unresolved calls flagged | The sink inventory is added in `BS3`. | `BS2` |
 | `producers/sast/semgrep_runner.py`, `rules/` | Semgrep runner, Semgrep-format taint and pattern rules, tests | Becomes the optional Semgrep adapter (`semgrep.enabled`, off by default). It must not guess `param`. Its tests must skip when Semgrep is not installed. The rules are Semgrep syntax and do not carry over to the own sink catalogue or secrets pass `[TODO: confirm]`. | `BS1`, `BS11` |
-| `pyproject.toml` | Semgrep is a regular dependency | Move to an optional extra `[proposed]`. The pipeline and its tests must pass without it. | `BS1` |
+| `pyproject.toml` | Semgrep is an optional extra, `uv sync --extra semgrep` | The pipeline and its tests pass without it. | `BS1` |
 | `producers/benchmark.py` | Offline SAST score against VulnerableApp's expected-issues CSV | Part of the benchmark adapter. Results not recorded here. Its CWE total currently covers only CWEs we report, so the raw score must be added. | `BS8` |
 | `producers/dast/zap_runner.py` | ZAP-driven active DAST with response-oracle checks and tests. One scan per seed, then alerts read for the whole base URL. | Seed for the required ZAP active probe engine. Keep the API client. Replace alert-driven attribution with request attribution, the whole-base-path scope with exact routes, and fixed seeds with typed seeds. | `BS4`, `BS6` |
 | `engine/correlate/` | Tier A/B/C correlation with tests | Rework: hypothesis lineage, `link_status`, `link_origin`, ambiguity groups, the conflict rule, evidence-based confidence. | `BS5`, `BS7` |
 | `engine/store/`, `engine/report/` | Postgres store, text report, SARIF export | Reusable as the base for stage 7. Needs the new fields, the suppressed file and the coverage report `[TODO: verify]`. | `BS5`, `BS7`, `BS8` |
 | `cli/main.py` | `correlate` and `scan` commands | Rework the scan flow to stages 0 to 7. | `BS5` |
-| `common/record.py` | Earlier record | Update to [finding-schema.md](finding-schema.md). Contract change. | `BS1` |
-| `common/fixtures/` | Five fixtures in the tier-based shape | Replace with the fixtures below. Reuse where they fit `[TODO]`. | `BS1` |
+| `common/record.py`, `common/pipeline.py`, `common/config.py` | The contract | Implements [finding-schema.md](finding-schema.md). | `BS1` |
+| `common/fixtures/` | Fixture rows 1 to 7 in the new shape | Rows 8 onward follow in their build stages. | `BS1` |
 
 ## Required fixtures
 
@@ -215,7 +226,7 @@ Three layers, so no extra live target is needed:
 |---|---|---|
 | Static | Small Java source files | CI. `arg_shape` and hypothesis checks. |
 | Oracle | Recorded response pairs, safe and vulnerable | CI. Oracle and adequacy checks. |
-| Live | VulnerableApp's safe variants `[verify: confirm its secure levels when the source is available]` | `BS7` run, compared with `expected_pairs` |
+| Live | VulnerableApp's `SECURE` variants. `/scanner` lists 24 of its 171 routes as `SECURE`, including SQL injection, XSS and open redirect levels. | `BS7` run, compared with `expected_pairs` |
 
 | Decoy | Required status | Vulnerable twin | Required result |
 |---|---|---|---|

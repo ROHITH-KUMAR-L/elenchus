@@ -16,6 +16,7 @@ from typing import Any
 from common.pipeline import CodeIndex
 from common.record import RouteEntry
 from producers.sast.call_graph import build_call_graph
+from producers.sast.sink_finder import find_sinks, load_catalogue
 from producers.sast.spring_routes import _build_entries, _parse_files, build_index
 
 
@@ -24,6 +25,7 @@ def build_code_index(source_root: str | Path) -> CodeIndex:
     return CodeIndex(
         routes=tuple(RouteEntry.from_dict(entry) for entry in _build_entries(index)),
         call_graph=build_call_graph(index),
+        sinks=tuple(find_sinks(index, load_catalogue())),
         enum_types=frozenset(
             name
             for name, infos in index.types.items()
