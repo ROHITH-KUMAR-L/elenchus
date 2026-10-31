@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-10-31. Trigger: the user settled the confidence bands, back-guided values and header count mode. G1 to G7 were applied. Local `main` is ahead of `origin/main` and not pushed. `main` was fast-forwarded to the docs branch tip twice, at the user's request. Branch `docs/merged-architecture` is at an earlier commit than `main`.
+2026-10-31. Trigger: the user resolved the nine open questions (Q1 to Q9). A Config reference was added to `docs/architecture.md`. Local `main` is ahead of `origin/main` and not pushed. `main` was fast-forwarded to the docs branch tip twice, at the user's request.
 
 ## 2. Architecture
 
@@ -18,30 +18,31 @@ Static-guided dynamic testing. Static analysis makes hypotheses. The probe engin
 
 ## 3. Decisions locked
 
-- D1: back-guided search is Should, Person A, relaxed mode only, off until measured.
-- D2: a positive oracle versus `tested_negative` is replayed up to 3 times. 2 of 3 un-suppresses.
+Config names and default values live in the Config reference in `docs/architecture.md`. This list does not repeat values.
+
+- D1: back-guided search is Should, Person A, relaxed mode only, off until measured. Entry `run_back_guided`.
+- D2: a positive oracle versus a `tested_negative` sink is replayed (`replay.count`, `replay.min_hits`). Enough hits un-suppress it.
 - D3: `link_status` and `link_origin` are both required and orthogonal.
 - D4: milestones M1 to M3 replace hour gates. The own flow engine is Should, after M2.
 - D5: contract fields `match_mode`, `unresolved_hops`, `candidate_sinks`, `conflict`, `oracle_flaky`.
 - R1: the `tested_negative` adequacy logic and a suppressed file with real content are M2.
-- R2: Person A owns stages 1, 2, 3, back-guided search, flow engine, fixtures. Person B owns stages 0, 4 to 7, `expected_pairs`, judging profile, fixture review.
+- R2, R3: Person A owns stages 1 to 3, back-guided search, flow engine, fixtures. Person B owns stages 0 and 4 to 7, the HTTP probe code, `expected_pairs`, the judging profile, fixture review. Proposed directories `probe/` and `producers/hypotheses/`. Neither exists.
 - R2: stage 3 emits one Hypothesis record type for the directed and sweep sets.
-- R3: the HTTP probe code is Person B's. Proposed directory `probe/`. Not created.
-- R4: alternative sinks go in the SAST grader payload (`export.include_alternatives`, default true). They are attributes of the primary issue in the report.
+- R4: alternative sinks go in the SAST grader payload. In the report they are attributes of the primary issue.
 - R5: the flow-engine gate is a new Semgrep count with unfitted rules. The old figure overstates.
-- R6: N = 3 unresolved hops. `match_mode` defaults to `strict`.
-- R6: a conflict case has `link_origin: sweep`, `link_status: ambiguous`, `conflict: true`. At or above `backguided.min_confidence_to_confirm` it is Confirmed. Below it, it is Runtime-only with the sink in `candidate_sinks` as a hint, and it is not suppressed.
-- R8: the M1 and M2 split of the Must items is accepted.
-- F3: stage 3 lives in `producers/hypotheses/` `[proposed, not created]`.
-- F4: fallback dedupe keys. Secrets `(cwe, file, line)`. Runtime-only injection `(cwe, normalised_route, method, param)`. Headers `(cwe, header_name)`.
-- F5, G1: confidence is a float from 0 to 1 with three named bands in config `[proposed: low below 0.4, medium 0.4 to below 0.7, high 0.7 and above]`. Cut points are tuned on `expected_pairs` runs. Scoring weights live in config.
-- G2: `confidence_reasons` is a list of `{factor, delta}`. The engine (Person B) writes it. Producers never set it. A contract field added before the freeze.
-- G3: `backguided.min_confidence_to_confirm` is 0.4. A unique back-guided match starts at 0.55 and loses 0.1 per unresolved hop `[proposed]`. 2 or more hops stay Runtime-only. A conflict case usually exports as Runtime-only with `conflict: true`.
-- G4: config `header.count_mode` is `per_app` or `per_url`, default `per_app` `[TODO: confirm at kickoff against the answer key]`.
-- No id: Semgrep is optional. No pipeline stage imports or requires it.
-- No id: the own probe engine owns every runtime verdict. ZAP is optional and off in judging mode.
-- No id: AI never creates or deletes a finding, sets a verdict, or decides a link.
-- No id: header and cookie findings are never force-linked.
+- R6: `match_mode` defaults to `strict`. A conflict case is Confirmed at or above the confirm threshold. Below it, it is Runtime-only with the sink in `candidate_sinks`, and it is not suppressed.
+- F4: fallback dedupe keys. Secrets `(cwe, file, line)`. Runtime-only injection `(cwe, normalised_route, method, param)`. Headers `(cwe, header_name)`, per `header.count_mode`.
+- G1 to G4: confidence is a float from 0 to 1 with three bands in config. `confidence_reasons` is a list of `{factor, delta}`, written by the engine only. Back-guided confidence comes from config.
+- Q1: JAX-RS stays Could. It moves to Should only if the graded app is not Spring, and would earn B-7. B-5 is Should, M3.
+- Q2: path traversal is Should, M3, the first item after M2. Oracle: a file-content marker `[proposed: passwd line pattern]`.
+- Q3: `handler_*` leave the record. The route table keeps handler spans. `call_chain` items are `{method, file, line}`.
+- Q4: the base URL is a required input (`--target`). The context path is detected in a fixed order and never guessed silently. The route table is built before preflight.
+- Q5: `no_http_path` has reason codes `no_callers` and `walk_unresolved`. Only `no_callers` in injection CWEs can be suppressed. The flag is off until measured.
+- Q6: `blocked_by_validation` is a per-param probe outcome with sub-codes. Status is assigned in a fixed order.
+- Q7: all AI is off by default and in judging mode. No AI task is default-on without a with/without run.
+- Q8: strict mode has no fallback for an unresolved receiver. The coverage report counts those call sites.
+- Q9: config names are locked and live in one place.
+- No id: Semgrep is optional. The own probe engine owns every verdict. ZAP is optional. AI never creates or deletes a finding, sets a verdict or decides a link. Header and cookie findings are never force-linked.
 
 ## 4. Milestone status
 
@@ -72,7 +73,7 @@ Not run in this session: a VulnerableApp scan, ZAP, Docker.
 
 ## 6. Not done, in dependency order
 
-1. Update `common/record.py`, the engine and the fixtures to the revised record (joint change with Person B).
+1. Update `common/record.py`, the engine and the fixtures to the revised record (joint change with Person B). Drop `handler_*` from `record.py` and the fixtures. Use the new `call_chain` item shape `{method, file, line}`.
 2. Semgrep yardstick. Use the public OWASP rule pack as shipped. Make no edits after seeing results. Run it once on VulnerableApp. Record the count, date and rule pack version in section 5. Person A runs this.
 3. Define the sink catalogue and secrets rule YAML formats.
 4. Make Semgrep an optional dependency so tests pass without it.
@@ -82,9 +83,9 @@ Not run in this session: a VulnerableApp scan, ZAP, Docker.
 8. Stage 2 and 3: own sink finder, secrets/crypto pass, hypotheses (`producers/hypotheses/`).
 9. Stage 0 and 4: preflight, probe engine, baseline gate, differential oracles, canary, replay log.
 10. Stage 5 to 7: correlation rework, `tested_negative` logic, suppressed file, scoring config, `expected_pairs`, benchmark adapter.
-11. Measure `export.include_alternatives`. Run it on and off against `expected_pairs`. Record code detection and false-alarm rate for each. Keep the setting that meets the Great targets on both (code detection over 85%, false alarms under 10%). If both settings do, keep the one with the lower false-alarm rate. If neither does, keep the one with code detection above 60% and the lower false-alarm rate.
+11. Measure `export.include_alternatives`. Run it on and off against `expected_pairs`. Record code detection and false-alarm rate for each. Keep the setting that meets the Great targets on both (code detection over 85%, false alarms under 10%). If both settings do, keep the one with the lower false-alarm rate. If neither does, keep the one with code detection above 60% and the lower false-alarm rate. Use the same protocol for `export.suppress_no_http_path`.
 12. Judging-mode profile.
-13. Should items: back-guided search, own flow engine, session manager, AI items.
+13. Should items, in this order: path traversal (first, after M2), back-guided search, own flow engine, scan comparison (B-5), session manager, AI items.
 
 Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.md`.
 
@@ -102,16 +103,15 @@ Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.m
 
 ## 8. Open questions for the user
 
-- JAX-RS adapter and scan comparison (B-5) sit in Could as proposed. Confirm.
-- Path traversal: its oracle is listed, Must says four classes. Treated as stretch. Confirm.
-- Keep or drop `handler_file`, `handler_line_start`, `handler_line_end`.
-- Source of the context path. Base URL detection at judging while staying localhost-only.
-- Default for `export.suppress_no_http_path` and for suppression overall.
-- Does `blocked_by_validation` map to `status: blocked`?
-- Tier of two AI tasks: spec proposals for custom wrappers, and fix text.
-- Stage 2 with an unresolved receiver: flag only, or fall back?
-- Proposed names: `corroborated`, `semgrep.enabled`, `backguided.enabled`, `backguided.min_confidence_to_confirm`, `export.include_alternatives`, `header.count_mode`.
+- Name of the environment variable for the base URL, the alternative to `--target`.
+- Where the context path found by preflight is stored: `ScanTarget` or the preflight output.
+- Path traversal: confirm the passwd line pattern. The split is Person A for the catalogue and hypotheses, Person B for the oracle.
 - `oracle_flaky` sits inside the evidence entry. `conflict` is a boolean. Confirm.
+- Header counting and multi-route export counting: confirm `header.count_mode` and `export.count_multi_entry` at kickoff against the answer key.
+- Config values still TODO: `probe.max_attempts_per_hypothesis`, `probe.timing_repeats`, `probe.stage_budget_seconds.<stage>`. The back-guided and band values are proposed, to be tuned on `expected_pairs` runs.
+- From the stale `README.md`, to settle in the rewrite: the organisers' app framework (kickoff), which tools and rule sets the README must list now that Semgrep and ZAP are optional, and their versions.
+- From the stale `docs/decisions.md` (D-12): which VulnerableApp module stands in for the code-only path, crypto or JWT. The other open items there are resolved or superseded.
+- From `docs/repo-structure.md`: who is Person A and Person B (kickoff), the owners of `CONTRIBUTING.md`, `.gitignore` and `repo-structure.md`, and the entry signatures to ratify.
 
 ## 9. Next action
 
