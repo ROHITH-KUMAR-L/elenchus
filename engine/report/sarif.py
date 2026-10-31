@@ -50,16 +50,17 @@ def to_sarif(issues: list[Issue]) -> dict[str, Any]:
                 "dast_findings": [item.to_dict() for item in issue.dast_findings],
                 "link_reason": issue.link_reason,
                 "wasc_id": finding.wasc_id,
-                "handler_file": finding.handler_file,
-                "handler_line_start": finding.handler_line_start,
-                "handler_line_end": finding.handler_line_end,
-                "reached_via": [
-                    edge.to_dict()
+                "sink_id": finding.sink_id.to_dict() if finding.sink_id else None,
+                "entry_paths": [
+                    path.to_dict()
                     for item in issue.sast_findings
-                    for edge in item.reached_via or ()
+                    for path in item.entry_paths or ()
                 ],
-                "evidence": [item.evidence for item in issue.sast_findings]
-                + [item.evidence for item in issue.dast_findings],
+                "evidence": [
+                    entry.to_dict()
+                    for item in issue.sast_findings + issue.dast_findings
+                    for entry in item.evidence
+                ],
             },
         }
 
@@ -83,17 +84,17 @@ def to_sarif(issues: list[Issue]) -> dict[str, Any]:
                     }
                 )
         for item in issue.sast_findings:
-            for edge in item.reached_via or ():
+            for path in item.entry_paths or ():
+                handler = path.call_chain[0]
+                if handler.file is None:
+                    continue
                 related_locations.append(
                     {
                         "id": len(related_locations) + 1,
                         "message": {"text": "Handler reaches the SAST sink"},
                         "physicalLocation": {
-                            "artifactLocation": {"uri": edge.handler_file},
-                            "region": {
-                                "startLine": edge.handler_line_start,
-                                "endLine": edge.handler_line_end,
-                            },
+                            "artifactLocation": {"uri": handler.file},
+                            "region": {"startLine": handler.line},
                         },
                     }
                 )

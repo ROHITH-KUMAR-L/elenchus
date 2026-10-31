@@ -9,9 +9,15 @@ description = "Deterministic SAST and DAST finding correlation"
 requires-python = ">=3.14"
 dependencies = [
     "psycopg[binary]>=3.2,<4",
-    "semgrep>=1.183.0",
+    "pyyaml>=6.0.2",
     "tree-sitter>=0.26.0",
     "tree-sitter-java>=0.23.5",
+]
+
+[project.optional-dependencies]
+# Optional adapter, off by default. The pipeline and its tests pass without it.
+semgrep = [
+    "semgrep>=1.183.0",
 ]
 
 [project.scripts]
@@ -20,8 +26,23 @@ elenchus = "cli.main:main"
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
+    "ruff>=0.13.0",
 ]
 
 [tool.setuptools.packages.find]
 include = ["cli*", "common*", "engine*", "producers*"]
 namespaces = true
+
+[tool.setuptools.package-data]
+"producers.sast" = ["catalogue/*.yaml", "rules/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+extend-exclude = [".targets"]
+
+[tool.ruff.lint]
+# Validation raises ValueError by project convention, and the CLI reports it.
+ignore = ["TRY004"]

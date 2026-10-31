@@ -305,7 +305,7 @@ def test_run_dast_scans_and_reports_only_verified_in_scope_alerts(
     assert finding.route == "/orders/{id}"
     assert finding.method == "GET"
     assert finding.param == "sort"
-    assert finding.evidence["oracle"] == "database_error"
+    assert finding.detail("oracle") == "database_error"
     assert fake_api.scope_regex is not None
     assert len(fake_api.accessed) == 1
     assert fake_api.scans == [

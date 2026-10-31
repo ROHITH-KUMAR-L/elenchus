@@ -8,33 +8,36 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from common.record import Finding, ScanTarget
 from cli.main import main
+from common.record import Finding, ScanTarget
 
 
 def sast_record() -> dict[str, object]:
     return {
         "run_id": "producer-run",
         "source": "sast",
+        "provenance": "own",
         "cwe": 601,
         "type": "Open redirect",
         "route": "/redirect",
         "method": "GET",
         "file": "src/RedirectController.java",
         "line": 44,
-        "param": "next",
-        "payload": None,
-        "handler_file": "src/RedirectController.java",
-        "handler_line_start": 40,
-        "handler_line_end": 50,
-        "reached_via": None,
-        "evidence": {"snippet": "redirect(request.getParameter(\"next\"))"},
-        "taint_trace": None,
-        "label": None,
-        "confidence": None,
-        "risk_score": None,
+        "candidate_params": ["next"],
+        "entry_paths": [
+            {
+                "route": "/redirect",
+                "method": "GET",
+                "hops": 0,
+                "call_chain": [
+                    {"method": "RedirectController.go", "file": "src/RedirectController.java", "line": 40}
+                ],
+            }
+        ],
+        "evidence": [
+            {"type": "PATH", "detail": {"snippet": "redirect(request.getParameter(\"next\"))"}}
+        ],
         "severity": "high",
-        "wasc_id": None,
     }
 
 
@@ -152,16 +155,16 @@ class CliTests(unittest.TestCase):
             dast_path = directory / "dast.json"
             sast = sast_record()
             dast = {
-                **sast,
+                "run_id": "producer-run",
                 "source": "dast",
-                "file": None,
-                "line": None,
-                "handler_file": None,
-                "handler_line_start": None,
-                "handler_line_end": None,
+                "provenance": "zap",
+                "cwe": 601,
+                "type": "Open redirect",
+                "route": "/redirect",
+                "method": "GET",
+                "param": "next",
                 "payload": "https://evil.example",
-                "evidence": {"oracle": "redirect_location"},
-                "taint_trace": None,
+                "evidence": [{"type": "ORACLE", "detail": {"oracle": "redirect_location"}}],
             }
             sast_path.write_text(json.dumps([sast]), encoding="utf-8")
             dast_path.write_text(json.dumps([dast]), encoding="utf-8")

@@ -11,25 +11,15 @@ def dast_record() -> Finding:
         {
             "run_id": "test-run",
             "source": "dast",
+            "provenance": "zap",
             "cwe": 79,
             "type": "Cross-site scripting",
             "route": "/search",
             "method": "GET",
-            "file": None,
-            "line": None,
             "param": "q",
             "payload": "<script>",
-            "handler_file": None,
-            "handler_line_start": None,
-            "handler_line_end": None,
-            "reached_via": None,
-            "evidence": {"oracle": "reflected_marker"},
-            "taint_trace": None,
-            "label": None,
-            "confidence": None,
-            "risk_score": None,
+            "evidence": [{"type": "ORACLE", "detail": {"oracle": "reflected_marker"}}],
             "severity": "medium",
-            "wasc_id": None,
         }
     )
 

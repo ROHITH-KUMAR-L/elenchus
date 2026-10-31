@@ -7,8 +7,9 @@ import json
 import os
 import sys
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from common.record import ScanTarget
 from engine.correlate import Finding, Issue, correlate

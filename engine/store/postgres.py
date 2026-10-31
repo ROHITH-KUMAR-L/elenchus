@@ -67,7 +67,7 @@ class PostgresStore:
             from psycopg.types.json import Jsonb
         except ImportError as error:
             raise RuntimeError(
-                "PostgreSQL support requires the project dependencies; install with `pip install .`"
+                "PostgreSQL support requires the project dependencies; install with `uv sync`"
             ) from error
 
         try:
@@ -88,38 +88,37 @@ class PostgresStore:
             if self._conninfo
             else psycopg.connect()
         )
-        with connection:
-            with connection.cursor() as cursor:
-                cursor.execute(_SCHEMA)
+        with connection, connection.cursor() as cursor:
+            cursor.execute(_SCHEMA)
+            cursor.execute(
+                "INSERT INTO scan_runs (run_id, status) VALUES (%s, 'running')",
+                (run_id,),
+            )
+            for finding in findings:
+                record = finding.to_dict()
                 cursor.execute(
-                    "INSERT INTO scan_runs (run_id, status) VALUES (%s, 'running')",
-                    (run_id,),
-                )
-                for finding in findings:
-                    record = finding.to_dict()
-                    cursor.execute(
-                        """
+                    """
                         INSERT INTO findings (run_id, source, fingerprint, record)
                         VALUES (%s, %s, %s, %s)
                         """,
-                        (
-                            run_id,
-                            finding.source,
-                            _finding_fingerprint(finding),
-                            jsonb(record),
-                        ),
-                    )
-                for issue in issues:
-                    _save_issue(cursor, run_id, issue, jsonb)
-                cursor.execute(
-                    """
+                    (
+                        run_id,
+                        finding.source,
+                        _finding_fingerprint(finding),
+                        jsonb(record),
+                    ),
+                )
+            for issue in issues:
+                _save_issue(cursor, run_id, issue, jsonb)
+            cursor.execute(
+                """
                     UPDATE scan_runs
                     SET status = 'completed', completed_at = now(),
                         finding_count = %s, issue_count = %s
                     WHERE run_id = %s
                     """,
-                    (len(findings), len(issues), run_id),
-                )
+                (len(findings), len(issues), run_id),
+            )
 
 
 def _finding_fingerprint(finding: Finding) -> str:
@@ -199,7 +198,7 @@ def _save_issue(cursor: Any, run_id: str, issue: Issue, jsonb: Any) -> None:
     elif code_aliases or not existing_issue_ids:
         canonical_key = issue.issue_key
     else:
-        canonical_key = sorted(existing_issue_ids)[0]
+        canonical_key = min(existing_issue_ids)
     merged_aliases = expanded_aliases
     record = issue.to_dict()
     record["issue_key"] = canonical_key

@@ -87,7 +87,7 @@ Prerequisites:
 
 - Python 3.14 or later
 - `uv`
-- OWASP ZAP stable image or local ZAP installation with its API bound to host loopback
+- OWASP ZAP: the bare image pinned in [infra/zap.compose.yaml](infra/zap.compose.yaml), with its API bound to host loopback
 - Docker and Docker Compose, for our Postgres and the target app
 
 The target app runs separately, from its own Docker Compose, on localhost. Point the tool only at it. Scanning any other host is not allowed.
@@ -97,22 +97,24 @@ Redesigned pipeline: the run command `[TODO]`. The target base URL will be a req
 Install and test (these run the older components):
 
 ```sh
-uv sync --locked
-uv run python -m pytest -q
+uv sync --locked --all-groups
+uv run --locked pytest -q
+uv run --locked ruff check .
 ```
 
-Older pipeline commands (the code that exists today). ZAP is required for the `scan` command until it is reworked:
+Dependencies live in `pyproject.toml` and are pinned in `uv.lock`. `uv sync` keeps them in `.venv`. Add one with `uv add <package>`, and commit both files. Semgrep is an optional adapter: `uv sync --locked --all-groups --extra semgrep`.
+
+Older pipeline commands (the code that exists today). Until `BS5` reworks it, the `scan` command needs ZAP and the Semgrep extra:
 
 1. Start the target app with its own Compose instructions.
 2. Start ZAP with its API bound to loopback, and set `ZAP_API_KEY`:
 
    ```sh
-   export ZAP_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
-   docker run --rm --network host --name elenchus-zap \
-     -e ZAP_API_KEY="$ZAP_API_KEY" zaproxy/zap-stable \
-     zap.sh -daemon -host 127.0.0.1 -port 8090 \
-     -config api.key="$ZAP_API_KEY"
+   export ZAP_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+   docker compose -f infra/zap.compose.yaml up -d
    ```
+
+   For practice, start VulnerableApp on loopback with `docker compose -f infra/vulnerableapp.compose.yaml up -d`.
 
 3. Run the producers from the host:
 
@@ -138,8 +140,8 @@ The challenge rules require this list. The sink finder, secrets pass, ZAP scan c
 | tree-sitter, tree-sitter-java | Parser for the code index |
 | psycopg | Postgres client |
 | PostgreSQL (`postgres:17-alpine` image) | Run store |
-| pytest | Tests (dev) |
-| Semgrep | Optional adapter and offline benchmark yardstick. Currently a regular dependency in `pyproject.toml`. To become optional. |
+| pytest, Ruff | Tests and lint (dev) |
+| Semgrep | Optional adapter and offline benchmark yardstick. An optional extra in `pyproject.toml`. |
 | OWASP ZAP | Required active-scan engine. Its API is driven by the project coordinator; project-owned oracles validate findings. |
 
 Versions: Python dependencies are constrained in `pyproject.toml` and pinned in `uv.lock`. Record the ZAP image/version and Semgrep yardstick rule-pack version in [docs/STATE.md](docs/STATE.md) when measured.

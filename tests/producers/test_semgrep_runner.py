@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from common.record import CallEdge, RouteEntry, RouteParam, RouteMap, ScanTarget
+from common.record import CallEdge, RouteEntry, RouteMap, RouteParam, ScanTarget
 from producers.sast import semgrep_runner
 
 
@@ -118,7 +118,7 @@ def test_run_semgrep_uses_target_root_and_raises_on_failure(
         semgrep_runner._run_semgrep(str(tmp_path), rules)
 
 
-def test_run_sast_maps_findings_to_handler_and_reached_via(
+def test_run_sast_maps_findings_to_handler_entry_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sarif = sarif_result()
@@ -137,15 +137,17 @@ def test_run_sast_maps_findings_to_handler_and_reached_via(
     assert finding.route == "/orders/{id}"
     assert finding.method == "GET"
     assert finding.file == "src/OrderController.java"
-    assert finding.handler_file == "src/OrderController.java"
-    assert finding.handler_line_start == 10
-    assert finding.handler_line_end == 30
-    assert finding.param == "id"
+    assert finding.provenance == "semgrep"
+    assert finding.param is None
+    assert finding.candidate_params == ("id",)
     assert finding.severity == "high"
     assert finding.taint_trace is None
-    assert finding.reached_via is not None
-    assert finding.reached_via[0].route == "/orders/{id}"
-    assert finding.evidence["scanner"] == "semgrep"
+    assert finding.entry_paths is not None
+    [path] = finding.entry_paths
+    assert (path.route, path.method, path.hops) == ("/orders/{id}", "GET", 0)
+    assert path.call_chain[0].file == "src/OrderController.java"
+    assert path.call_chain[0].line == 10
+    assert finding.detail("scanner") == "semgrep"
 
 
 def test_run_sast_attaches_service_sink_to_calling_route(
@@ -171,11 +173,13 @@ def test_run_sast_attaches_service_sink_to_calling_route(
     )
 
     assert finding.file == "src/OrderService.java"
-    assert finding.route is None
-    assert finding.handler_file is None
-    assert finding.param == "id"
-    assert finding.reached_via is not None
-    assert finding.reached_via[0].route == "/orders/{id}"
+    assert finding.route == "/orders/{id}"  # Exactly one entry path reaches it.
+    assert finding.param is None
+    assert finding.candidate_params == ("id",)
+    assert finding.entry_paths is not None
+    [path] = finding.entry_paths
+    assert path.hops == 1
+    assert [hop.method for hop in path.call_chain] == ["OrderController.get", "OrderService.find"]
 
 
 def test_unreachable_taint_findings_are_dropped_but_code_only_findings_remain(
@@ -200,7 +204,7 @@ def test_unreachable_taint_findings_are_dropped_but_code_only_findings_remain(
     assert len(findings) == 1
     assert findings[0].cwe == 798
     assert findings[0].route is None
-    assert findings[0].reached_via is None
+    assert findings[0].entry_paths is None
 
 
 def test_weak_random_rule_matches_java_random_in_security_method(
@@ -299,7 +303,8 @@ def test_real_semgrep_taint_result_maps_to_contract_without_trace(
     finding = sql_findings[0]
     assert finding.file == "src/Orders.java"
     assert finding.route == "/orders/{id}"
-    assert finding.param == "id"
+    assert finding.param is None
+    assert finding.candidate_params == ("id",)
     assert finding.taint_trace is None
 
 
