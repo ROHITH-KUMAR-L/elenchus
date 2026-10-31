@@ -45,20 +45,20 @@ def test_sweep_jobs_wait_until_directed_jobs_are_done_and_budget_remains():
     assert schedule.ran == ["d1", "s1", "s2"]
 
 
-def test_a_job_not_started_before_its_deadline_is_skipped_with_a_reason():
+def test_directed_uses_the_whole_budget_and_sweep_takes_the_rest():
     clock = Clock()
     jobs = [job(f"d{i}", "directed") for i in range(3)] + [job("s1", "sweep")]
 
     def run(j: ProbeJob) -> str:
-        clock.now += 40  # directed pass allows 60 of 100 seconds
+        clock.now += 40  # each job takes 40 of the 100-second budget
         return j.job_id
 
-    schedule = run_two_pass(jobs, 100, clock, run, directed_share=0.6)
-    # d0 starts at 0 and d1 at 40, both before 60. d2 starts at 80, after the
-    # directed deadline. s1 starts at 80, still inside the overall budget.
-    assert schedule.ran == ["d0", "d1", "s1"]
+    schedule = run_two_pass(jobs, 100, clock, run)
+    # d0 at 0, d1 at 40, d2 at 80 all start before 100 and run. s1 would start at
+    # 120, past the deadline, so it is skipped: directed is not sub-capped.
+    assert schedule.ran == ["d0", "d1", "d2"]
     assert {j.job_id: reason for j, reason in schedule.skipped} == {
-        "d2": "directed pass budget spent"
+        "s1": "zap_jobs budget spent"
     }
 
 

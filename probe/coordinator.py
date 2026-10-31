@@ -190,7 +190,15 @@ class Coordinator:
             def run_one(job: ProbeJob) -> ProbeJob:
                 entry = entries[(job.route, job.method)]
                 seed = build_seed(entry, self.base_url)
-                outcome, job_findings, headers, stats = self._run_job(run_id, job, seed, context_id)
+                # One job's ZAP failure (a stalled or rejected API call) must not
+                # abort the run: record it as errored and move on, so the budget
+                # and the other jobs still hold.
+                try:
+                    outcome, job_findings, headers, stats = self._run_job(
+                        run_id, job, seed, context_id
+                    )
+                except RuntimeError:
+                    return replace(job, seed_request=seed, outcome="errored")
                 findings.extend(job_findings)
                 for key in totals:
                     totals[key] += stats[key]

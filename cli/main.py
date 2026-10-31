@@ -160,7 +160,24 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> list[Fi
     context = detect_context_path(args.source_path, args.base_url)
     coordinator = Coordinator(ZapApi.from_environment(), config, args.base_url, context)
     result = coordinator.run(run_id, jobs, index.routes)
+    _report_probe_telemetry(result)
     return static_findings + result.findings
+
+
+def _report_probe_telemetry(result: Any) -> None:
+    """Probe-stage telemetry to stderr: wall time, outcomes, skips. The exit test
+    and judging-mode runs read these; they do not belong in the findings output."""
+    from collections import Counter
+
+    outcomes = Counter(job.outcome for job in result.jobs)
+    print(
+        f"probe: stage_seconds={result.stage_seconds} jobs_run={len(result.jobs)} "
+        f"jobs_skipped={len(result.jobs_skipped)} outcomes={dict(outcomes)} "
+        f"attribution_rate={result.attribution_rate:.3f} "
+        f"header_propagation_rate={result.header_propagation_rate:.3f} "
+        f"foreign_hosts={result.foreign_hosts}",
+        file=sys.stderr,
+    )
 
 
 def _load_inputs(sast_paths: Sequence[str], dast_paths: Sequence[str]) -> list[Finding]:

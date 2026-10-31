@@ -4,7 +4,7 @@ Rules: one file, overwritten at each save, never a log. Maximum 150 lines. Nothi
 
 ## 1. Last updated
 
-2026-11-01. Trigger: `BS6` code complete and unit-tested offline; not yet live-run. `BS0` to `BS5` passed and pushed; M1 cleared. 248 tests pass, ruff clean. Local ZAP and VulnerableApp containers run from `infra/`.
+2026-11-01. Trigger: `BS6` passed its live exit run; 5 Confirmed CWE-89, M1 intact. `BS0` to `BS5` passed and pushed. 248 tests pass, ruff clean. Local ZAP and VulnerableApp containers run from `infra/`.
 
 ## 2. Architecture
 
@@ -58,10 +58,10 @@ Config names and default values live in the Config reference in `docs/architectu
 | Milestone | Build stages | Status | Evidence |
 |---|---|---|---|
 | M1 spine | `BS0` to `BS5` | PASSED | M1 gate cleared on 2026-11-01. Exit tests below. |
-| M2 core | `BS6` to `BS9` | not started | None |
+| M2 core | `BS6` to `BS9` | in progress | `BS6` passed; `BS7`-`BS9` not started |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS6`, code complete and unit-tested, wired into the coordinator and pipeline. Live exit run (budget and per-stage times) still owed. Details: section 9.
+Current build stage: `BS6` passed (live exit run, section 5). `BS7` is next. Details: section 9.
 
 ## 5. Done
 
@@ -84,6 +84,7 @@ Current build stage: `BS6`, code complete and unit-tested, wired into the coordi
 | `BS5` | **M1 gate:** `uv run --locked elenchus scan --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store` | One command, live ZAP. 21 issues: 4 Confirmed error-based SQL (ErrorBased LEVEL_1 to LEVEL_4), all link_status unique, confidence 0.95, each matching expected_pairs on exact file and line; 17 Code-only; 0 Runtime-only. attribution_accuracy 4/4 = 1.0. |
 | `BS6` | `uv run --locked pytest -q`, `ruff check .` | 248 passed, ruff clean. New: command-injection oracle, boolean/timing SQL oracles, header/cookie checks, two-pass scheduler, correlation dedupe fix, auth-header wiring, sweep wiring. |
 | `BS6` | `find_sinks` and offline pipeline plan on `.targets/VulnerableApp` | 2 CWE-78 sinks found: `CommandInjection.java` 48 and 53 (`new ProcessBuilder`), `dynamic`, matching `expectedIssues.csv` (CWE-77). CWE-89 unchanged. Plan: 17 directed jobs (78, 89), 167 sweep jobs (78/79/89/601). |
+| `BS6` | **Live exit run:** `elenchus scan --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store`, sweep wired, ZAP 2.17.0 | exit 0, wall 3:37. 5 Confirmed CWE-89: ErrorBased LEVEL_1-4 on exact pair lines 83/143/206/272, and `AuthLoginService.java:51` as one issue (dedupe fix live, was 2). 18 Code-only, 2 Runtime-only headers (693, 1021). probe `stage_seconds` 216, 38 jobs attempted (36 finished, 1 all_blocked, 1 stopped_at_limit), 146 `skipped_budget`. attribution_rate 0.950, header_propagation 1.0, no foreign hosts. |
 
 Not run: the updated CI workflow on GitHub. No correlation, probe or benchmark results exist.
 
@@ -95,22 +96,22 @@ Measured: nothing beyond `BS0`. Semgrep yardstick: `[TODO: Semgrep count on Vuln
 
 ## 6. Not done, in dependency order
 
-The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS3` have passed.
+The build stages in `docs/implementation-plan.md` are the list. `BS0` to `BS6` have passed.
 
-1. `BS6`: all classes and the scheduler
-2. `BS7`: negative evidence, ambiguity, coverage
-3. `BS8`: secrets, exports, measurement
-4. `BS9`: judging mode and generality (M2 gate)
-5. `BS10`: Should list (M3)
-6. `BS11`: Could list
+1. `BS7`: negative evidence, ambiguity, coverage
+2. `BS8`: secrets, exports, measurement
+3. `BS9`: judging mode and generality (M2 gate)
+4. `BS10`: Should list (M3). 5. `BS11`: Could list
 
-Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.md`.
+Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
 
 ## 7. Known failures and residual flaws
 
 - Oracles: SQL error (89), XSS reflected `text/html` only (79), open redirect (601), command output (78) — all registered and in the coordinator's scan and replay path. `sql_boolean` (three-response) is built and unit-tested but not wired: it needs a true/false replay pair, verified on a blind-SQL route live. `timing_slower` is built and unit-tested but not registered: it needs `probe.timing_repeats` and a live timing baseline.
 - Command injection and XSS/open-redirect are now probed dynamically by the sweep pass. Static catalogue: command injection added (ProcessBuilder/Runtime.exec). XSS (String.format reflected into ResponseEntity) and open redirect (location added to a header map) have no safe low-level API anchor without dataflow; left to catalogue-growth work, dynamic sweep covers them meanwhile.
 - Header/cookie findings use `ORACLE` evidence with `oracle: header_check` and `header_name` in detail; no schema change. The VulnerableApp grader ignores them.
+- Live run confirmed no CWE 78/79/601, expected not a regression: the command route returns ping output (oracle wants uid/gid), XSS routes reply `text/plain` (oracle wants `text/html`), open-redirect sweep routes not reached in budget. Confirm those oracles live on routes that suit them.
+- Probe stage ran 216s against a 170s start-deadline: in-flight jobs (scan plus replays, `max_job_seconds` 30) finish past it. Total wall 3:37 under the 5-minute cap; tune budgets in BS8. A single ZAP timeout no longer aborts the run (wrapped in `ZapApi.call`; the job is recorded `errored`).
 - Routes whose handler reads every param have no param name to seed (`XSSWithHtmlTagInjection`). The sweep still probes their declared params. Generated-name seeding not built.
 - The answer key's line on a multi-line call is the argument's, not the call's. `BS3` and the command-injection catalogue follow it. Confirm at kickoff.
 - Two safe SQL sinks and one unreachable config sink stay `dynamic`; the config sink is `no_callers`, so Code-only. No full live scan has run; `BS0` jobs took under 2s on a few routes.
@@ -134,16 +135,16 @@ Other TODO marks live in the docs. List them with `grep -rn "TODO" docs AGENTS.m
 
 ## 9. Next action
 
-BS6 exit test is the one item left for the stage, and it is live-only:
+BS6 exit test ran and passed (section 5 live row). Next:
 
-1. **BS6 live exit run.** With ZAP and VulnerableApp up (`infra/`, Docker) and `ZAP_API_KEY` exported from the container, run `uv run --locked elenchus scan --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store`. Record `stage_seconds`, jobs run and `jobs_skipped` from the probe result, and confirm the run finishes inside `probe.stage_budget_seconds.zap_jobs` (170). Tune budget values from the measured times. The sweep pass now adds ~167 jobs, so most will be skipped and reported `skipped_budget`; that is expected, not a negative result.
-2. Verify the command-output oracle fires live on `CommandInjection` and the XSS/redirect oracles on their sweep routes; record what ZAP elicits.
-3. Then BS7: negative evidence, ambiguity, coverage.
+1. **BS7:** negative evidence, ambiguity, coverage. The next build stage.
+2. Budget tuning (overlaps BS8): the probe stage overran its 170s start-deadline to 216s. Lower `probe.max_job_seconds` or the stage budgets so the probe stage keeps clear of the 5-minute cap.
 
 Deferred within BS6, needs a live signal before wiring (do not fake):
 - `sql_boolean`: wire as a true/false replay pair, verified on `BlindSQLInjectionVulnerability`.
 - `timing_slower`: register for CWE 78/89 blind cases once `probe.timing_repeats` and a live timing baseline are set.
-- Decide with the user whether `target.auth.*` is needed for the organisers' app (header-name + env-var scheme is wired; off unless both are set).
+- Verify the command-output, XSS and open-redirect oracles live on routes that suit them (see section 7).
+- `target.auth.*` is wired (header-name + env-var, off unless both set); decide if the organisers' app needs it.
 
 ## 10. Resume instructions
 

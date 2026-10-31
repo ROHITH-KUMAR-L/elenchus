@@ -57,7 +57,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class ZapApi:
     """Small API client that accepts only a loopback ZAP endpoint."""
 
-    def __init__(self, base_url: str, api_key: str, timeout: float = 10) -> None:
+    def __init__(self, base_url: str, api_key: str, timeout: float = 30) -> None:
         parts = urllib.parse.urlsplit(base_url)
         if (
             parts.scheme != "http"
@@ -107,6 +107,10 @@ class ZapApi:
             ) from error
         except urllib.error.URLError as error:
             raise RuntimeError(f"cannot reach the local ZAP API: {error.reason}") from error
+        except TimeoutError as error:
+            # A read timeout while ZAP is busy scanning raises TimeoutError, not
+            # URLError. Wrap it so callers see one error type for a stalled call.
+            raise RuntimeError(f"ZAP API {component}/{operation} timed out") from error
         if len(body) > MAX_API_RESPONSE_BYTES:
             raise RuntimeError(f"ZAP API {component}/{operation} response is too large")
         try:

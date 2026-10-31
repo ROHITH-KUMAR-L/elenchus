@@ -22,6 +22,7 @@ JOB_OUTCOMES = {
     "skipped_budget",
     "skipped_drift",
     "all_blocked",
+    "errored",
 }
 PARAM_OUTCOMES = {"adequate", "type_rejected", "blocked_by_validation"}
 BLOCKED_SUB_CODES = {"validation", "auth", "not_found", "server_error", "other"}
