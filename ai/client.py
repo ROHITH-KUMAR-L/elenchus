@@ -24,6 +24,18 @@ from common.config import Config
 
 Transport = Callable[[str, list[dict[str, str]]], str]
 _MAX_RESPONSE_BYTES = 1 * 1024 * 1024
+# OpenAI-compatible providers, checked in order. LLM_* is the provider-neutral
+# fallback. Add a prefix here to support another provider's native variable names.
+_ENV_PREFIXES = ("OPENAI", "GROQ", "LLM")
+
+
+def _env(environ: Mapping[str, str], suffix: str) -> str:
+    """The first set value among <PREFIX>_<suffix> for the known providers."""
+    for prefix in _ENV_PREFIXES:
+        value = environ.get(f"{prefix}_{suffix}")
+        if value:
+            return value
+    return ""
 
 
 class AiClient:
@@ -36,10 +48,12 @@ class AiClient:
         self.config = config
         # The endpoint, key and model come only from the environment (set via .env
         # or docker run -e). Nothing is hardcoded: when any is missing the client is
-        # unavailable and AI is simply off, so the feature is optional.
-        self.model = environ.get("OPENAI_MODEL") or ""
-        self.base_url = (environ.get("OPENAI_BASE_URL") or "").rstrip("/")
-        self._api_key = environ.get("OPENAI_API_KEY") or ""
+        # unavailable and AI is simply off, so the feature is optional. Any
+        # OpenAI-compatible provider works (OpenAI, Groq, Together, a local server);
+        # the names are checked provider-first, then the generic LLM_* fallback.
+        self.model = _env(environ, "MODEL")
+        self.base_url = _env(environ, "BASE_URL").rstrip("/")
+        self._api_key = _env(environ, "API_KEY")
         self._max_calls = int(config["ai.max_calls"])
         self._transport = transport or self._http
         self._cache: dict[str, dict[str, Any] | None] = {}

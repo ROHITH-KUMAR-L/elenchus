@@ -1,11 +1,16 @@
 """Verify the AI side-channel credentials without running a scan.
 
-Reads OPENAI_BASE_URL, OPENAI_API_KEY and OPENAI_MODEL from the environment (or
-.env via your shell), reports whether the client is configured and the task is
-enabled, and — only when configured — makes one real minimal call to the endpoint
-and reports success, latency and any error. No scan, no target, no ZAP.
+Reads the base URL, key and model from the environment (or .env via your shell),
+reports whether the client is configured and the task is enabled, and — only when
+configured — makes one real minimal call to the endpoint and reports success,
+latency and any error. No scan, no target, no ZAP.
 
-    OPENAI_BASE_URL=... OPENAI_API_KEY=... OPENAI_MODEL=... \
+Any OpenAI-compatible provider works. The variables are checked in order:
+OPENAI_*, then GROQ_*, then the generic LLM_* (BASE_URL, API_KEY, MODEL). For
+Groq, for example:
+
+    GROQ_BASE_URL=https://api.groq.com/openai/v1 GROQ_API_KEY=gsk_... \
+        GROQ_MODEL=llama-3.3-70b-versatile \
         uv run --locked python scripts/ai_check.py
 
 Exit code 0 when a live call succeeds (or AI is intentionally off), 1 otherwise.
@@ -31,13 +36,16 @@ def main() -> int:
     )
     client = AiClient(config)
 
-    print(f"endpoint : {client.base_url or '(unset OPENAI_BASE_URL)'}")
-    print(f"model    : {client.model or '(unset OPENAI_MODEL)'}")
-    print(f"api key  : {'set' if client._api_key else '(unset OPENAI_API_KEY)'}")
+    print(f"endpoint : {client.base_url or '(no *_BASE_URL set)'}")
+    print(f"model    : {client.model or '(no *_MODEL set)'}")
+    print(f"api key  : {'set' if client._api_key else '(no *_API_KEY set)'}")
     print(f"configured: {client.configured()}")
 
     if not client.configured():
-        print("\nAI is not configured. Set all three OPENAI_* variables to enable it.")
+        print(
+            "\nAI is not configured. Set the base URL, key and model via OPENAI_*, "
+            "GROQ_* or LLM_* (BASE_URL, API_KEY, MODEL)."
+        )
         print("This is a valid state: the AI features are optional and simply stay off.")
         return 0
 

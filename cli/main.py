@@ -636,8 +636,8 @@ def _write_ai_summary(issues: list[Issue], config: Any) -> None:
     if not client.available(SUMMARY_TASK):
         print(
             "AI summary unavailable (enable ai.enabled and "
-            "ai.tasks.report_summary.enabled, and set the OPENAI_* environment). "
-            "Showing the deterministic overview instead.",
+            "ai.tasks.report_summary.enabled, and set the AI environment via "
+            "OPENAI_*, GROQ_* or LLM_*). Showing the deterministic overview instead.",
             file=sys.stderr,
         )
         _write_report(issues, "text", "summary")

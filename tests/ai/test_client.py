@@ -25,6 +25,39 @@ class Counter:
         return self.reply
 
 
+def test_groq_variables_configure_the_client():
+    client = AiClient(
+        enabled_config(),
+        environ={
+            "GROQ_API_KEY": "gsk_x",
+            "GROQ_BASE_URL": "https://api.groq.com/openai/v1",
+            "GROQ_MODEL": "llama-3.3-70b-versatile",
+        },
+    )
+    assert client.configured()
+    assert client.base_url == "https://api.groq.com/openai/v1"
+    assert client.model == "llama-3.3-70b-versatile"
+
+
+def test_generic_llm_variables_configure_the_client():
+    client = AiClient(
+        enabled_config(),
+        environ={"LLM_API_KEY": "k", "LLM_BASE_URL": "http://127.0.0.1:1/v1", "LLM_MODEL": "m"},
+    )
+    assert client.configured()
+
+
+def test_openai_variables_take_precedence_over_groq():
+    client = AiClient(
+        enabled_config(),
+        environ={
+            "OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "openai-model",
+            "GROQ_API_KEY": "gsk_x", "GROQ_BASE_URL": "https://api.groq.com/openai/v1", "GROQ_MODEL": "groq-model",
+        },
+    )
+    assert client.model == "openai-model"
+
+
 def test_disabled_task_makes_no_call():
     transport = Counter()
     client = AiClient(load_config(environ={}), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
