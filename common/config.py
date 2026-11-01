@@ -48,7 +48,7 @@ DEFAULTS: dict[str, Any] = {
     "logtail.enabled": False,
     "ai.enabled": False,
     "ai.max_calls": 30,
-    "probe.max_job_seconds": 30,
+    "probe.max_job_seconds": 15,
     "probe.max_jobs": 60,
     "probe.drift_routes": 3,
     "probe.timing_repeats": None,

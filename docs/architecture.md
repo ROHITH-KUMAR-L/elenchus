@@ -531,12 +531,12 @@ The single source for config names and default values. Other docs point here and
 | `zap.rule_map.<cwe>` | [89 = 40018, 40019, 40020, 40021, 40022, 40027; 79 = 40012; 78 = 90020; 22 = 6; 601 = 20019] | ZAP rule IDs allowed for each CWE. Maps a rule ID back to its CWE. All exist in the pinned version. |
 | `zap.attack_strength.directed` | [proposed: MEDIUM] | Attack strength in scheduler pass 1 |
 | `zap.attack_strength.sweep` | [proposed: LOW] | Attack strength in scheduler pass 2 |
-| `zap.thread_per_host` | [2] | ZAP threads per host within one job. The value `BS0` ran with. |
+| `zap.thread_per_host` | [2] | ZAP threads per host within one job. The value `BS0` ran with. Raising it slowed loopback scans (thread contention), so it stays at 2. |
 | `logtail.enabled` | [false] | App-log tail for `TRACE` evidence |
 | `ai.enabled` | [false] | Master AI switch |
 | `ai.max_calls` | [30] | Cap on AI calls per run |
 | `ai.tasks.<name>.enabled` | [false] | Per-task AI switch |
-| `probe.max_job_seconds` | [proposed: 30] | The coordinator stops a job at this limit. `BS0` jobs took under 2 seconds. The margin allows for a time-based payload that actually sleeps. |
+| `probe.max_job_seconds` | [proposed: 15] | The coordinator stops a job at this limit. `BS0` jobs took under 2 seconds; 15 caps the slow tail and the deadline overrun. Raise it only when the time-based oracle (`timing_slower`) is wired and a sleep payload needs the margin. |
 | `probe.max_jobs` | [proposed: 60] | Safety limit on jobs per run. The deadline is the real budget. |
 | `probe.drift_routes` | [proposed: 3] | GET routes re-requested after a state-changing job |
 | `probe.timing_repeats` | [TODO] | Repeats for timing oracles |
