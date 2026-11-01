@@ -84,6 +84,10 @@ def _redirect_payloads(value: str, canary: str) -> list[str]:
 # SQL (89) is confirmed by the error oracle on ZAP's scan plus the boolean/timing
 # passes, so it is not here.
 _CONFIRM_PAYLOADS = {78: _command_payloads, 79: _xss_payloads, 601: _redirect_payloads}
+# Classes whose verdict is a project oracle on our own replayed payload, so a
+# directed job covering only these can skip ZAP's active scan (slow, and not the
+# verdict here) and confirm directly. SQL-89 and every sweep job still scan.
+_CONFIRM_ONLY_CWES = frozenset(_CONFIRM_PAYLOADS)
 
 
 def _is_state_changing(method: str) -> bool:
@@ -493,53 +497,65 @@ class Coordinator:
                     )
                 )
             return "finished", [], headers, stats, rows
-        policy = f"elenchus-{job.job_id}"
-        self.api.ensure_scan_policy(policy, rule_ids, self.config[strength_key])
-        scan_id = self.api.start_scan(seed.url, seed.method, seed.body, context_id, policy)
-        outcome = self._wait_for_scan(scan_id)
-
         candidates: dict[tuple[str, int], _Candidate] = {}
         trials: dict[tuple[str, int], list[tuple[str, int | None]]] = {}
-        for message_id in self.api.scan_message_ids(scan_id):
-            stats["messages"] += 1
-            message = self.api.message(message_id)
-            header = message.get("requestHeader", "")
-            if PROBE_HEADER.casefold() in header.casefold() and job.canary in header:
-                stats["with_header"] += 1
-            if RULE_HEADER.casefold() not in header.casefold():
-                continue  # ZAP's 404-analysis probe carries no rule header.
-            stats["considered"] += 1
-            found = attribute(
-                header,
-                message.get("requestBody", ""),
-                seed_path=seed_path,
-                seed_values=seed_values,
-                canary=job.canary,
-                rule_cwes=self.rule_cwes,
-            )
-            if found is None:
-                continue
-            stats["attributed"] += 1
-            response = _response(message)
-            trials.setdefault((found.param, found.cwe), []).append(
-                (found.rule_id, response.status)
-            )
-            oracle = oracle_for(found.cwe)
-            attack = _attack_value(header, message, found.param)
-            if oracle is not None and oracle(baseline, response, attack):
-                key = (found.param, found.cwe)
-                candidates.setdefault(
-                    key,
-                    _Candidate(
-                        found.param,
-                        found.cwe,
-                        attack,
-                        found.rule_id,
-                        message_id,
-                        found.param_location,
-                        found.param_path,
-                    ),
+        fast_confirm = (
+            job.job_pass == "directed"
+            and bool(job.cwes)
+            and set(job.cwes) <= _CONFIRM_ONLY_CWES
+        )
+        if fast_confirm:
+            # Command injection / XSS / open redirect confirmed by the project
+            # oracle on our own replayed payload below; ZAP's active scan is slow
+            # and not the verdict for these, so skip it to free budget for more
+            # routes. ZAP active scanning still runs for SQL-89 and every sweep job.
+            outcome = "finished"
+        else:
+            policy = f"elenchus-{job.job_id}"
+            self.api.ensure_scan_policy(policy, rule_ids, self.config[strength_key])
+            scan_id = self.api.start_scan(seed.url, seed.method, seed.body, context_id, policy)
+            outcome = self._wait_for_scan(scan_id)
+
+            for message_id in self.api.scan_message_ids(scan_id):
+                stats["messages"] += 1
+                message = self.api.message(message_id)
+                header = message.get("requestHeader", "")
+                if PROBE_HEADER.casefold() in header.casefold() and job.canary in header:
+                    stats["with_header"] += 1
+                if RULE_HEADER.casefold() not in header.casefold():
+                    continue  # ZAP's 404-analysis probe carries no rule header.
+                stats["considered"] += 1
+                found = attribute(
+                    header,
+                    message.get("requestBody", ""),
+                    seed_path=seed_path,
+                    seed_values=seed_values,
+                    canary=job.canary,
+                    rule_cwes=self.rule_cwes,
                 )
+                if found is None:
+                    continue
+                stats["attributed"] += 1
+                response = _response(message)
+                trials.setdefault((found.param, found.cwe), []).append(
+                    (found.rule_id, response.status)
+                )
+                oracle = oracle_for(found.cwe)
+                attack = _attack_value(header, message, found.param)
+                if oracle is not None and oracle(baseline, response, attack):
+                    key = (found.param, found.cwe)
+                    candidates.setdefault(
+                        key,
+                        _Candidate(
+                            found.param,
+                            found.cwe,
+                            attack,
+                            found.rule_id,
+                            message_id,
+                            found.param_location,
+                            found.param_path,
+                        ),
+                    )
 
         findings = [
             finding
