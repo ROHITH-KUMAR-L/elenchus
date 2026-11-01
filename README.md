@@ -100,7 +100,19 @@ uv run --locked pytest -q
 uv run --locked ruff check .
 ```
 
-Dependencies live in `pyproject.toml` and are pinned in `uv.lock`. `uv sync` keeps them in `.venv`. Add one with `uv add <package>`, and commit both files. Semgrep is an optional adapter: `uv sync --locked --all-groups --extra semgrep`.
+`uv sync` installs the `elenchus` command into `.venv/bin` (`.venv\Scripts` on
+Windows). Activate the environment to use it from the repository:
+
+```sh
+source .venv/bin/activate
+elenchus --help
+```
+
+To run it from any working directory, add the absolute path to this project's
+`.venv/bin` to your shell `PATH` (on Windows, add `.venv\Scripts`). Dependencies
+live in `pyproject.toml` and are pinned in `uv.lock`. Add one with `uv add <package>`,
+and commit both files. Semgrep is an optional adapter:
+`uv sync --locked --all-groups --extra semgrep`.
 
 One command runs the whole pipeline against the running target and its source:
 
