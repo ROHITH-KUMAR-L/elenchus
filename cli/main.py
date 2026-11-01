@@ -43,13 +43,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "scan":
             if not args.base_url:
                 raise ValueError("a target base URL is required: pass --base-url or set ELENCHUS_BASE_URL")
+            args.source_path = _resolve_source(args)
             config = load_config(
-                overrides={"target.base_url": args.base_url, "judging.profile": args.judging}
+                path=Path(args.config) if args.config else None,
+                overrides={"target.base_url": args.base_url, "judging.profile": args.judging},
             )
             pipeline_output = _run_pipeline(args, run_id, config)
             findings = pipeline_output.findings
         else:
-            config = load_config()
+            config = load_config(path=Path(args.config) if args.config else None)
             records = _load_inputs(args.sast, args.dast)
             findings = [record.with_run_id(run_id) for record in records]
             pipeline_output = _PipelineOutput(findings)
@@ -167,7 +169,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "scan",
         help="run the staged pipeline against source and a localhost target",
     )
-    scan_parser.add_argument("--source-path", required=True, help="target source directory")
+    scan_parser.add_argument(
+        "--source-path",
+        help="target source directory on the local filesystem",
+    )
+    scan_parser.add_argument(
+        "--source-image",
+        metavar="IMAGE_OR_CONTAINER",
+        help="docker image or container holding the target source; copied out and scanned. "
+        "Use with --source-image-path",
+    )
+    scan_parser.add_argument(
+        "--source-image-path",
+        metavar="PATH",
+        help="absolute path of the source inside --source-image",
+    )
     scan_parser.add_argument(
         "--base-url",
         default=os.environ.get("ELENCHUS_BASE_URL"),
@@ -221,6 +237,57 @@ def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="FILE",
         help="optional YAML ground truth used only for the coverage report",
     )
+    parser.add_argument(
+        "--config",
+        metavar="FILE",
+        help="optional TOML config file (keys from the Config reference in docs/architecture.md)",
+    )
+
+
+def _resolve_source(args: argparse.Namespace) -> str:
+    """The local source directory to scan: either --source-path, or the source
+    copied out of a docker image or container named by --source-image."""
+    if args.source_image:
+        if not args.source_image_path:
+            raise ValueError("--source-image needs --source-image-path (the source path inside it)")
+        return _source_from_image(args.source_image, args.source_image_path)
+    if not args.source_path:
+        raise ValueError("provide --source-path, or --source-image with --source-image-path")
+    return args.source_path
+
+
+def _source_from_image(ref: str, path_in_image: str) -> str:
+    """Copy `path_in_image` out of a docker image or container into a temp dir.
+
+    Works for an image (a throwaway container is created and removed) or a
+    running/stopped container. The copied tree is untrusted data: it is only
+    parsed, never executed."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    if shutil.which("docker") is None:
+        raise RuntimeError("--source-image needs docker on PATH")
+    workdir = Path(tempfile.mkdtemp(prefix="elenchus-src-"))
+    destination = workdir / "source"
+    created = subprocess.run(
+        ["docker", "create", ref], capture_output=True, text=True, check=False
+    )
+    container, remove = (created.stdout.strip(), True) if created.returncode == 0 else (ref, False)
+    try:
+        copy = subprocess.run(
+            ["docker", "cp", f"{container}:{path_in_image}", str(destination)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if copy.returncode != 0:
+            raise RuntimeError(f"could not copy source from {ref!r}: {copy.stderr.strip()}")
+    finally:
+        if remove:
+            subprocess.run(["docker", "rm", "-f", container], capture_output=True, text=True, check=False)
+    print(f"elenchus: copied source from {ref}:{path_in_image} to {destination}", file=sys.stderr)
+    return str(destination)
 
 
 def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _PipelineOutput:

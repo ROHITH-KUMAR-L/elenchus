@@ -185,6 +185,50 @@ class CliTests(unittest.TestCase):
         self.assertEqual(captured["base_url"], "http://localhost:9090/VulnerableApp")
         self.assertIn("Code-only", output.getvalue())
 
+    def test_scan_requires_a_source_path_or_image(self) -> None:
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            result = main(["scan", "--base-url", "http://127.0.0.1:9090", "--no-store"])
+        self.assertEqual(result, 2)
+        self.assertIn("--source-path", errors.getvalue())
+
+    def test_scan_source_image_needs_a_path(self) -> None:
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            result = main(
+                ["scan", "--base-url", "http://127.0.0.1:9090", "--source-image", "img:1", "--no-store"]
+            )
+        self.assertEqual(result, 2)
+        self.assertIn("--source-image-path", errors.getvalue())
+
+    def test_scan_copies_source_out_of_an_image(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_pipeline(args, run_id, config):
+            captured["source_path"] = args.source_path
+            return _PipelineOutput([])
+
+        output = io.StringIO()
+        with (
+            patch("cli.main._source_from_image", lambda ref, path: "/tmp/copied-source"),
+            patch("cli.main._run_pipeline", fake_pipeline),
+            contextlib.redirect_stdout(output),
+        ):
+            result = main(
+                [
+                    "scan",
+                    "--base-url",
+                    "http://127.0.0.1:9090/VulnerableApp",
+                    "--source-image",
+                    "vulnerableapp:latest",
+                    "--source-image-path",
+                    "/app/src",
+                    "--no-store",
+                ]
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(captured["source_path"], "/tmp/copied-source")
+
     def test_scan_rejects_non_local_target_before_running_producers(self) -> None:
         errors = io.StringIO()
         with contextlib.redirect_stderr(errors):
