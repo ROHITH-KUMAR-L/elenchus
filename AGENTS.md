@@ -50,7 +50,7 @@ Static-guided dynamic testing. Static analysis produces hypotheses. OWASP ZAP pe
 - No pipeline stage may import or require Semgrep. Semgrep is an optional adapter, off by default, enabled by `semgrep.enabled`. The pipeline and its tests must pass with Semgrep not installed.
 - Semgrep is allowed as a fallback sink source for a non-Java target, as a cross-check that marks corroborated sinks, and as an offline benchmark yardstick.
 - The static stage does not say which param reaches the sink. Never fill `param` from static output. Fill `candidate_params` with all params of the route. The oracle resolves `param`.
-- The own flow engine is Should, built after M2. It never blocks M1 or M2. Gate for making it the default: it matches the measured Semgrep count on VulnerableApp, with Semgrep run offline. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality.
+- The own flow engine is Should, built after M2. It never blocks M1 or M2. Gate for making it the default: it matches the measured Semgrep count on VulnerableApp, with Semgrep run offline. Yardstick recorded in `docs/STATE.md` (Semgrep 1.183.0, pack `p/java`, 2026-11-01: 12 SQL-injection findings). The earlier figure came from rules partly fitted to VulnerableApp and overstates generality.
 - Unresolved calls are flagged. Never drop them. Call sites that match a catalogue name with an unresolved receiver stay in the index. Only the relaxed back-guided search uses them. Never add a fallback to strict mode.
 
 ## Deterministic core, AI advisory

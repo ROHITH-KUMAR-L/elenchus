@@ -151,7 +151,7 @@ Semgrep is not part of the pipeline. It is an optional adapter, off by default, 
 
 The pipeline and its tests must pass with Semgrep not installed.
 
-Own flow engine: Should, built after M2. It narrows `candidate_params` from all to the specific param. It never blocks M1 or M2. Gate for making it the default: it matches the measured Semgrep count on VulnerableApp, with Semgrep run offline as the yardstick. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality.
+Own flow engine: Should, built after M2. It narrows `candidate_params` from all to the specific param. It never blocks M1 or M2. Gate for making it the default: it matches the measured Semgrep count on VulnerableApp, with Semgrep run offline as the yardstick. Yardstick recorded in [STATE.md](STATE.md) (Semgrep 1.183.0, pack `p/java`, 2026-11-01: 12 SQL-injection findings). The earlier figure came from rules partly fitted to VulnerableApp and overstates generality.
 
 Strict mode matches only when the receiver type resolves. Call sites that match a catalogue name with an unresolved receiver stay in the index and are never dropped. Only the relaxed back-guided search uses them. There is no fallback in strict mode. The coverage report counts these call sites. If the count is material after M1, revisit. There is no flag for it.
 

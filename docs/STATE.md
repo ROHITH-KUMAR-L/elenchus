@@ -101,7 +101,7 @@ Not run: the updated CI workflow on GitHub.
 
 Pinned: ZAP and VulnerableApp images by digest in `infra/`. VulnerableApp source in `.targets/` at commit 9f45cd5. Its image is the `latest` digest on the same day, so line numbers may differ from the source.
 
-Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]`
+Semgrep yardstick (recorded 2026-11-01): Semgrep 1.183.0, public pack `p/java` as shipped (no edits), over `.targets/VulnerableApp/src/main/java` (commit 9f45cd5). 34 findings across 8 rules; SQL injection = 12 (`tainted-sql-string` 10, `spring-sqli` 2). Also `tainted-html-string` 12, `tainted-url-host` 5, `tainted-file-path` 2, crypto 2, XXE 1. Our own sink finder finds 9 CWE-89 expected sinks (all Confirmed). `flow.enabled` stays off: the gate now has a number to compare a future flow-engine count against; flipping it is a BS11 measurement, not done.
 
 ## 6. Not done, in dependency order
 
@@ -137,13 +137,12 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 ## 9. Next action
 
-`BS10` Should list complete (`BS10a`-`j`). Close the carried gaps next, then `BS11` (Could list):
-1. Path-traversal (CWE-22) oracle built + unit-tested but not Confirmed live: needs a reachable traversal route or a crafted payload on VulnerableApp.
-2. `timing_slower` built but unwired: needs `probe.timing_repeats` and a live timing baseline.
-3. Flow engine (`flow.enabled`) stays off until the offline Semgrep yardstick count is recorded (gate unmet; also a BS11 item).
-4. Live confirmation of the BS10e-j additions: `compare` against a live Postgres; session manager against an auth app; passive ingestion + preflight extras on a live ZAP run; an AI with/without run on VulnerableApp against `expected_pairs` before any task goes default-on.
+`BS10` Should list complete (`BS10a`-`j`). Carried gaps addressed this session:
+1. CWE-22: investigated — unconfirmable on VulnerableApp (classpath-resource reader; see §7). Oracle generalised (adds Windows ini, private keys) and unit-tested. Closed as a target property.
+2. `timing_slower`: wired into the coordinator (`_confirm_timing`), gated on `probe.timing_repeats`, unit-tested with a fake clock. Off by default; a live timing baseline is still unrecorded (not exercisable on VulnerableApp).
+3. Semgrep yardstick recorded (above): 12 SQL-injection findings. `flow.enabled` stays off; flipping it is a BS11 measurement.
 
-Gates and carry-overs: Semgrep yardstick count (unfitted) not recorded — gates `flow.enabled` on (BS10d) and is a BS11 item. `timing_slower` built, unwired (needs `probe.timing_repeats` + live baseline). Path-traversal oracle not yet Confirmed live. `target.auth.*` wired; app login need unknown. M2 margin ~80s.
+Still needing live runs (next): `compare` against a live Postgres; session manager against an auth app; passive ingestion + preflight extras surfaced in a live ZAP run; an AI with/without run on VulnerableApp before any task goes default-on. Then `BS11` (Could list). M2 margin ~80s.
 
 ## 10. Resume instructions
 

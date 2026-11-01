@@ -159,7 +159,7 @@ Build in the table's order. Each item has its own measurement rule where one is 
 |---|---|---|---|
 | 1 | Path traversal class (CWE-22): catalogue entries, hypotheses, file-content oracle | 2 to 4 | Recall recorded for CWE-22 |
 | 2 | Back-guided static search, relaxed mode only. Producer entry `run_back_guided(target, route_map, runtime_only_findings)`. Config `backguided.enabled`, off until measured. | 5 | On and off against `expected_pairs`. If it adds no correct links, or adds any wrong link, it stays off. |
-| 3 | Own flow engine (narrows `candidate_params`). Gate for making it the default: matches the measured Semgrep count on VulnerableApp, Semgrep run offline as the yardstick. `[TODO: Semgrep count on VulnerableApp with unfitted rules; record count, date and rule version in STATE.md]` The earlier figure came from rules partly fitted to VulnerableApp and overstates generality. | 2 | The gate |
+| 3 | Own flow engine (narrows `candidate_params`). Gate for making it the default: matches the measured Semgrep count on VulnerableApp, Semgrep run offline as the yardstick. Yardstick recorded in [STATE.md](STATE.md) (Semgrep 1.183.0, pack `p/java`, 2026-11-01: 12 SQL-injection findings). The earlier figure came from rules partly fitted to VulnerableApp and overstates generality. | 2 | The gate |
 | 4 | Scan comparison (B-5): new, fixed and still-open issues, from stored runs and the dedupe key | 7 | Two stored runs compared |
 | 5 | Session manager. Moves to `BS6` if kickoff shows the app needs a login. | 4 | Auth-gated routes reached on a fixture run |
 | 6 | Supplemental ZAP passive alert ingestion (not a verdict owner) | 4 | Alerts stored, verdicts unchanged |
