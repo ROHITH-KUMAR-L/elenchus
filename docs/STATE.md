@@ -55,7 +55,7 @@ Config names and default values live in the Config reference in `docs/architectu
 |---|---|---|---|
 | M1 spine | `BS0` to `BS5` | PASSED | M1 gate cleared on 2026-11-01. Exit tests below. |
 | M2 core | `BS6` to `BS9` | PASSED | M2 gate cleared 2026-11-01 (judging rehearsal, 3:35). Exit tests below. |
-| M3 extras | `BS10` | not started | None |
+| M3 extras | `BS10` | done | `BS10a`-`j` complete; live run §5. M3 is a Should list, not a gated milestone. |
 
 Current build stage: `BS11` Could list complete (`BS11a`-`h`). Pipeline follow-ups are listed in section 9.
 

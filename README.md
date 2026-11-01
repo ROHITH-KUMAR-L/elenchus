@@ -79,7 +79,7 @@ Work is built in stages, each with an exit test. Details: [docs/implementation-p
 | `BS6` to `BS9` | M2 core | All four classes, scheduler, `safe_pattern` and adequacy logic, suppressed file, coverage report, secrets pass, header and cookie checks, benchmark adapter, measurement, judging profile, generality checks |
 | `BS10` | M3 extras | Path traversal, back-guided search, own flow engine, scan comparison, session manager, AI items |
 
-None has passed. Status and evidence: [docs/STATE.md](docs/STATE.md).
+M1 and M2 passed; the M3 `BS10` Should list is done. Status and evidence: [docs/STATE.md](docs/STATE.md).
 
 ## 7. Getting started
 

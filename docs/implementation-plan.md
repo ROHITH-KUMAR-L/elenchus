@@ -1,6 +1,6 @@
 # Implementation plan
 
-Status: plan for the target architecture in [architecture.md](architecture.md). This revision does not claim that anything is built, tested or measured. No benchmark results are recorded here.
+Status: this is the build-stage plan. What is actually built, tested and measured is recorded in [STATE.md](STATE.md), not here; keep benchmark results there. As of 2026-11-01, M1 and M2 passed and the M3 `BS10` Should list is done.
 
 Time is not a constraint. Work is ordered by dependency. The plan is split into **build stages**, not between people. Anyone can pick up the current build stage.
 
