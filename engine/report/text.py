@@ -134,14 +134,14 @@ def render_summary(issues: list[Issue], console: Console) -> None:
     table.add_column("Status", no_wrap=True)
     table.add_column("CWE", justify="right", no_wrap=True)
     table.add_column("Finding", overflow="fold")
-    table.add_column("Route / input", overflow="fold")
+    table.add_column("Runtime endpoint", overflow="fold")
+    table.add_column("Trigger input", overflow="fold")
     table.add_column("Severity", no_wrap=True)
     table.add_column("Risk", justify="right", no_wrap=True)
     table.add_column("Confidence", justify="right", no_wrap=True)
     for issue in sorted(visible, key=lambda item: (item.cwe, *_summary_priority(item))):
-        location = f"{issue.method or 'any'} {issue.route or 'application-wide'}"
-        if issue.param:
-            location += f"  ·  {issue.param}"
+        endpoint = _runtime_endpoint(issue)
+        parameter = _runtime_parameter(issue)
         severity_style = _SEVERITY_STYLE.get(issue.severity.casefold(), "dim")
         status_style = _LABEL_STYLE.get(issue.label, "dim")
         confidence = f"{issue.confidence:.2f}" if issue.confidence is not None else "n/a"
@@ -149,12 +149,45 @@ def render_summary(issues: list[Issue], console: Console) -> None:
             Text(issue.label, style=status_style),
             Text(f"CWE-{issue.cwe}"),
             Text(issue.type),
-            Text(location),
+            Text(endpoint),
+            Text(parameter),
             Text(issue.severity, style=severity_style),
             Text(_risk_text(issue)),
             Text(confidence),
         )
     console.print(table)
+    path_table = Table(box=None, expand=True, header_style="bold")
+    path_table.add_column("Endpoint", overflow="fold")
+    path_table.add_column("Trigger input", overflow="fold")
+    path_table.add_column("Route-to-sink path", overflow="fold")
+    has_runtime = False
+    for issue in visible:
+        if not issue.dast_findings:
+            continue
+        has_runtime = True
+        paths = _route_to_sink_paths(issue)
+        if not paths:
+            path_table.add_row(
+                Text(_runtime_endpoint(issue)),
+                Text(_runtime_parameter(issue)),
+                Text("No linked static path available", style="dim"),
+            )
+        for sink, chain in paths:
+            path_table.add_row(
+                Text(_runtime_endpoint(issue)),
+                Text(_runtime_parameter(issue)),
+                Text(f"{chain} -> sink {sink}"),
+            )
+    if has_runtime:
+        console.print(
+            Panel(
+                path_table,
+                title="Runtime reachability",
+                subtitle="Indexed paths are static candidates; runtime evidence confirms route/input/CWE, not the exact sink.",
+                border_style="blue",
+                expand=False,
+            )
+        )
     console.print("[dim]Choose raw output for evidence, source locations, and link details.[/]")
 
 
@@ -177,13 +210,13 @@ def _summary_issue(issue: Issue) -> list[str]:
             f"  - {issue.label} | {issue.type} | {issue.method or 'any method'} "
             f"{issue.route or 'application-wide'}"
         ),
-        (
-            f"    Parameter: {issue.param or 'none'} | Severity: {issue.severity} | "
-            f"Risk: {_risk_text(issue)} | Confidence: {confidence}"
-        ),
+        f"    Runtime endpoint: {_runtime_endpoint(issue)}",
+        f"    Trigger input: {_runtime_parameter(issue)}",
+        f"    Severity: {issue.severity} | Risk: {_risk_text(issue)} | Confidence: {confidence}",
         f"    Evidence: {_summary_evidence(issue)}",
         f"    Source: {location}",
     ]
+    lines.extend(_route_to_sink_path_lines(issue, "    "))
     notes = issue.ai_notes or {}
     fix = notes.get("fix")
     if fix:
@@ -216,6 +249,70 @@ def _summary_evidence(issue: Issue) -> str:
     return "; ".join(evidence) if evidence else "no evidence details recorded"
 
 
+def _runtime_endpoint(issue: Issue) -> str:
+    if issue.route is None:
+        return "not recorded"
+    return f"{issue.method or 'any method'} {issue.route}"
+
+
+def _runtime_parameter(issue: Issue) -> str:
+    if issue.param is None:
+        return "not identified"
+    probe = next(
+        (
+            finding
+            for finding in issue.dast_findings
+            if finding.param == issue.param and finding.param_location is not None
+        ),
+        None,
+    )
+    if probe is None:
+        return f"{issue.param} (location not recorded)"
+    if probe.param_location == "path":
+        return f"path parameter '{issue.param}'"
+    if probe.param_location == "query":
+        return f"query parameter '{issue.param}'"
+    if probe.param_location == "body":
+        field = probe.param_path or issue.param
+        return f"request body field '{field}'"
+    return f"{probe.param_location} parameter '{issue.param}'"
+
+
+def _route_to_sink_path_lines(issue: Issue, indent: str) -> list[str]:
+    paths = _route_to_sink_paths(issue)
+    if not paths:
+        if issue.dast_findings:
+            return [f"{indent}Indexed route-to-sink path: unavailable (no linked static path)."]
+        return []
+    lines = [f"{indent}Indexed route-to-sink path (static, not a runtime trace):"]
+    for sink, chain in paths:
+        lines.append(f"{indent}  {chain} -> sink {sink}")
+    return lines
+
+
+def _route_to_sink_paths(issue: Issue) -> list[tuple[str, str]]:
+    paths: list[tuple[str, str]] = []
+    for finding in issue.sast_findings:
+        for entry in finding.entry_paths or ():
+            if issue.route is not None and entry.route != issue.route:
+                continue
+            if issue.method is not None and entry.method != issue.method:
+                continue
+            chain = " -> ".join(
+                f"{hop.method} ({hop.file}:{hop.line})" if hop.file else f"{hop.method} (unresolved)"
+                for hop in entry.call_chain
+            )
+            sink = (
+                f"{finding.sink_id.file}:{finding.sink_id.start_line}"
+                if finding.sink_id is not None
+                else f"{finding.file}:{finding.line}"
+            )
+            item = (sink, chain)
+            if chain and item not in paths:
+                paths.append(item)
+    return paths
+
+
 def _summary(issues: list[Issue], color: bool) -> list[str]:
     labels = Counter(issue.label for issue in issues)
     by_cwe = Counter(f"CWE-{issue.cwe}" for issue in issues if issue.label == "Confirmed")
@@ -242,10 +339,11 @@ def _issue_block(index: int, issue: Issue, color: bool) -> list[str]:
     lines = [
         "",
         f"{index}. {label} | CWE-{issue.cwe} {issue.type} | risk {risk} | {location}",
-        f"   Route: {issue.method or 'any method'} {issue.route or 'application-wide'}",
-        f"   Parameter: {issue.param or 'none'}",
+        f"   Runtime endpoint: {_runtime_endpoint(issue)}",
+        f"   Trigger input: {_runtime_parameter(issue)}",
         f"   Severity: {severity} | Confidence: {confidence} | Link: {link}",
     ]
+    lines.extend(_route_to_sink_path_lines(issue, "   "))
     if issue.link_origin:
         lines.append(f"   Link origin: {issue.link_origin}")
     if issue.conflict:

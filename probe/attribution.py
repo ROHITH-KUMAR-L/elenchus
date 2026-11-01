@@ -27,6 +27,8 @@ class Attribution:
     param: str
     cwe: int
     rule_id: str
+    param_location: str
+    param_path: str | None = None
 
 
 def header_value(request_header: str, name: str) -> str | None:
@@ -97,6 +99,16 @@ def _param_name(key: str) -> str:
     return key
 
 
+def _param_location(key: str) -> str:
+    if key.startswith("query."):
+        return "query"
+    if key.startswith("path["):
+        return "path"
+    if key.startswith(("form.", "json.")) or key == "body":
+        return "body"
+    raise ValueError(f"unrecognized request parameter key: {key}")
+
+
 def attribute(
     request_header: str,
     request_body: str,
@@ -117,4 +129,10 @@ def attribute(
     changed = changed_keys(seed_values, request_values(request_header, request_body))
     if len(changed) != 1:
         return None
-    return Attribution(param=_param_name(changed[0]), cwe=rule_cwes[rule_id], rule_id=rule_id)
+    key = changed[0]
+    return Attribution(
+        param=_param_name(key),
+        cwe=rule_cwes[rule_id],
+        rule_id=rule_id,
+        param_location=_param_location(key),
+    )

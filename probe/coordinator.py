@@ -266,6 +266,8 @@ class _Candidate:
     payload: str
     rule_id: str
     message_id: str
+    param_location: str | None = None
+    param_path: str | None = None
 
 
 class Coordinator:
@@ -528,7 +530,15 @@ class Coordinator:
                 key = (found.param, found.cwe)
                 candidates.setdefault(
                     key,
-                    _Candidate(found.param, found.cwe, attack, found.rule_id, message_id),
+                    _Candidate(
+                        found.param,
+                        found.cwe,
+                        attack,
+                        found.rule_id,
+                        message_id,
+                        found.param_location,
+                        found.param_path,
+                    ),
                 )
 
         findings = [
@@ -635,6 +645,8 @@ class Coordinator:
                 "route": job.route,
                 "method": job.method,
                 "param": candidate.param,
+                "param_location": candidate.param_location,
+                "param_path": candidate.param_path,
                 "payload": candidate.payload,
                 "hypothesis_id": single,
                 "evidence": evidence,
@@ -799,6 +811,7 @@ class Coordinator:
                 "route": job.route,
                 "method": job.method,
                 "param": param,
+                "param_location": "query",
                 "payload": payload,
                 "hypothesis_id": single,
                 "evidence": [
@@ -877,6 +890,7 @@ class Coordinator:
                 "route": job.route,
                 "method": job.method,
                 "param": param,
+                "param_location": "query",
                 "payload": payload,
                 "hypothesis_id": single,
                 "evidence": [
@@ -958,6 +972,7 @@ class Coordinator:
                 "route": job.route,
                 "method": job.method,
                 "param": param,
+                "param_location": "query",
                 "payload": payload,
                 "hypothesis_id": single,
                 "evidence": [

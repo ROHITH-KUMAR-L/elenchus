@@ -155,6 +155,10 @@ One command runs the whole pipeline against the running target and its source:
    The summary uses current issue fields and any existing AI advisory notes; it
    does not make an AI request, and advisory remediation text is marked
    unverified. When output is piped, the raw report is the default.
+   Runtime findings show the HTTP endpoint and the identified query, path, or
+   body parameter when the request evidence records its location. Where static
+   indexing provides a route-to-sink call path, the report labels it as an
+   indexed candidate path, not a runtime trace or proof of the exact sink.
 
    Select text output explicitly with `--output-mode raw|summary|both`.
    `--output-format json` skips the prompt. `--sarif-output <file>` writes

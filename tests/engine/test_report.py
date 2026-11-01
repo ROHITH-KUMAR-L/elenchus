@@ -77,7 +77,7 @@ class ReportTests(unittest.TestCase):
 
         self.assertIn("CWE-79 (1 issue(s))", report)
         self.assertIn("GET /search", report)
-        self.assertIn("Parameter: q", report)
+        self.assertIn("Trigger input: q (location not recorded)", report)
         self.assertIn("Risk: 55/100", report)
         self.assertIn("Evidence: ORACLE (reflected_marker); payload <script>", report)
         self.assertIn(
@@ -134,6 +134,105 @@ class ReportTests(unittest.TestCase):
         self.assertIn("82/100", rendered)
         self.assertIn("0.90", rendered)
         self.assertIn("raw output for evidence", rendered)
+
+    def test_runtime_report_shows_endpoint_input_and_static_route_to_sink_path(self):
+        sast = Finding.from_dict(
+            {
+                "run_id": "test-run",
+                "source": "sast",
+                "provenance": "own",
+                "cwe": 89,
+                "type": "SQL Injection",
+                "route": "/lookup/{id}",
+                "method": "GET",
+                "file": "src/Query.java",
+                "line": 24,
+                "sink_id": {
+                    "file": "src/Query.java",
+                    "enclosing_method": "Query.find",
+                    "start_line": 24,
+                    "start_col": 8,
+                },
+                "entry_paths": [
+                    {
+                        "route": "/lookup/{id}",
+                        "method": "GET",
+                        "hops": 1,
+                        "call_chain": [
+                            {"method": "LookupController.get", "file": "src/LookupController.java", "line": 12},
+                            {"method": "Query.find", "file": "src/Query.java", "line": 24},
+                        ],
+                    }
+                ],
+                "severity": "high",
+                "evidence": [],
+            }
+        )
+        dast = Finding.from_dict(
+            {
+                **dast_record().to_dict(),
+                "cwe": 89,
+                "type": "SQL Injection",
+                "route": "/lookup/{id}",
+                "method": "GET",
+                "param": "term",
+                "param_location": "query",
+            }
+        )
+        issue = Issue(
+            issue_key="runtime-query",
+            label="Confirmed",
+            cwe=89,
+            type="SQL Injection",
+            severity="high",
+            risk_score=80.0,
+            route="/lookup/{id}",
+            method="GET",
+            param="term",
+            sink=sast.sink_id,
+            file=sast.file,
+            line=sast.line,
+            sast_findings=(sast,),
+            dast_findings=(dast,),
+        )
+
+        report = format_text([issue])
+        terminal = StringIO()
+        render_summary([issue], Console(file=terminal, width=140, no_color=True))
+
+        self.assertIn("Runtime endpoint: GET /lookup/{id}", report)
+        self.assertIn("Trigger input: query parameter 'term'", report)
+        self.assertIn("LookupController.get (src/LookupController.java:12)", report)
+        self.assertIn("static, not a runtime trace", report)
+        self.assertIn("query parameter 'term'", terminal.getvalue())
+        self.assertIn("Query.find (src/Query.java:24)", terminal.getvalue())
+
+    def test_runtime_parameter_report_identifies_path_parameters(self):
+        path_finding = replace(
+            dast_record(),
+            route="/orders/{orderId}",
+            param="orderId",
+            param_location="path",
+        )
+        issue = replace(
+            correlate([path_finding])[0],
+            route="/orders/{orderId}",
+            method="GET",
+        )
+
+        self.assertIn(
+            "Trigger input: path parameter 'orderId'",
+            format_text([issue]),
+        )
+
+    def test_unlinked_runtime_hit_says_static_code_path_is_unavailable(self):
+        issue = correlate([dast_record()])[0]
+
+        report = format_text([issue])
+
+        self.assertIn("Runtime endpoint: GET /search", report)
+        self.assertIn("Trigger input: q (location not recorded)", report)
+        self.assertIn("Indexed route-to-sink path: unavailable", report)
 
     def test_text_and_sarif_expose_conflict_and_flaky_hints(self) -> None:
         candidate = SinkId("src/Query.java", "Query.run", 8, 2)

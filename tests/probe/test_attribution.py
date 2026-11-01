@@ -36,7 +36,9 @@ def attribute_get(target, **kw):
 
 
 def test_one_changed_query_param_attributes_to_param_and_cwe():
-    assert attribute_get(f"{BASE}?id=1'") == Attribution(param="id", cwe=89, rule_id="40018")
+    assert attribute_get(f"{BASE}?id=1'") == Attribution(
+        param="id", cwe=89, rule_id="40018", param_location="query"
+    )
 
 
 def test_missing_probe_header_is_dropped():
@@ -82,7 +84,30 @@ def test_json_body_field_attributes_by_name():
         post, '{"email": "a@b.test\' or 1=1", "action": "request"}',
         seed_path=path, seed_values=seed, canary="elx-job1", rule_cwes=RULE_CWES,
     )
-    assert attribution == Attribution(param="email", cwe=89, rule_id="40018")
+    assert attribution == Attribution(
+        param="email", cwe=89, rule_id="40018", param_location="body"
+    )
+
+
+def test_form_body_param_is_reported_as_body_location():
+    post = (
+        "POST /search HTTP/1.1\r\nHost: localhost\r\n"
+        "X-Elenchus-Probe: elx-job1\r\nX-ZAP-Scan-ID: 40018\r\n\r\n"
+    )
+    seed = request_values(post, "query=one")
+
+    attribution = attribute(
+        post,
+        "query=one%27",
+        seed_path="/search",
+        seed_values=seed,
+        canary="elx-job1",
+        rule_cwes=RULE_CWES,
+    )
+
+    assert attribution == Attribution(
+        param="query", cwe=89, rule_id="40018", param_location="body"
+    )
 
 
 def test_header_value_and_request_path_helpers():

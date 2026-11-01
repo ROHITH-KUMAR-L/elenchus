@@ -118,6 +118,7 @@ def test_reproduced_hit_becomes_one_confirmed_finding_with_lineage():
     assert len(sqli) == 1
     finding = sqli[0]
     assert (finding.source, finding.cwe, finding.param) == ("dast", 89, "id")
+    assert finding.param_location == "query"
     assert finding.hypothesis_id == hypothesis().hypothesis_id
     assert finding.detail("fired") == 2
     assert finding.detail("hypothesis_ids") == [hypothesis().hypothesis_id]
