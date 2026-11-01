@@ -2,7 +2,7 @@
 
 ## 1. Last updated
 
-2026-11-01. M1, M2 cleared; `BS10` Should list done (`a`-`j`). Four vuln classes confirmed live on VulnerableApp: CWE-89, CWE-78, CWE-79, CWE-601 (see §7) + static secrets/crypto (798/327/330). Gaps closed: timing wired (off), Semgrep yardstick recorded, CWE-22 explained. CLI: `--source-image`, `--config`, colorized report; AI config env-only. `BS11a`-`BS11g` implementation complete; `BS11h` external-directory end-to-end validation remains. Focused CLI/report tests, Ruff, Pylance diagnostics, help, output-mode, `NO_COLOR`, and `--no-progress` checks passed.
+2026-11-01. M1, M2 cleared; `BS10` Should list done (`a`-`j`). Four vuln classes confirmed live on VulnerableApp: CWE-89, CWE-78, CWE-79, CWE-601 (see §7) + static secrets/crypto (798/327/330). Gaps closed: timing wired (off), Semgrep yardstick recorded, CWE-22 explained. CLI: `--source-image`, `--config`, colorized report; AI config env-only. `BS11a`-`BS11h` complete. Full suite: 392 passed; Ruff clean. Installed CLI run from `/tmp` with progress and summary menu; 39 issue records across 8 CWE groups. Probe: 206.351s, 200 jobs attempted (7 finished, 193 budget-skipped), attribution 0.967, header propagation 1.000, no drift or foreign hosts. Used a separate ZAP on port 8091; existing ZAP remained unchanged.
 
 ## 2. Architecture
 
@@ -57,7 +57,7 @@ Config names and default values live in the Config reference in `docs/architectu
 | M2 core | `BS6` to `BS9` | PASSED | M2 gate cleared 2026-11-01 (judging rehearsal, 3:35). Exit tests below. |
 | M3 extras | `BS10` | not started | None |
 
-Current build stage: `BS10` Should list complete (`BS10a`-`j`). Gaps to close (section 9), then `BS11` Could list.
+Current build stage: `BS11` Could list complete (`BS11a`-`h`). Pipeline follow-ups are listed in section 9.
 
 ## 5. Done
 
@@ -98,6 +98,7 @@ Current build stage: `BS10` Should list complete (`BS10a`-`j`). Gaps to close (s
 | `BS10j` | `uv run --locked pytest -q tests/ai` | 22 passed (whole `tests/ai`). Advisory AI: `ai/advisor.annotate` attaches fix text (B-4) and link explanations (B-3) to `Issue.ai_notes` only — a test asserts the issue is byte-identical apart from `ai_notes`. `ai/seeds.propose_seed` proposes DTO field values with up to 3 repairs. Wired into the CLI (`_apply_ai_advice`) and the text report; no-op when AI off. Integration test: a with/without run over real correlation shows 0 link regression. No live AI call made. |
 
 | `BS10` live | `ZAP_API_KEY=.. ELENCHUS_BASE_URL=.. uv run python scripts/bs10_live_check.py`; full `elenchus scan` | 4 classes confirmed live on VulnerableApp: CWE-89 9/9 + CWE-78 in a full scan (attribution 0.957, loopback-only, 117 passive alerts); CWE-78/79/601 all PASS in the class check (`1;id`→uid; `<elx-..>` reflected; 302→external). CLI `--source-image`/`--config`/colorized report unit-tested. 372 tests pass, ruff clean. |
+| `BS11a-h` | `uv run --locked pytest -q`; `uv run --locked ruff check .`; installed `elenchus scan` from `/tmp` with the local VulnerableApp and a separate ZAP on port 8091 | 392 tests passed; Ruff passed. E2E exited 0, rendered terminal progress and the output menu, and displayed the grouped summary after selection. 39 issue records across 8 CWE groups; probe 206.351s, 7/200 jobs finished, 193 budget-skipped, attribution 0.967, header propagation 1.000, no drift or foreign hosts. Existing ZAP was unchanged and the temporary ZAP/key were removed. JSON/SARIF prompt bypass covered by CLI tests. |
 
 Live Postgres `compare` verified 2026-11-01: two real `correlate()` runs stored via `PostgresStore.save_run`, read back with `read_run_issues`, `compare_runs` → fixed 1 (LegacyDao), still-open 1 (Code-only→Confirmed). Postgres from `infra/compose.yaml`.
 
@@ -109,7 +110,7 @@ Semgrep yardstick (recorded 2026-11-01): Semgrep 1.183.0, public pack `p/java` a
 
 ## 6. Not done, in dependency order
 
-`BS0`-`BS9` passed (M1, M2). `BS10` complete. CLI follow-on `BS11a`-`BS11g` is implemented and targeted validation passed. Next: `BS11h` end-to-end validation from outside the repository. No detection or correlation changes are in scope.
+`BS0`-`BS9` passed (M1, M2). `BS10` and CLI follow-on `BS11a`-`BS11h` complete. No detection or correlation changes were made for the CLI work.
 
 ## 7. Known failures and residual flaws
 
@@ -141,7 +142,7 @@ Semgrep yardstick (recorded 2026-11-01): Semgrep 1.183.0, public pack `p/java` a
 
 ## 9. Next action
 
-`BS10` complete; pipeline follow-ups: improve sweep throughput, live `compare` via Postgres, test session manager against an auth app, and measure AI with/without. CLI output work `BS11a`-`BS11g` is implemented. Next: validate invocation from outside the repository, progress and output modes on a localhost target, plus JSON/SARIF noninteractive behavior. Preserve no-new-AI-call summary behavior.
+`BS10` and `BS11a`-`BS11h` complete. Pipeline follow-ups: improve sweep throughput, live `compare` via Postgres, test session manager against an auth app, and measure AI with/without. The CLI validation used a separate local ZAP service because the existing API listener was previously unresponsive; it did not alter that service. Summary formatting remains deterministic and makes no additional AI call.
 
 ## 10. Resume instructions
 
