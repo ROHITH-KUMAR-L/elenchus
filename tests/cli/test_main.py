@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import contextlib
 import io
 import json
@@ -10,9 +11,17 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.main import _apply_adequacy, _apply_conflict_resolution, _PipelineOutput, main
+from cli.main import (
+    _apply_adequacy,
+    _apply_conflict_resolution,
+    _interactive_output_mode,
+    _PipelineOutput,
+    _write_report,
+    main,
+)
 from common.pipeline import hypothesis_id
 from common.record import Finding, SinkId
+from engine.correlate import correlate
 from engine.correlate.models import Issue
 from probe.coordinator import ProbeAdequacy
 
@@ -294,6 +303,80 @@ class CliTests(unittest.TestCase):
 
         self.assertTrue(progress.disable)
         self.assertTrue(progress.console.no_color)
+
+    def test_output_mode_flag_is_parsed(self) -> None:
+        from cli.main import _build_parser
+
+        args = _build_parser().parse_args(
+            ["correlate", "--dast", "findings.json", "--output-mode", "both"]
+        )
+
+        self.assertEqual(args.output_mode, "both")
+
+    def test_interactive_output_mode_uses_menu_only_for_terminal_text(self) -> None:
+        args = argparse.Namespace(output_format="text", sarif_output=None, output_mode=None)
+        errors = io.StringIO()
+        with (
+            patch("cli.main.sys.stdin") as stdin,
+            patch("cli.main.sys.stdout") as stdout,
+            patch("builtins.input", return_value="2"),
+            contextlib.redirect_stderr(errors),
+        ):
+            stdin.isatty.return_value = True
+            stdout.isatty.return_value = True
+            self.assertEqual(_interactive_output_mode(args), "summary")
+        self.assertIn("View grouped summary", errors.getvalue())
+
+    def test_interactive_menu_can_select_sarif_for_stdout(self) -> None:
+        args = argparse.Namespace(output_format="text", sarif_output=None, output_mode=None)
+        with (
+            patch("cli.main.sys.stdin") as stdin,
+            patch("cli.main.sys.stdout") as stdout,
+            patch("builtins.input", return_value="3"),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            stdin.isatty.return_value = True
+            stdout.isatty.return_value = True
+            self.assertEqual(_interactive_output_mode(args), "sarif")
+
+    def test_structured_output_skips_interactive_menu(self) -> None:
+        args = argparse.Namespace(output_format="json", sarif_output=None, output_mode=None)
+        with patch("builtins.input", side_effect=AssertionError("menu must be skipped")):
+            self.assertEqual(_interactive_output_mode(args), "raw")
+
+    def test_sarif_file_output_skips_interactive_menu(self) -> None:
+        args = argparse.Namespace(
+            output_format="text",
+            sarif_output="report.sarif",
+            output_mode=None,
+        )
+        with patch("builtins.input", side_effect=AssertionError("menu must be skipped")):
+            self.assertEqual(_interactive_output_mode(args), "raw")
+
+    def test_piped_output_defaults_to_raw_without_prompt(self) -> None:
+        args = argparse.Namespace(output_format="text", sarif_output=None, output_mode=None)
+        with (
+            patch("cli.main.sys.stdin") as stdin,
+            patch("cli.main.sys.stdout") as stdout,
+            patch("builtins.input", side_effect=AssertionError("menu must be skipped")),
+        ):
+            stdin.isatty.return_value = False
+            stdout.isatty.return_value = False
+            self.assertEqual(_interactive_output_mode(args), "raw")
+
+    def test_report_mode_can_print_summary_or_both(self) -> None:
+        issue = correlate([Finding.from_dict(sast_record())])[0]
+        output = io.StringIO()
+
+        with contextlib.redirect_stdout(output):
+            _write_report([issue], "text", "summary")
+        self.assertIn("grouped summary (deterministic)", output.getvalue())
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            _write_report([issue], "text", "both")
+        self.assertIn("Issue key:", output.getvalue())
+        self.assertIn("grouped summary (deterministic)", output.getvalue())
 
     def test_correlate_reads_records_writes_json_and_sarif(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

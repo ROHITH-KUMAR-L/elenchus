@@ -150,7 +150,24 @@ One command runs the whole pipeline against the running target and its source:
      --base-url http://127.0.0.1:9090/VulnerableApp --no-store
    ```
 
-   Options: `--judging` (competition profile, <5 min, AI/Semgrep off), `--config <file.toml>` (tune budgets and other [Config reference](docs/architecture.md#config-reference) keys), `--sarif-output <file>` (SARIF, B-6), `--ci` (exit 1 on a Confirmed high/critical issue), `--output-format json`. Omit `--no-store` to persist; start Postgres and set `DATABASE_URL` (see [infra/README.md](infra/README.md)).
+   In an interactive terminal, the CLI offers the raw report, a deterministic
+   grouped summary, or SARIF JSON on stdout. Enter selects the raw report.
+   The summary uses current issue fields and any existing AI advisory notes; it
+   does not make an AI request, and advisory remediation text is marked
+   unverified. When output is piped, the raw report is the default.
+
+   Select text output explicitly with `--output-mode raw|summary|both`.
+   `--output-format json` skips the prompt. `--sarif-output <file>` writes
+   SARIF alongside the selected report and skips the prompt;
+   `--sarif-output -` writes SARIF to stdout instead. Rich progress is shown
+   only in a terminal, can be disabled with `--no-progress`, and honors
+   `NO_COLOR`.
+
+   Other options: `--judging` (competition profile, <5 min, AI/Semgrep off),
+   `--config <file.toml>` (tune budgets and other [Config reference](docs/architecture.md#config-reference)
+   keys), `--ci` (exit 1 on a Confirmed high/critical issue). Omit `--no-store`
+   to persist; start Postgres and set `DATABASE_URL` (see
+   [infra/README.md](infra/README.md)).
 
 3. Compare two stored runs (B-5): `uv run --locked elenchus compare --base <run_id> --current <run_id>`.
 

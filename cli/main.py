@@ -27,7 +27,13 @@ from rich.progress import (
 from common.config import load_config
 from common.record import EvidenceEntry, Finding, ScanTarget
 from engine.correlate import Issue, correlate
-from engine.report import build_coverage_report, format_comparison, format_text, to_sarif
+from engine.report import (
+    build_coverage_report,
+    format_comparison,
+    format_summary,
+    format_text,
+    to_sarif,
+)
 
 
 @dataclass(frozen=True)
@@ -133,7 +139,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             sarif_issues = issues if config["export.include_suppressed"] else primary_issues
             print(json.dumps(to_sarif(sarif_issues), indent=2, sort_keys=True))
         else:
-            _write_report(primary_issues, args.output_format)
+            output_mode = _interactive_output_mode(args)
+            if output_mode == "sarif":
+                sarif_issues = issues if config["export.include_suppressed"] else primary_issues
+                print(json.dumps(to_sarif(sarif_issues), indent=2, sort_keys=True))
+            else:
+                _write_report(primary_issues, args.output_format, output_mode)
         if args.sarif_output and args.sarif_output != "-":
             sarif_issues = issues if config["export.include_suppressed"] else primary_issues
             _write_json(Path(args.sarif_output), to_sarif(sarif_issues))
@@ -257,6 +268,11 @@ def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
         choices=("text", "json"),
         default="text",
         help="report format (default: text)",
+    )
+    parser.add_argument(
+        "--output-mode",
+        choices=("raw", "summary", "both"),
+        help="text output mode (default: choose interactively on a terminal, raw otherwise)",
     )
     parser.add_argument(
         "--sarif-output",
@@ -673,13 +689,44 @@ def _read_records(path: Path) -> list[dict[str, Any]]:
     return content
 
 
-def _write_report(issues: list[Issue], output_format: str) -> None:
+def _interactive_output_mode(args: argparse.Namespace) -> str:
+    if args.output_format == "json" or args.sarif_output == "-":
+        return "raw"
+    if args.output_mode is not None:
+        return args.output_mode
+    if args.sarif_output or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return "raw"
+
+    print("Choose report output:", file=sys.stderr)
+    print("  1. View raw report", file=sys.stderr)
+    print("  2. View grouped summary (deterministic)", file=sys.stderr)
+    print("  3. Export SARIF to stdout", file=sys.stderr)
+    print("Select (1-3) or press Enter for raw:", file=sys.stderr)
+    choices = {"": "raw", "1": "raw", "2": "summary", "3": "sarif"}
+    while True:
+        try:
+            selection = input().strip()
+        except EOFError:
+            print("No selection received; using raw report.", file=sys.stderr)
+            return "raw"
+        if selection in choices:
+            return choices[selection]
+        print("Choose 1, 2, 3, or press Enter for raw.", file=sys.stderr)
+
+
+def _write_report(
+    issues: list[Issue], output_format: str, output_mode: str = "raw"
+) -> None:
     if output_format == "json":
         output = json.dumps(
             {"issues": [issue.to_dict() for issue in issues]},
             indent=2,
             sort_keys=True,
         )
+    elif output_mode == "summary":
+        output = format_summary(issues)
+    elif output_mode == "both":
+        output = f"{format_text(issues)}\n\n{format_summary(issues)}"
     else:
         output = format_text(issues)
     print(output)
