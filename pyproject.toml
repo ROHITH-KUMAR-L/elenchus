@@ -22,7 +22,7 @@ semgrep = [
 ]
 
 [project.scripts]
-elenchus = "cli.main:main"
+elenchus = "cli.main:cli_entry"
 
 [dependency-groups]
 dev = [

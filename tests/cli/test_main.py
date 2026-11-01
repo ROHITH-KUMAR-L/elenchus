@@ -267,6 +267,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertIn("base URL is required", errors.getvalue())
 
+    def test_cli_entry_loads_dotenv_but_main_does_not(self) -> None:
+        from cli.main import cli_entry
+
+        with patch("cli.main.main", return_value=0) as inner, patch(
+            "common.envfile.load_env_file", return_value=["X"]
+        ) as loader:
+            self.assertEqual(cli_entry(["correlate", "--dast", "f.json"]), 0)
+        loader.assert_called_once()
+        inner.assert_called_once_with(["correlate", "--dast", "f.json"])
+
     def test_judging_flag_is_parsed(self) -> None:
         from cli.main import _build_parser
 

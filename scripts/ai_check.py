@@ -1,7 +1,8 @@
 """Verify the AI side-channel credentials without running a scan.
 
-Reads the base URL, key and model from the environment (or .env via your shell),
-reports whether the client is configured and the task is enabled, and — only when
+Reads the base URL, key and model from the environment (a project .env is loaded
+automatically), reports whether the client is configured and the task is enabled,
+and — only when
 configured — makes one real minimal call to the endpoint and reports success,
 latency and any error. No scan, no target, no ZAP.
 
@@ -21,6 +22,7 @@ import time
 
 from ai.client import AiClient
 from common.config import load_config
+from common.envfile import load_env_file
 
 _TASK = "catalogue_proposer"
 _PING_SCHEMA = {"type": "object", "required": ["ok"], "properties": {"ok": {"type": "boolean"}}}
@@ -28,6 +30,7 @@ _PING_PROMPT = 'Reply only with the JSON object {"ok": true}.'
 
 
 def main() -> int:
+    load_env_file()  # pick up a project .env, as the CLI does
     # Enable AI for the check itself so `available()` reflects credentials, not the
     # default-off switch. A real scan still needs ai.enabled in its own config.
     config = load_config(

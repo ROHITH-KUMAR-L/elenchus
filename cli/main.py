@@ -902,5 +902,15 @@ def _write_json(path: Path, content: dict[str, Any]) -> None:
     path.write_text(json.dumps(content, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def cli_entry(argv: Sequence[str] | None = None) -> int:
+    """Console-script entry point. Loads a project .env (real env vars still win),
+    then runs main(). main() itself stays free of this so tests do not pick up a
+    developer's .env."""
+    from common.envfile import load_env_file
+
+    load_env_file()
+    return main(argv)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(cli_entry())
