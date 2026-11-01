@@ -296,6 +296,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
     Static findings carry their own status (untested, no_http_path, ...); probe
     findings carry ORACLE evidence and lineage. Correlation links the two.
     """
+    from cli.zap_setup import ensure_zap_api_available, load_or_create_zap_api_key
     from probe.coordinator import Coordinator, plan_directed_jobs, plan_sweep_jobs
     from probe.oracles import ORACLES
     from probe.preflight import check_loopback, detect_context_path, probe_extras
@@ -319,7 +320,10 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
         sweep, index.routes, run_id
     )
     context = detect_context_path(args.source_path, args.base_url)
-    api = ZapApi.from_environment()
+    api_url = os.environ.get("ZAP_API_URL", config["zap.api_url"])
+    api_key = load_or_create_zap_api_key(config["zap.api_key"])
+    api = ZapApi(api_url, api_key)
+    ensure_zap_api_available(api, api_url, api_key)
     preflight_extras = probe_extras(api, args.base_url).to_dict()
     coordinator = Coordinator(
         api,

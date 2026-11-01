@@ -1,8 +1,8 @@
 # OWASP ZAP, the active probe engine. Separate from compose.yaml so it starts
 # without Postgres credentials.
 #
-#   export ZAP_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-#   docker compose -f infra/zap.compose.yaml up -d
+# The CLI stores the API key in ~/.elenchus/zap.key and supplies it when it
+# starts this service. Manual Compose starts must provide ZAP_API_KEY.
 #
 # Host networking reaches the target at localhost:<port> without joining its
 # Docker network. The API binds to 127.0.0.1 only. Never change that host.
