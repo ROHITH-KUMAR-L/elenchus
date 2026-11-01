@@ -2,7 +2,7 @@
 
 ## 1. Last updated
 
-2026-11-01. M1 and M2 cleared. `BS10a`-`d` done. `BS10e`-`j` done (all of the M3 Should list): scan comparison (B-5), session manager, passive ingestion, preflight extras, AI with/without harness + client, advisory AI (fix text, link explanations, DTO seeds). See Done table. 358 tests pass, 3 skipped, ruff clean. All AI off by default and in judging. Local ZAP and VulnerableApp run from `infra/`.
+2026-11-01. M1, M2 cleared; `BS10` Should list done (`a`-`j`). Four vuln classes confirmed live on VulnerableApp: CWE-89, CWE-78, CWE-79, CWE-601 (see §7) + static secrets/crypto (798/327/330). Gaps closed: timing wired (off), Semgrep yardstick recorded, CWE-22 explained. CLI: `--source-image` (scan a Docker image/container), `--config`, colorized report; AI config env-only (optional). 372 tests pass, ruff clean. ZAP+VulnerableApp run from `infra/`.
 
 ## 2. Architecture
 
@@ -90,14 +90,16 @@ Current build stage: `BS10` Should list complete (`BS10a`-`j`). Gaps to close (s
 | `BS9` | **M2 gate:** `elenchus scan --judging --source-path .targets/VulnerableApp --base-url http://127.0.0.1:9090/VulnerableApp --no-store` | exit 0, wall 3:35 (<5 min). One command, judging profile (AI+Semgrep off, ZAP on, no restarts), context path detected. 5 Confirmed CWE-89, attribution 0.952, no foreign hosts, drift_detected False. Generality CI green. Static-only hold-out run not done (no hold-out repo provisioned). |
 
 | `BS10a-d` | **Live run:** `elenchus scan ... --expected-pairs`, ZAP 2.17.0, 317 tests pass | exit 0, wall 3:41. **9 Confirmed CWE-89** (ErrorBased LEVEL_1-4, Blind LEVEL_1-2 and Union LEVEL_1-2 via `sql_boolean`, AuthLoginService.java:51), all confidence 0.95. recall CWE-89 9/9, `wrong_suppression_count` CWE-89 = 0 (union/blind now Confirmed, not tested_negative), so 89 returned to `export.suppress_cwes`. ambiguity 0/9, attribution 0.957, no foreign hosts, no drift. probe stage 221s. Path-traversal oracle built+unit-tested but not Confirmed live (route not reached in budget / no passwd content elicited). back-guided and flow engine off by default, no effect on this run. |
-| `BS10e` | `uv run --locked pytest -q tests/engine/test_compare.py tests/cli/test_main.py` | 50 passed. Pure `compare_runs` + `PostgresStore.read_run_issues` + `compare` CLI. Fixture `common/fixtures/scans/scan-compare.json` has a fixed, a new and a still-open issue; suppressed issues excluded from both sides. Not run against a live Postgres this stage. |
+| `BS10e` | `uv run --locked pytest -q tests/engine/test_compare.py tests/cli/test_main.py` | Pure `compare_runs` + `PostgresStore.read_run_issues` + `compare` CLI. Test drives real `correlate()` output (no synthetic fixture); classifies new/fixed/still-open by the dedupe key, excludes suppressed. Not run against a live Postgres yet. |
 | `BS10f` | `uv run --locked pytest -q tests/probe/test_session.py` | 11 passed. `resolve_session` logs in once (cookie/json/header token), wired into the coordinator before scanning, overriding the static header. Integration test: a cookie-gated route is `all_blocked` without the login flow and `finished` with it. Login body read from env, not config; login URL localhost-only. Not run against a live auth app. |
 | `BS10g` | `uv run --locked pytest -q tests/probe/test_passive.py` | 4 passed. `probe/passive.ingest` keeps ZAP passive alerts, drops our active-scanner plugins, dedups. Coordinator collects them best-effort (`ProbeResult.advisory_alerts`), CLI writes `advisory.json`. Test proves findings are byte-identical with and without alerts present: verdicts unchanged. Not run against a live ZAP this stage. |
 | `BS10h` | `uv run --locked pytest -q tests/probe/test_preflight.py` | 14 passed. `preflight.probe_extras` reads the `Server` banner and an error-page fingerprint (framework markers or `<title>`) from a random missing path; skips cleanly when the target is down. Wired in the CLI pipeline, written to `advisory.json`. Advisory only. Not run live. |
 | `BS10i` | `uv run --locked pytest -q tests/ai` | `ai/`: OpenAI-compatible `AiClient` (off by default and in judging, no call without credentials, content-hash cache, `ai.max_calls` budget, JSON-schema validation drops bad output) + `with_without` harness measuring correct/wrong links. Harness runs fully offline with AI off and emits a diff table. Transport injectable; no network in tests. No live AI call made. |
 | `BS10j` | `uv run --locked pytest -q tests/ai` | 22 passed (whole `tests/ai`). Advisory AI: `ai/advisor.annotate` attaches fix text (B-4) and link explanations (B-3) to `Issue.ai_notes` only — a test asserts the issue is byte-identical apart from `ai_notes`. `ai/seeds.propose_seed` proposes DTO field values with up to 3 repairs. Wired into the CLI (`_apply_ai_advice`) and the text report; no-op when AI off. Integration test: a with/without run over real correlation shows 0 link regression. No live AI call made. |
 
-Not run: the updated CI workflow on GitHub.
+| `BS10` live | `ZAP_API_KEY=.. ELENCHUS_BASE_URL=.. uv run python scripts/bs10_live_check.py`; full `elenchus scan` | 4 classes confirmed live on VulnerableApp: CWE-89 9/9 + CWE-78 in a full scan (attribution 0.957, loopback-only, 117 passive alerts); CWE-78/79/601 all PASS in the class check (`1;id`→uid; `<elx-..>` reflected; 302→external). CLI `--source-image`/`--config`/colorized report unit-tested. 372 tests pass, ruff clean. |
+
+Not run: the updated CI workflow on GitHub; a full scan that confirms 79/601 within budget (sweep throughput); a live Postgres `compare`.
 
 Pinned: ZAP and VulnerableApp images by digest in `infra/`. VulnerableApp source in `.targets/` at commit 9f45cd5. Its image is the `latest` digest on the same day, so line numbers may differ from the source.
 
@@ -109,10 +111,10 @@ Semgrep yardstick (recorded 2026-11-01): Semgrep 1.183.0, public pack `p/java` a
 
 ## 7. Known failures and residual flaws
 
-- Oracles: SQL error (89), XSS reflected `text/html` only (79), open redirect (601), command output (78) in ORACLES; `sql_boolean` and `timing_slower` wired through the coordinator's own confirmation passes. `timing_slower` stays gated on `probe.timing_repeats` (default off): wired and unit-tested (fake clock), but enabling needs a measured repeat count and a live timing baseline. It cannot be confirmed on VulnerableApp (blind/union SQL already Confirmed by `sql_boolean`).
-- Command injection and XSS/open-redirect are now probed dynamically by the sweep pass. Static catalogue: command injection added (ProcessBuilder/Runtime.exec). XSS (String.format reflected into ResponseEntity) and open redirect (location added to a header map) have no safe low-level API anchor without dataflow; left to catalogue-growth work, dynamic sweep covers them meanwhile.
-- Header/cookie findings use `ORACLE` evidence with `oracle: header_check` and `header_name` in detail; no schema change. The VulnerableApp grader ignores them.
-- Live run confirmed no CWE 78/79/601, expected not a regression: the command route returns ping output (oracle wants uid/gid), XSS routes reply `text/plain` (oracle wants `text/html`), open-redirect sweep routes not reached in budget. Confirm those oracles live on routes that suit them.
+- Four classes confirmed live on VulnerableApp (2026-11-01): CWE-89 (error+boolean+union), CWE-78, CWE-79, CWE-601. 89 and 78 confirm in a full `elenchus scan` (directed, fast); 78/79/601 are also confirmed by `scripts/bs10_live_check.py` (PASS each: `1;id`→uid=0(root); `<elx-..>` reflected; 302→external). ORACLES: sql_error (89), command_output (78), xss_reflected (79, now fires on verbatim unescaped reflection under any content-type), open_redirect (601), path_traversal (22). `sql_boolean` and `timing_slower` run via their own passes; `timing_slower` gated off on `probe.timing_repeats`.
+- Confirmation of 78/79/601 is project-controlled (`_confirm_injection`): our own payloads replayed through ZAP, oracle on the reply. A safe route costs one probe request. In a full timed scan, 79/601 confirm only when the sweep reaches their route (ZAP active scan ~15s/route limits sweep throughput, not a capability gap).
+- Static catalogue anchors command injection (ProcessBuilder/Runtime.exec). XSS and open redirect have no safe low-level anchor without dataflow, so they are sweep-only (no directed job); the project-controlled confirmation covers them once reached.
+- Header/cookie findings use `ORACLE` evidence with `oracle: header_check`; the VulnerableApp grader ignores them.
 - CWE-22 is not confirmable on VulnerableApp (investigated 2026-11-01): `PathTraversalVulnerability.readFile` uses `getResourceAsStream`, reading only classpath resources, so `/PathTraversal/LEVEL_1?fileName=../../../../etc/passwd` returns `{"content":null}` and no OS file content ever appears. ZAP's rule 6 and our file-content oracle both inject OS paths, so neither fires; the only "win" is reading a sibling classpath resource (`secret.json`), an app-specific name the generality rule forbids hardcoding. The oracle is unit-tested and correct for real filesystem sinks; it now also detects Windows ini files and leaked private keys.
 - Probe stage ran 216s against a 170s start-deadline: in-flight jobs (scan plus replays, `max_job_seconds` 30) finish past it. Total wall 3:37 under the 5-minute cap; tune budgets in BS8. A single ZAP timeout no longer aborts the run (wrapped in `ZapApi.call`; the job is recorded `errored`).
 - Routes whose handler reads every param have no param name to seed (`XSSWithHtmlTagInjection`). The sweep still probes their declared params. Generated-name seeding not built.
@@ -137,12 +139,7 @@ Semgrep yardstick (recorded 2026-11-01): Semgrep 1.183.0, public pack `p/java` a
 
 ## 9. Next action
 
-`BS10` Should list complete (`BS10a`-`j`). Carried gaps addressed this session:
-1. CWE-22: investigated — unconfirmable on VulnerableApp (classpath-resource reader; see §7). Oracle generalised (adds Windows ini, private keys) and unit-tested. Closed as a target property.
-2. `timing_slower`: wired into the coordinator (`_confirm_timing`), gated on `probe.timing_repeats`, unit-tested with a fake clock. Off by default; a live timing baseline is still unrecorded (not exercisable on VulnerableApp).
-3. Semgrep yardstick recorded (above): 12 SQL-injection findings. `flow.enabled` stays off; flipping it is a BS11 measurement.
-
-Still needing live runs (next): `compare` against a live Postgres; session manager against an auth app; passive ingestion + preflight extras surfaced in a live ZAP run; an AI with/without run on VulnerableApp before any task goes default-on. Then `BS11` (Could list). M2 margin ~80s.
+`BS10` complete; gaps closed this session (CWE-22 explained, timing wired/off, Semgrep yardstick recorded); four classes confirmed live (§7). Next: (a) improve sweep throughput so a full scan confirms 79/601 within budget (each ZAP active scan ~15s/route), or make 78/79/601 directed; (b) live `compare` via Postgres; (c) session manager against an auth app; (d) an AI with/without run before any task goes default-on. Then `BS11` (Could list).
 
 ## 10. Resume instructions
 
