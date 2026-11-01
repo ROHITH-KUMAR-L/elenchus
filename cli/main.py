@@ -393,13 +393,44 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
             enum_types=index.enum_types,
             trace_parser=lambda body: parse_java_response_trace(body, args.source_path),
         )
-        probe_task = progress.add_task("Probing with ZAP", total=None)
-        result = coordinator.run(run_id, jobs, index.routes)
+        probe_task = progress.add_task("Preparing ZAP jobs", total=len(jobs) or None)
+        planned_routes = {(job.route, job.method) for job in jobs}
+        started_routes: set[tuple[str, str]] = set()
+
+        def report_job_progress(
+            event: str, job: Any, completed: int, total: int
+        ) -> None:
+            route_key = (job.route, job.method)
+            if event == "started":
+                started_routes.add(route_key)
+                description = (
+                    f"Scanning route/method {len(started_routes)}/{len(planned_routes)} "
+                    f"(job {completed + 1}/{total}): {job.method} {job.route}"
+                )
+            elif job.outcome == "skipped_drift":
+                description = (
+                    f"State guard skipped job {completed}/{total}: {job.method} {job.route}"
+                )
+            else:
+                description = (
+                    f"Completed jobs {completed}/{total}: {job.method} {job.route}"
+                )
+            progress.update(probe_task, description=description, completed=completed)
+
+        result = coordinator.run(
+            run_id, jobs, index.routes, progress_callback=report_job_progress
+        )
+        attempted = sum(job.outcome != "skipped_drift" for job in result.jobs)
+        drift_skipped = sum(job.outcome == "skipped_drift" for job in result.jobs)
         progress.update(
             probe_task,
-            total=1,
-            completed=1,
-            description="ZAP probe stage complete",
+            total=max(len(jobs), 1),
+            completed=max(len(jobs), 1),
+            description=(
+                f"Probe scheduling complete: {attempted} jobs attempted, "
+                f"{len(result.jobs_skipped)} budget-skipped, "
+                f"{drift_skipped} drift-skipped"
+            ),
         )
     _report_probe_telemetry(result)
     return _PipelineOutput(

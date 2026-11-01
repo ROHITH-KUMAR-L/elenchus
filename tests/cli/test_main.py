@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from dataclasses import replace
@@ -247,8 +248,6 @@ class CliTests(unittest.TestCase):
         self.assertIn("localhost", errors.getvalue())
 
     def test_scan_requires_a_base_url_from_flag_or_env(self) -> None:
-        import os
-
         errors = io.StringIO()
         with (
             contextlib.redirect_stderr(errors),
@@ -286,6 +285,15 @@ class CliTests(unittest.TestCase):
         )
 
         self.assertTrue(args.no_progress)
+
+    def test_progress_honors_no_color_and_no_progress(self) -> None:
+        from cli.main import _create_progress
+
+        with patch.dict(os.environ, {"NO_COLOR": "1"}):
+            progress = _create_progress(no_progress=True)
+
+        self.assertTrue(progress.disable)
+        self.assertTrue(progress.console.no_color)
 
     def test_correlate_reads_records_writes_json_and_sarif(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

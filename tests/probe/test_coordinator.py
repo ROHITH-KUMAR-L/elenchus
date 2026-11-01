@@ -127,6 +127,26 @@ def test_reproduced_hit_becomes_one_confirmed_finding_with_lineage():
     assert fake.removed_context == "elenchus-run"
 
 
+def test_progress_callback_reports_started_and_completed_jobs():
+    fake = FakeZap(scan_messages=[scan_message("id=2", error=False)], replay_bodies=[])
+    jobs = plan_directed_jobs([hypothesis()], ROUTES, "run")
+    events = []
+
+    result = coordinator(fake).run(
+        "run",
+        jobs,
+        ROUTES,
+        progress_callback=lambda event, job, completed, total: events.append(
+            (event, completed, total, job.outcome)
+        ),
+    )
+
+    assert [event[0] for event in events] == ["started", "completed"]
+    assert events[0][1:3] == (0, 1)
+    assert events[1][1:3] == (1, 1)
+    assert events[1][3] == result.jobs[0].outcome
+
+
 def test_probe_records_rule_and_validation_outcomes_for_each_parameter():
     fake = FakeZap(scan_messages=[scan_message("id=2", error=False)], replay_bodies=[])
     config = load_config(

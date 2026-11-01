@@ -292,7 +292,13 @@ class Coordinator:
         self.enum_types = enum_types
         self.trace_parser = trace_parser
 
-    def run(self, run_id: str, jobs: list[ProbeJob], routes: tuple[RouteEntry, ...]) -> ProbeResult:
+    def run(
+        self,
+        run_id: str,
+        jobs: list[ProbeJob],
+        routes: tuple[RouteEntry, ...],
+        progress_callback: Callable[[str, ProbeJob, int, int], None] | None = None,
+    ) -> ProbeResult:
         entries = {(r.route, r.method): r for r in routes}
         context_id = self.api.create_context(f"elenchus-{run_id}", self._scope_regex())
         findings: list[Finding] = []
@@ -312,6 +318,7 @@ class Coordinator:
         )
         ordered = [jobs[i] for i in ordered]
         drift = {"detected": False}
+        completed_jobs = 0
         start = self._now()
         try:
             # Session manager: mint the auth header from the login flow, if one is
@@ -356,8 +363,18 @@ class Coordinator:
                     drift["detected"] = True
                 return replace(job, seed_request=seed, outcome=outcome, after_drift=drift["detected"])
 
+            def run_one_with_progress(job: ProbeJob) -> ProbeJob:
+                nonlocal completed_jobs
+                if progress_callback is not None:
+                    progress_callback("started", job, completed_jobs, len(ordered))
+                result = run_one(job)
+                completed_jobs += 1
+                if progress_callback is not None:
+                    progress_callback("completed", result, completed_jobs, len(ordered))
+                return result
+
             schedule = run_two_pass(
-                ordered, self.config["probe.stage_budget_seconds.zap_jobs"], self._now, run_one
+                ordered, self.config["probe.stage_budget_seconds.zap_jobs"], self._now, run_one_with_progress
             )
             executed = list(schedule.ran)
             executed.extend(replace(job, outcome="skipped_budget") for job, _ in schedule.skipped)
