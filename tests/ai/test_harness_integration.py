@@ -52,7 +52,7 @@ def test_advisory_ai_shows_no_link_regression():
         issues = correlate(findings, config)
         if not ai_enabled:
             return issues
-        client = AiClient(config, environ={"OPENAI_API_KEY": "k"},
+        client = AiClient(config, environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"},
                           transport=lambda m, msg: '{"fix": "x"}' if "fix" in msg[1]["content"]
                           else '{"explanation": "y"}')
         return annotate(issues, client)

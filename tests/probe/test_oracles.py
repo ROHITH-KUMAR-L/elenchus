@@ -45,11 +45,12 @@ def test_xss_does_not_fire_on_an_escaped_reflection():
     assert xss_reflected(baseline, escaped, ATTACK) is False
 
 
-def test_xss_does_not_fire_on_text_plain_even_if_the_markup_comes_back():
-    # VulnerableApp's XSS routes reply text/plain: not confirmed by this oracle.
+def test_xss_fires_on_verbatim_markup_even_under_text_plain():
+    # VulnerableApp's XSS routes reply text/plain but reflect the markup unescaped,
+    # and its template renders it as HTML: a verbatim reflection is the signal.
     baseline = Response(200, PLAIN, "hello")
     probe = Response(200, PLAIN, f"hello {ATTACK}")
-    assert xss_reflected(baseline, probe, ATTACK) is False
+    assert xss_reflected(baseline, probe, ATTACK) is True
 
 
 def test_xss_needs_markup_in_the_attack_value():

@@ -23,7 +23,7 @@ from common.record import Finding, RouteEntry
 from common.vocabulary import type_name
 from probe.attribution import PROBE_HEADER, RULE_HEADER, attribute, request_values
 from probe.headers import HeaderFinding, check_response
-from probe.oracles import Response, oracle_for, sql_boolean, timing_slower
+from probe.oracles import Response, command_output, oracle_for, sql_boolean, timing_slower
 from probe.preflight import ContextPath
 from probe.scheduler import run_two_pass
 from probe.seeds import build_seed
@@ -60,6 +60,10 @@ _TIMING_TEMPLATES = (
     "'; WAITFOR DELAY '0:0:{s}'-- ",
     "' AND (SELECT 1 FROM PG_SLEEP({s}))-- ",
 )
+# OS command injection: append a shell separator and a benign, read-only command
+# (`id`) whose output the command_output oracle recognises. Project-controlled, so
+# confirmation does not depend on which payload ZAP happened to send.
+_COMMAND_TEMPLATES = (";id", " && id", " | id", "`id`", "$(id)", "& id")
 
 
 def _is_state_changing(method: str) -> bool:
@@ -507,6 +511,9 @@ class Coordinator:
             findings.extend(boolean_findings)
             done |= {finding.param for finding in boolean_findings if finding.param}
             findings.extend(self._confirm_timing(run_id, job, seed, baseline, done))
+        if 78 in job.cwes:
+            done78 = {param for (param, cwe) in candidates if cwe == 78}
+            findings.extend(self._confirm_command(run_id, job, seed, baseline, done78))
         adequacy_rows = [
             row
             for cwe in job.cwes
@@ -752,6 +759,71 @@ class Coordinator:
                         "type": "ORACLE",
                         "detail": {
                             "oracle": "sql_boolean",
+                            "canary_id": job.canary,
+                            "zap_job_id": job.job_id,
+                            "job_pass": job.job_pass,
+                            "hypothesis_ids": list(job.hypothesis_ids),
+                            "replays": attempts,
+                            "fired": fired,
+                        },
+                    }
+                ],
+                "severity": "high",
+            }
+        )
+
+    def _confirm_command(
+        self, run_id: str, job: ProbeJob, seed: SeedRequest, baseline: Response, done: set[str]
+    ) -> list[Finding]:
+        """Confirm OS command injection on each query param the scan did not confirm,
+        by replaying a project-controlled benign command (`id`) behind a shell
+        separator and firing command_output on the result."""
+        from urllib.parse import parse_qsl, urlsplit
+
+        if 78 not in job.cwes:
+            return []
+        params = parse_qsl(urlsplit(seed.url).query, keep_blank_values=True)
+        attempts = self.config["replay.count"]
+        findings: list[Finding] = []
+        for param, value in params:
+            if param in done:
+                continue
+            for separator in _COMMAND_TEMPLATES:
+                payload = value + separator
+                request = self._replay_request(seed, _Candidate(param, 78, payload, "", ""))
+                fired = 0
+                for _ in range(attempts):
+                    response = _response(self.api.send_request(request, follow_redirects=False))
+                    if command_output(baseline, response, payload):
+                        fired += 1
+                if fired >= self.config["replay.min_hits"]:
+                    findings.append(
+                        self._command_finding(run_id, job, param, payload, attempts, fired)
+                    )
+                    break
+        return findings
+
+    def _command_finding(
+        self, run_id: str, job: ProbeJob, param: str, payload: str, attempts: int, fired: int
+    ) -> Finding:
+        single = job.hypothesis_ids[0] if len(job.hypothesis_ids) == 1 else None
+        return Finding.from_dict(
+            {
+                "run_id": run_id,
+                "source": "dast",
+                "provenance": "zap",
+                "cwe": 78,
+                "type": type_name(78),
+                "route": job.route,
+                "method": job.method,
+                "param": param,
+                "payload": payload,
+                "hypothesis_id": single,
+                "evidence": [
+                    {
+                        "type": "ORACLE",
+                        "detail": {
+                            "oracle": "command_output",
                             "canary_id": job.canary,
                             "zap_job_id": job.job_id,
                             "job_pass": job.job_pass,

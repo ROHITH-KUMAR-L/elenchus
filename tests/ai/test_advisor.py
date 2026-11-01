@@ -38,7 +38,7 @@ def test_annotate_adds_text_without_changing_the_verdict():
                        "ai.tasks.link_explanation.enabled": True},
             environ={},
         ),
-        environ={"OPENAI_API_KEY": "k"},
+        environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"},
         transport=lambda model, messages: (
             '{"fix": "Use a parameterised query."}'
             if "fix" in messages[1]["content"]
@@ -61,7 +61,7 @@ def test_disabled_tasks_leave_issues_untouched_and_make_no_call():
         calls.append(messages)
         return '{"fix": "x"}'
 
-    client = AiClient(load_config(environ={}), environ={"OPENAI_API_KEY": "k"}, transport=transport)
+    client = AiClient(load_config(environ={}), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
     [annotated] = annotate([issue()], client)
     assert annotated.ai_notes is None
     assert calls == []
@@ -70,7 +70,7 @@ def test_disabled_tasks_leave_issues_untouched_and_make_no_call():
 def test_link_explanation_is_skipped_for_unlinked_issues():
     client = AiClient(
         load_config(overrides={"ai.enabled": True, "ai.tasks.link_explanation.enabled": True}, environ={}),
-        environ={"OPENAI_API_KEY": "k"},
+        environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"},
         transport=lambda model, messages: '{"explanation": "should not appear"}',
     )
     code_only = issue(label="Code-only", link_status=None, link_origin=None, confidence=None)

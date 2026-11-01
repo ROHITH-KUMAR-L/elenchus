@@ -34,26 +34,33 @@ class AiClient:
         transport: Transport | None = None,
     ) -> None:
         self.config = config
-        self.model = environ.get("OPENAI_MODEL", "gpt-4o-mini")
-        self.base_url = environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-        self._api_key = environ.get("OPENAI_API_KEY", "")
+        # The endpoint, key and model come only from the environment (set via .env
+        # or docker run -e). Nothing is hardcoded: when any is missing the client is
+        # unavailable and AI is simply off, so the feature is optional.
+        self.model = environ.get("OPENAI_MODEL") or ""
+        self.base_url = (environ.get("OPENAI_BASE_URL") or "").rstrip("/")
+        self._api_key = environ.get("OPENAI_API_KEY") or ""
         self._max_calls = int(config["ai.max_calls"])
         self._transport = transport or self._http
         self._cache: dict[str, dict[str, Any] | None] = {}
         self.calls = 0
         self.skips: dict[str, int] = {}
 
+    def configured(self) -> bool:
+        """The endpoint, key and model are all set in the environment."""
+        return bool(self._api_key and self.base_url and self.model)
+
     def available(self, task: str) -> bool:
         """The task is on and the client can make a call. No network here."""
-        return bool(self.config.task_enabled(task)) and bool(self._api_key)
+        return bool(self.config.task_enabled(task)) and self.configured()
 
     def complete(
         self, task: str, prompt: str, schema: dict[str, Any]
     ) -> dict[str, Any] | None:
         if not self.config.task_enabled(task):
             return self._skip("disabled")
-        if not self._api_key:
-            return self._skip("no_credentials")
+        if not self.configured():
+            return self._skip("not_configured")
         cache_key = self._cache_key(task, prompt)
         if cache_key in self._cache:
             return self._cache[cache_key]

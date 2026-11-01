@@ -15,7 +15,7 @@ def seed_client(replies, enabled=True):
     def transport(model, messages):
         return queue.pop(0)
 
-    return AiClient(config, environ={"OPENAI_API_KEY": "k"}, transport=transport)
+    return AiClient(config, environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
 
 
 def test_disabled_task_returns_none():

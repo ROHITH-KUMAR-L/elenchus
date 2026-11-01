@@ -40,7 +40,6 @@ _SQL_ERROR_PATTERNS = (
     r"bad SQL grammar",
 )
 _SQL_ERROR = re.compile("|".join(_SQL_ERROR_PATTERNS), re.IGNORECASE)
-_HTML_TYPE = re.compile(r"^content-type:\s*text/html", re.IGNORECASE | re.MULTILINE)
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 # Output signatures of the commands an OS-command-injection scanner runs (id,
@@ -81,15 +80,17 @@ def sql_error(baseline: Response, probe: Response, payload: str = "") -> bool:
 
 
 def xss_reflected(baseline: Response, probe: Response, payload: str) -> bool:
-    """The attack value's markup comes back verbatim in an HTML response.
+    """The attack value's markup comes back verbatim (unescaped) in the response
+    and was not already in the baseline.
 
-    The check needs `text/html`. VulnerableApp's XSS routes reply `text/plain`,
-    so they are not confirmed here. An HTML-escaped reflection does not contain
-    the raw markup, so it does not fire.
+    The content type is not required to be `text/html`: a reflection of raw markup
+    is the exploitable signal, and apps often reflect it under `text/plain` or in a
+    JSON string while a template renders it as HTML (VulnerableApp does this). An
+    HTML-escaped reflection does not contain the raw markup, so `payload in body`
+    is already the unescaped-reflection check. A JSON response that only reflects
+    the payload HTML-escaped therefore does not fire.
     """
     if "<" not in payload or ">" not in payload:
-        return False
-    if not _HTML_TYPE.search(probe.headers):
         return False
     return payload in probe.body and payload not in baseline.body
 
