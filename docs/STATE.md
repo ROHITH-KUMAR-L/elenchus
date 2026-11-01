@@ -110,7 +110,7 @@ Semgrep yardstick (recorded 2026-11-01): Semgrep 1.183.0, public pack `p/java` a
 
 ## 6. Not done, in dependency order
 
-`BS0`-`BS9` passed (M1, M2). `BS10` and CLI follow-on `BS11a`-`BS11h` complete. No detection or correlation changes were made for the CLI work.
+`BS0`-`BS9` passed (M1, M2). `BS10` and CLI follow-on `BS11a`-`BS11h` complete. Added since: taint-gated static XSS (CWE-79, 0->11/19 on the snapshot; supported SAST 23/35); fast-confirm of directed 78/79/601 without ZAP active scan + generic-param seeding for Map handlers + tighter sweep scan cap (`probe.sweep_max_job_seconds`); B-7 servlet adapter (`--framework servlet`). B-7 on OWASP BenchmarkJava (SAST-only; dynamic on a hold-out is not allowed): 5480 routes, 1806 sinks detected; TPR CWE-22 0.82, 89 0.65, 78 0.52, 79 0.00, but FPR ~= TPR (Youden ~0) because syntactic arg_shape does not clear Benchmark's sanitised safe-variants without the flow engine, and the XSS taint gate seeds from formals not `request.getParameter` locals. Honest no-dataflow limit, not fitted.
 
 ## 7. Known failures and residual flaws
 

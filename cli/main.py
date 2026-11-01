@@ -237,7 +237,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scan_parser.add_argument(
         "--framework",
-        choices=("spring-mvc",),
+        choices=("spring-mvc", "servlet"),
         default="spring-mvc",
         help="target framework adapter (default: spring-mvc)",
     )
@@ -367,7 +367,7 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
         _progress_step(progress, "Preflight checks", lambda: check_loopback(args.base_url))
         target = ScanTarget(args.source_path, args.base_url, run_id, args.framework)
         index = _progress_step(
-            progress, "Building route table", lambda: build_code_index(args.source_path)
+            progress, "Building route table", lambda: build_code_index(args.source_path, args.framework)
         )
         static_findings = _progress_step(
             progress, "Running static analysis", lambda: run_static(target, index)

@@ -15,17 +15,28 @@ from typing import Any
 
 from common.pipeline import CodeIndex, SecretSite
 from common.record import RouteEntry
+from producers.sast import servlet_routes, spring_routes
 from producers.sast.call_graph import build_call_graph
 from producers.sast.secrets import find_secrets
 from producers.sast.sink_finder import find_sinks, load_catalogue
-from producers.sast.spring_routes import _build_entries, _parse_files, build_index
+from producers.sast.spring_routes import _parse_files, build_index
+
+# Route detection is the only framework-specific stage (the adapter boundary).
+# Every other stage reads the generic SourceIndex and is shared.
+_ROUTE_ADAPTERS = {
+    "spring-mvc": spring_routes._build_entries,
+    "servlet": servlet_routes._build_entries,
+}
 
 
-def build_code_index(source_root: str | Path) -> CodeIndex:
+def build_code_index(source_root: str | Path, framework: str = "spring-mvc") -> CodeIndex:
+    build_entries = _ROUTE_ADAPTERS.get(framework)
+    if build_entries is None:
+        raise ValueError(f"unknown framework adapter: {framework}")
     files = _parse_files(Path(source_root))
     index = build_index(files)
     return CodeIndex(
-        routes=tuple(RouteEntry.from_dict(entry) for entry in _build_entries(index)),
+        routes=tuple(RouteEntry.from_dict(entry) for entry in build_entries(index)),
         call_graph=build_call_graph(index),
         sinks=tuple(find_sinks(index, load_catalogue())),
         enum_types=frozenset(
