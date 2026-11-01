@@ -38,6 +38,7 @@ def main() -> int:
     )
     client = AiClient(config)
 
+    print(f"provider : {client.provider_name}")
     print(f"endpoint : {client.base_url or '(no *_BASE_URL set)'}")
     print(f"model    : {client.model or '(no *_MODEL set)'}")
     print(f"api key  : {'set' if client._api_key else '(no *_API_KEY set)'}")

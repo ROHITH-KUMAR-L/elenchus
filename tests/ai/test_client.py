@@ -51,6 +51,38 @@ def test_generic_llm_variables_configure_the_client():
     assert client.configured()
 
 
+def test_openrouter_key_alone_configures_with_free_defaults():
+    client = AiClient(enabled_config(), environ={"OPENROUTER_API_KEY": "sk-or-x"})
+    assert client.provider_name == "openrouter"
+    assert client.configured()
+    assert client.base_url == "https://openrouter.ai/api/v1"
+    assert client.model.endswith(":free")
+    assert client._transport == client._http  # non-Groq -> urllib
+
+
+def test_nvidia_key_alone_configures_with_defaults():
+    client = AiClient(enabled_config(), environ={"NVIDIA_API_KEY": "nvapi-x"})
+    assert client.provider_name == "nvidia"
+    assert client.base_url == "https://integrate.api.nvidia.com/v1"
+    assert client._transport == client._http
+
+
+def test_groq_is_preferred_over_the_fallback_providers():
+    client = AiClient(
+        enabled_config(),
+        environ={"GROQ_API_KEY": "g", "OPENROUTER_API_KEY": "o", "NVIDIA_API_KEY": "n"},
+    )
+    assert client.provider_name == "groq"
+
+
+def test_a_per_provider_model_override_wins_over_the_default():
+    client = AiClient(
+        enabled_config(),
+        environ={"OPENROUTER_API_KEY": "x", "OPENROUTER_MODEL": "some/other-model"},
+    )
+    assert client.model == "some/other-model"
+
+
 def test_groq_variables_take_precedence_over_generic_llm():
     client = AiClient(
         enabled_config(),

@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from ai.schema import valid
@@ -32,10 +33,37 @@ _HTTP_ATTEMPTS = 3
 _HTTP_BACKOFF_SECONDS = 0.5
 _RETRY_STATUS = frozenset({403, 408, 409, 425, 429, 500, 502, 503, 504})
 _MAX_TOKENS = 2048  # headroom so a longer reply (e.g. the summary) is not truncated to invalid JSON
-# Groq (an OpenAI-compatible endpoint) is the provider. LLM_* is the
-# provider-neutral fallback. Add a prefix here to support another provider's
-# native variable names.
-_ENV_PREFIXES = ("GROQ", "LLM")
+
+
+@dataclass(frozen=True)
+class _Provider:
+    """One OpenAI-compatible provider. Only the API key must be set; the base URL
+    and model have a working free default that <PREFIX>_BASE_URL / <PREFIX>_MODEL
+    override. `groq_sdk` picks the Groq SDK transport (httpx, past the WAF)."""
+
+    name: str
+    prefix: str
+    base_url: str
+    model: str
+    groq_sdk: bool = False
+
+
+# Resolution order: the first provider whose <PREFIX>_API_KEY is set wins, so Groq
+# is primary and OpenRouter then NVIDIA NIM are fallbacks. LLM_* is a generic
+# final fallback for any other OpenAI-compatible endpoint. Models are current
+# free-tier choices; override any with <PREFIX>_MODEL.
+_PROVIDERS = (
+    _Provider("groq", "GROQ", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", groq_sdk=True),
+    _Provider(
+        "openrouter", "OPENROUTER",
+        "https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct:free",
+    ),
+    _Provider(
+        "nvidia", "NVIDIA",
+        "https://integrate.api.nvidia.com/v1", "meta/llama-3.3-70b-instruct",
+    ),
+    _Provider("generic", "LLM", "", ""),
+)
 
 
 def _loads_lenient(content: str) -> Any:
@@ -56,13 +84,18 @@ def _loads_lenient(content: str) -> Any:
     raise ValueError("no JSON object in the response")
 
 
-def _env(environ: Mapping[str, str], suffix: str) -> str:
-    """The first set value among <PREFIX>_<suffix> for the known providers."""
-    for prefix in _ENV_PREFIXES:
-        value = environ.get(f"{prefix}_{suffix}")
-        if value:
-            return value
-    return ""
+def _resolve_provider(environ: Mapping[str, str]) -> tuple[_Provider | None, str, str, str]:
+    """The first provider in order whose <PREFIX>_API_KEY is set, with its base URL
+    and model (env override, else the provider default). Returns (provider, api_key,
+    base_url, model); provider is None when no key is set anywhere."""
+    for provider in _PROVIDERS:
+        key = environ.get(f"{provider.prefix}_API_KEY") or ""
+        if not key:
+            continue
+        base_url = (environ.get(f"{provider.prefix}_BASE_URL") or provider.base_url).rstrip("/")
+        model = environ.get(f"{provider.prefix}_MODEL") or provider.model
+        return provider, key, base_url, model
+    return None, "", "", ""
 
 
 class AiClient:
@@ -73,20 +106,22 @@ class AiClient:
         transport: Transport | None = None,
     ) -> None:
         self.config = config
-        # The endpoint, key and model come only from the environment (set via .env
-        # or docker run -e). Nothing is hardcoded: when any is missing the client is
-        # unavailable and AI is simply off, so the feature is optional. The provider
-        # is Groq (an OpenAI-compatible endpoint); GROQ_* names are checked first,
-        # then the generic LLM_* fallback.
-        self.model = _env(environ, "MODEL")
-        self.base_url = _env(environ, "BASE_URL").rstrip("/")
-        self._api_key = _env(environ, "API_KEY")
+        # The provider, key, endpoint and model come only from the environment (set
+        # via .env or docker run -e). Nothing is hardcoded as a key: when no provider
+        # key is set the client is unavailable and AI is simply off. Groq is primary,
+        # then OpenRouter, then NVIDIA NIM; LLM_* is a generic override.
+        self._provider, self._api_key, self.base_url, self.model = _resolve_provider(environ)
         self._max_calls = int(config["ai.max_calls"])
         self._transport = transport or self._default_transport()
         self._cache: dict[str, dict[str, Any] | None] = {}
         self.calls = 0
         self.skips: dict[str, int] = {}
         self.last_error: str | None = None  # the most recent transport failure, for diagnostics
+
+    @property
+    def provider_name(self) -> str:
+        """The resolved provider's name, or 'none' when no key is set."""
+        return self._provider.name if self._provider is not None else "none"
 
     def configured(self) -> bool:
         """The endpoint, key and model are all set in the environment."""
@@ -129,21 +164,22 @@ class AiClient:
         return payload
 
     def _default_transport(self) -> Transport:
-        """Prefer the Groq SDK transport (httpx, HTTP/2) when installed — it reaches
-        providers whose WAF blocks plain urllib — and fall back to urllib otherwise."""
-        if importlib.util.find_spec("groq") is None:
-            return self._http
-        return self._sdk
+        """Use the Groq SDK (httpx, HTTP/2, past Groq's WAF) only for the Groq
+        provider when it is installed. Every other OpenAI-compatible provider
+        (OpenRouter, NVIDIA NIM, a generic endpoint) goes through urllib, which
+        targets an arbitrary base URL correctly."""
+        if self._provider is not None and self._provider.groq_sdk and importlib.util.find_spec("groq"):
+            return self._sdk
+        return self._http
 
     def _sdk(self, model: str, messages: list[dict[str, str]]) -> str:
         from groq import Groq
 
-        # The Groq SDK owns its endpoint path; pass base_url only when the configured
-        # value is not Groq's own OpenAI-compatible URL (so it is not double-appended).
-        kwargs = {"api_key": self._api_key, "max_retries": _HTTP_ATTEMPTS}
-        if self.base_url and not self.base_url.startswith("https://api.groq.com"):
-            kwargs["base_url"] = self.base_url
-        client = Groq(**kwargs)
+        # The Groq SDK appends /openai/v1 itself and also reads GROQ_BASE_URL from the
+        # environment. Pass an explicit base with that suffix stripped, so the URL is
+        # not doubled (POST /openai/v1/openai/v1/...).
+        base_url = self.base_url.removesuffix("/openai/v1") or "https://api.groq.com"
+        client = Groq(api_key=self._api_key, base_url=base_url, max_retries=_HTTP_ATTEMPTS)
 
         def create(strict_json: bool) -> str:
             params: dict[str, Any] = {

@@ -206,13 +206,22 @@ discrimination-limited (high recall, high false-positive rate).
 
 ### Verify the AI credentials
 
-The AI features are optional and read `GROQ_BASE_URL`, `GROQ_API_KEY` and
-`GROQ_MODEL` from the environment (or the generic `LLM_*` fallback). Verify them
-without running a scan:
+The AI features are optional. Set **one** provider's API key; resolution order is
+**Groq → OpenRouter → NVIDIA NIM → generic `LLM_*`**. Only the key is required —
+the base URL and a working free model have defaults you can override with
+`<PREFIX>_MODEL`:
+
+| Provider | Key variable | Default free model |
+|---|---|---|
+| Groq (primary) | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| OpenRouter | `OPENROUTER_API_KEY` | `meta-llama/llama-3.3-70b-instruct:free` |
+| NVIDIA NIM | `NVIDIA_API_KEY` | `meta/llama-3.3-70b-instruct` |
+| Any OpenAI-compatible | `LLM_API_KEY` + `LLM_BASE_URL` + `LLM_MODEL` | — |
+
+Verify the active provider and credentials without running a scan:
 
 ```bash
-GROQ_BASE_URL=https://api.groq.com/openai/v1 GROQ_API_KEY=gsk_... GROQ_MODEL=llama-3.3-70b-versatile \
-  uv run --locked python scripts/ai_check.py
+uv run --locked python scripts/ai_check.py     # prints provider, endpoint, model, then one live call
 ```
 
 It reports whether the client is configured and, when it is, makes one minimal
