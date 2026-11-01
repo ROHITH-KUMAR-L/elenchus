@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -60,6 +61,7 @@ class AiClient:
         self._cache: dict[str, dict[str, Any] | None] = {}
         self.calls = 0
         self.skips: dict[str, int] = {}
+        self.last_error: str | None = None  # the most recent transport failure, for diagnostics
 
     def configured(self) -> bool:
         """The endpoint, key and model are all set in the environment."""
@@ -94,7 +96,8 @@ class AiClient:
         try:
             content = self._transport(self.model, messages)
             payload = json.loads(content)
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError) as error:
+            self.last_error = f"{type(error).__name__}: {error}"
             return self._skip("call_failed")
         if not valid(payload, schema):
             return self._skip("schema_invalid")
@@ -118,8 +121,12 @@ class AiClient:
             },
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read(_MAX_RESPONSE_BYTES)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read(_MAX_RESPONSE_BYTES)
+        except urllib.error.HTTPError as error:
+            detail = error.read(_MAX_RESPONSE_BYTES).decode("utf-8", "replace").strip()
+            raise RuntimeError(f"HTTP {error.code} from {self.base_url}: {detail[:300]}") from error
         data = json.loads(raw)
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:

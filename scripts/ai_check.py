@@ -61,6 +61,8 @@ def main() -> int:
         return 0
     reason = next(iter(client.skips), "no_valid_response")
     print(f"FAILED ({elapsed:.2f}s): {reason}.")
+    if client.last_error:
+        print(f"detail: {client.last_error}")
     print("Check the key, base URL (must end in /v1 for OpenAI-compatible APIs) and model name.")
     return 1
 
