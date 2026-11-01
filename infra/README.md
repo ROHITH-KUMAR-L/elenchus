@@ -26,10 +26,15 @@ Stop the database with `docker compose -f infra/compose.yaml down`. The volume p
 Each has its own Compose file, pinned by digest and bound to loopback, so neither needs Postgres credentials:
 
 ```sh
-export ZAP_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-docker compose -f infra/zap.compose.yaml up -d
 docker compose -f infra/vulnerableapp.compose.yaml up -d
 ```
+
+The CLI starts the pinned ZAP service automatically when its loopback API is
+unavailable. On first scan without another configured key, it creates and
+stores the API key in `~/.elenchus/zap.key` with owner-only permissions. An
+already-running ZAP service is left untouched; if it rejects the stored key,
+stop that service before rerunning the scan. Manual Compose startup still
+requires `ZAP_API_KEY`.
 
 `vulnerableapp.compose.yaml` runs VulnerableApp's base service only. Upstream's Compose file also starts Ollama, Mongo and an LLM service, and publishes their ports on all interfaces.
 

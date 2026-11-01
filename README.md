@@ -117,14 +117,14 @@ and commit both files. Semgrep is an optional adapter:
 One command runs the whole pipeline against the running target and its source:
 
 1. Start the target app on loopback (for practice: `docker compose -f infra/vulnerableapp.compose.yaml up -d`).
-2. Start ZAP with its API on loopback and set `ZAP_API_KEY`:
+2. Run the scan from the host. If no ZAP key is configured, the CLI creates a
+   random key at `~/.elenchus/zap.key` with owner-only permissions. It starts
+   the pinned ZAP Compose service when the local API is unavailable. It does
+   not restart or reconfigure an already-running ZAP service. If that service
+   rejects the saved key, stop it and rerun the scan, or configure
+   `ZAP_API_KEY` with the key used by that service.
 
-   ```sh
-   export ZAP_API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-   docker compose -f infra/zap.compose.yaml up -d
-   ```
-
-3. Run the scan from the host. Source from a **local path**:
+   Source from a **local path**:
 
    ```sh
    uv run --locked elenchus scan \
@@ -152,7 +152,7 @@ One command runs the whole pipeline against the running target and its source:
 
    Options: `--judging` (competition profile, <5 min, AI/Semgrep off), `--config <file.toml>` (tune budgets and other [Config reference](docs/architecture.md#config-reference) keys), `--sarif-output <file>` (SARIF, B-6), `--ci` (exit 1 on a Confirmed high/critical issue), `--output-format json`. Omit `--no-store` to persist; start Postgres and set `DATABASE_URL` (see [infra/README.md](infra/README.md)).
 
-4. Compare two stored runs (B-5): `uv run --locked elenchus compare --base <run_id> --current <run_id>`.
+3. Compare two stored runs (B-5): `uv run --locked elenchus compare --base <run_id> --current <run_id>`.
 
 Coverage: SQL injection (CWE-89, error/union/blind), OS command injection (CWE-78), reflected XSS (CWE-79) and open redirect (CWE-601) are probed dynamically with deterministic oracles; a static secrets/weak-crypto pass adds CWE-798/327/330 as Code-only. Path traversal (CWE-22) has an oracle but is not confirmable on VulnerableApp (its reader is classpath-based; see [docs/STATE.md](docs/STATE.md)). Details: [docs/implementation-plan.md](docs/implementation-plan.md).
 
