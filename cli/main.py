@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     Progress,
@@ -23,6 +24,8 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
 )
+from rich.table import Table
+from rich.text import Text
 
 from common.config import load_config
 from common.record import EvidenceEntry, Finding, ScanTarget
@@ -32,6 +35,7 @@ from engine.report import (
     format_comparison,
     format_summary,
     format_text,
+    render_summary,
     to_sarif,
 )
 
@@ -647,15 +651,39 @@ def _report_probe_telemetry(result: Any) -> None:
     from collections import Counter
 
     outcomes = Counter(job.outcome for job in result.jobs)
-    print(
-        f"probe: stage_seconds={result.stage_seconds} jobs_run={len(result.jobs)} "
-        f"jobs_skipped={len(result.jobs_skipped)} drift_detected={result.drift_detected} "
-        f"outcomes={dict(outcomes)} "
-        f"attribution_rate={result.attribution_rate:.3f} "
-        f"header_propagation_rate={result.header_propagation_rate:.3f} "
-        f"foreign_hosts={result.foreign_hosts}",
-        file=sys.stderr,
-    )
+    if sys.stderr.isatty():
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="dim")
+        table.add_column()
+        table.add_row("Probe time", Text(f"{result.stage_seconds:.1f}s"))
+        table.add_row(
+            "Jobs",
+            Text(f"{len(result.jobs)} run  ·  {len(result.jobs_skipped)} budget-skipped"),
+        )
+        table.add_row(
+            "Outcomes",
+            Text(", ".join(f"{key}: {value}" for key, value in sorted(outcomes.items()))),
+        )
+        table.add_row("Attribution", Text(f"{result.attribution_rate:.3f}"))
+        table.add_row("Header propagation", Text(f"{result.header_propagation_rate:.3f}"))
+        table.add_row("State drift", Text("detected" if result.drift_detected else "none"))
+        table.add_row(
+            "Foreign hosts",
+            Text(", ".join(result.foreign_hosts) if result.foreign_hosts else "none"),
+        )
+        Console(stderr=True, no_color="NO_COLOR" in os.environ).print(
+            Panel(table, title="Probe results", border_style="cyan", expand=False)
+        )
+    else:
+        print(
+            f"probe: stage_seconds={result.stage_seconds} jobs_run={len(result.jobs)} "
+            f"jobs_skipped={len(result.jobs_skipped)} drift_detected={result.drift_detected} "
+            f"outcomes={dict(outcomes)} "
+            f"attribution_rate={result.attribution_rate:.3f} "
+            f"header_propagation_rate={result.header_propagation_rate:.3f} "
+            f"foreign_hosts={result.foreign_hosts}",
+            file=sys.stderr,
+        )
 
 
 def _load_inputs(sast_paths: Sequence[str], dast_paths: Sequence[str]) -> list[Finding]:
@@ -697,11 +725,18 @@ def _interactive_output_mode(args: argparse.Namespace) -> str:
     if args.sarif_output or not (sys.stdin.isatty() and sys.stdout.isatty()):
         return "raw"
 
-    print("Choose report output:", file=sys.stderr)
-    print("  1. View raw report", file=sys.stderr)
-    print("  2. View grouped summary (deterministic)", file=sys.stderr)
-    print("  3. Export SARIF to stdout", file=sys.stderr)
-    print("Select (1-3) or press Enter for raw:", file=sys.stderr)
+    console = Console(stderr=True, no_color="NO_COLOR" in os.environ)
+    console.print(
+        Panel(
+            "1  Raw report\n"
+            "2  Findings overview\n"
+            "3  SARIF to stdout",
+            title="Report output",
+            border_style="cyan",
+            expand=False,
+        )
+    )
+    console.print("[bold]Select[/] [dim](1-3, Enter for raw):[/]")
     choices = {"": "raw", "1": "raw", "2": "summary", "3": "sarif"}
     while True:
         try:
@@ -723,10 +758,23 @@ def _write_report(
             indent=2,
             sort_keys=True,
         )
+    elif output_mode == "summary" and sys.stdout.isatty():
+        render_summary(
+            issues,
+            Console(no_color="NO_COLOR" in os.environ),
+        )
+        return
     elif output_mode == "summary":
         output = format_summary(issues)
     elif output_mode == "both":
-        output = f"{format_text(issues)}\n\n{format_summary(issues)}"
+        print(format_text(issues))
+        if sys.stdout.isatty():
+            render_summary(
+                issues,
+                Console(no_color="NO_COLOR" in os.environ),
+            )
+            return
+        output = format_summary(issues)
     else:
         output = format_text(issues)
     print(output)

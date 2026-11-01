@@ -325,7 +325,8 @@ class CliTests(unittest.TestCase):
             stdin.isatty.return_value = True
             stdout.isatty.return_value = True
             self.assertEqual(_interactive_output_mode(args), "summary")
-        self.assertIn("View grouped summary", errors.getvalue())
+        self.assertIn("Report output", errors.getvalue())
+        self.assertIn("Findings overview", errors.getvalue())
 
     def test_interactive_menu_can_select_sarif_for_stdout(self) -> None:
         args = argparse.Namespace(output_format="text", sarif_output=None, output_mode=None)

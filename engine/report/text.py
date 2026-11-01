@@ -11,6 +11,11 @@ import os
 import sys
 from collections import Counter
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
 from engine.compare import ScanComparison
 from engine.correlate.models import SEVERITY_ORDER, Issue
 
@@ -98,6 +103,59 @@ def format_summary(issues: list[Issue]) -> str:
     )
     lines.append(f"AI advisory: {advisory_status}; this summary made no AI calls.")
     return "\n".join(lines)
+
+
+def render_summary(issues: list[Issue], console: Console) -> None:
+    """Render a compact terminal overview; use the text formatter for details."""
+    visible = [issue for issue in issues if not issue.suppressed]
+    if not visible:
+        console.print(Panel("No findings.", title="elenchus", border_style="green"))
+        return
+
+    labels = Counter(issue.label for issue in visible)
+    cwe_count = len({issue.cwe for issue in visible})
+    finding_word = "finding" if len(visible) == 1 else "findings"
+    class_word = "CWE class" if cwe_count == 1 else "CWE classes"
+    counts = (
+        f"[red]{labels['Confirmed']} confirmed[/]  "
+        f"[yellow]{labels['Code-only']} code-only[/]  "
+        f"[magenta]{labels['Runtime-only']} runtime-only[/]"
+    )
+    console.print(
+        Panel(
+            f"[bold]{len(visible)}[/] {finding_word} across [bold]{cwe_count}[/] {class_word}\n{counts}",
+            title="elenchus · scan results",
+            border_style="cyan",
+            expand=False,
+        )
+    )
+
+    table = Table(box=None, expand=True, header_style="bold")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("CWE", justify="right", no_wrap=True)
+    table.add_column("Finding", overflow="fold")
+    table.add_column("Route / input", overflow="fold")
+    table.add_column("Severity", no_wrap=True)
+    table.add_column("Risk", justify="right", no_wrap=True)
+    table.add_column("Confidence", justify="right", no_wrap=True)
+    for issue in sorted(visible, key=lambda item: (item.cwe, *_summary_priority(item))):
+        location = f"{issue.method or 'any'} {issue.route or 'application-wide'}"
+        if issue.param:
+            location += f"  ·  {issue.param}"
+        severity_style = _SEVERITY_STYLE.get(issue.severity.casefold(), "dim")
+        status_style = _LABEL_STYLE.get(issue.label, "dim")
+        confidence = f"{issue.confidence:.2f}" if issue.confidence is not None else "n/a"
+        table.add_row(
+            Text(issue.label, style=status_style),
+            Text(f"CWE-{issue.cwe}"),
+            Text(issue.type),
+            Text(location),
+            Text(issue.severity, style=severity_style),
+            Text(_risk_text(issue)),
+            Text(confidence),
+        )
+    console.print(table)
+    console.print("[dim]Choose raw output for evidence, source locations, and link details.[/]")
 
 
 def _summary_priority(issue: Issue) -> tuple[int, float, float, int, str, str]:

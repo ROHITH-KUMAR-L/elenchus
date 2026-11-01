@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from io import StringIO
+
+from rich.console import Console
 
 from common.record import SinkId
 from engine.correlate import Finding, correlate
 from engine.correlate.models import Issue
-from engine.report import build_coverage_report, format_summary, format_text, to_sarif
+from engine.report import build_coverage_report, format_summary, format_text, render_summary, to_sarif
 
 
 def dast_record() -> Finding:
@@ -105,6 +108,32 @@ class ReportTests(unittest.TestCase):
         report = format_summary([visible])
         self.assertIn("Remediation hint: unavailable in the finding data.", report)
         self.assertIn("no existing advisory fixes are available", report)
+
+    def test_terminal_summary_is_compact_and_includes_key_triage_fields(self):
+        issue = Issue(
+            issue_key="terminal-summary",
+            label="Confirmed",
+            cwe=89,
+            type="SQL Injection",
+            severity="high",
+            risk_score=82.0,
+            confidence=0.9,
+            route="/lookup",
+            method="GET",
+            param="name",
+        )
+        output = StringIO()
+        render_summary([issue], Console(file=output, width=100, no_color=True))
+
+        rendered = output.getvalue()
+        self.assertIn("elenchus", rendered)
+        self.assertIn("1 finding across 1 CWE class", rendered)
+        self.assertIn("Confirmed", rendered)
+        self.assertIn("CWE-89", rendered)
+        self.assertIn("GET /lookup", rendered)
+        self.assertIn("82/100", rendered)
+        self.assertIn("0.90", rendered)
+        self.assertIn("raw output for evidence", rendered)
 
     def test_text_and_sarif_expose_conflict_and_flaky_hints(self) -> None:
         candidate = SinkId("src/Query.java", "Query.run", 8, 2)
