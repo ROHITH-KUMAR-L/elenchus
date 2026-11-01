@@ -2,7 +2,7 @@
 
 CyberForge hackathon entry. Spec: [docs/prd.md](docs/prd.md). Current state: [docs/STATE.md](docs/STATE.md). Agent rules: [AGENTS.md](AGENTS.md).
 
-Status: design stage. The pipeline described below is a plan. Nothing in it is built, tested or measured. The code in the tree is an older pipeline (route-map parser, Semgrep and ZAP producers, a tier-based engine, a CLI). It is being reworked. See [docs/implementation-plan.md](docs/implementation-plan.md).
+Status: the pipeline is built through milestone M2 and the M3 Should list (`BS0`–`BS10`). It scans a Java/Spring source tree (local path or a Docker image) and probes the running app on localhost with OWASP ZAP, correlating the two. Live results and honest gaps: [docs/STATE.md](docs/STATE.md). See [docs/implementation-plan.md](docs/implementation-plan.md) for the build stages.
 
 ## 1. What it is
 
@@ -92,9 +92,7 @@ Prerequisites:
 
 The target app runs separately, from its own Docker Compose, on localhost. Point the tool only at it. Scanning any other host is not allowed.
 
-Redesigned pipeline: the run command `[TODO]`. The target base URL will be a required input (`--target`). Everything else is detected.
-
-Install and test (these run the older components):
+Install and test:
 
 ```sh
 uv sync --locked --all-groups
@@ -114,18 +112,37 @@ One command runs the whole pipeline against the running target and its source:
    docker compose -f infra/zap.compose.yaml up -d
    ```
 
-3. Run the scan from the host:
+3. Run the scan from the host. Source from a **local path**:
 
    ```sh
-   uv run elenchus scan \
+   uv run --locked elenchus scan \
      --source-path <target-source-directory> \
      --base-url http://127.0.0.1:<target-port>/<context> \
      --no-store
    ```
 
-   Omit `--no-store` to persist results; start our Postgres first and set `DATABASE_URL` (see [infra/README.md](infra/README.md)). Add `--sarif-output <file>` for SARIF (B-6) and `--ci` to fail on Confirmed high-severity issues.
+   …or source from a **Docker image or container** (copied out and scanned):
 
-Scope today: the pipeline links error-based SQL injection end to end (the M1 spine). The other classes, the scheduler and negative-evidence suppression are the next build stages; see [docs/implementation-plan.md](docs/implementation-plan.md).
+   ```sh
+   uv run --locked elenchus scan \
+     --source-image <image-or-container> --source-image-path /abs/path/to/src \
+     --base-url http://127.0.0.1:<target-port>/<context> \
+     --no-store
+   ```
+
+   Practice target, end to end (ZAP + VulnerableApp running as above):
+
+   ```sh
+   uv run --locked elenchus scan \
+     --source-path .targets/VulnerableApp \
+     --base-url http://127.0.0.1:9090/VulnerableApp --no-store
+   ```
+
+   Options: `--judging` (competition profile, <5 min, AI/Semgrep off), `--config <file.toml>` (tune budgets and other [Config reference](docs/architecture.md#config-reference) keys), `--sarif-output <file>` (SARIF, B-6), `--ci` (exit 1 on a Confirmed high/critical issue), `--output-format json`. Omit `--no-store` to persist; start Postgres and set `DATABASE_URL` (see [infra/README.md](infra/README.md)).
+
+4. Compare two stored runs (B-5): `uv run --locked elenchus compare --base <run_id> --current <run_id>`.
+
+Coverage: SQL injection (CWE-89, error/union/blind), OS command injection (CWE-78), reflected XSS (CWE-79) and open redirect (CWE-601) are probed dynamically with deterministic oracles; a static secrets/weak-crypto pass adds CWE-798/327/330 as Code-only. Path traversal (CWE-22) has an oracle but is not confirmable on VulnerableApp (its reader is classpath-based; see [docs/STATE.md](docs/STATE.md)). Details: [docs/implementation-plan.md](docs/implementation-plan.md).
 
 ## 8. Continuous integration
 
