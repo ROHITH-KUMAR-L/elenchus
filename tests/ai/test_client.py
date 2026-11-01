@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import io
+import urllib.error
+from unittest.mock import patch
+
 from ai.client import AiClient
 from common.config import load_config
 
@@ -114,6 +118,66 @@ def test_non_json_response_is_dropped():
     transport = Counter(reply="not json")
     client = AiClient(enabled_config(), environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"}, transport=transport)
     assert client.complete("fix_text", "prompt", SCHEMA) is None
+    assert client.skips["call_failed"] == 1
+
+
+def _http_error(code):
+    return urllib.error.HTTPError("http://x/v1", code, "err", {}, io.BytesIO(b"blocked"))
+
+
+def _ok_response():
+    class _R:
+        def read(self, _n=None):
+            return b'{"choices": [{"message": {"content": "{\\"text\\": \\"advice\\"}"}}]}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    return _R()
+
+
+def _http_client():
+    return AiClient(
+        enabled_config(),
+        environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"},
+    )  # no transport override: exercises the real _http retry path
+
+
+def test_transient_waf_error_is_retried_then_succeeds():
+    client = _http_client()
+    with (
+        patch("ai.client.time.sleep"),
+        patch(
+            "ai.client.urllib.request.urlopen",
+            side_effect=[_http_error(403), _http_error(503), _ok_response()],
+        ) as urlopen,
+    ):
+        assert client.complete("fix_text", "prompt", SCHEMA) == {"text": "advice"}
+    assert urlopen.call_count == 3
+
+
+def test_non_retryable_status_fails_immediately():
+    client = _http_client()
+    with (
+        patch("ai.client.time.sleep"),
+        patch("ai.client.urllib.request.urlopen", side_effect=_http_error(401)) as urlopen,
+    ):
+        assert client.complete("fix_text", "prompt", SCHEMA) is None
+    assert urlopen.call_count == 1
+    assert "HTTP 401" in (client.last_error or "")
+
+
+def test_retries_are_bounded_then_give_up():
+    client = _http_client()
+    with (
+        patch("ai.client.time.sleep"),
+        patch("ai.client.urllib.request.urlopen", side_effect=_http_error(429)) as urlopen,
+    ):
+        assert client.complete("fix_text", "prompt", SCHEMA) is None
+    assert urlopen.call_count == 3
     assert client.skips["call_failed"] == 1
 
 

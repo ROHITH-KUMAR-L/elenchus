@@ -860,9 +860,10 @@ def _check_ai_endpoint(config: Any, console: Console) -> None:
         console.print("[green]AI endpoint reachable; option 4 (AI summary) is ready.[/]")
     else:
         reason = next(iter(client.skips), "no_valid_response")
+        detail = f": {client.last_error}" if client.last_error else ""
         console.print(
-            f"[yellow]AI endpoint not reachable ({reason}); option 4 will fall back "
-            "to the overview.[/]"
+            f"[yellow]AI endpoint not reachable ({reason}{detail}); option 4 will fall "
+            "back to the overview — you can still pick 4 to retry.[/]"
         )
 
 
