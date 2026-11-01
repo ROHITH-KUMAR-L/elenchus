@@ -4,3 +4,15 @@ max_job_seconds = 30
 [probe.stage_budget_seconds]
 zap_jobs = 7200
 replay = 1800
+
+[ai]
+enabled = true
+
+[ai.tasks.fix_text]
+enabled = true
+
+[ai.tasks.link_explanation]
+enabled = true
+
+[ai.tasks.report_summary]
+enabled = true

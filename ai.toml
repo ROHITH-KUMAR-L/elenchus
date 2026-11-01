@@ -1,0 +1,8 @@
+[ai]
+enabled = true
+[ai.tasks.fix_text]
+enabled = true
+[ai.tasks.link_explanation]
+enabled = true
+[ai.tasks.report_summary]
+enabled = true

@@ -36,3 +36,5 @@ venv/
 # IDE folders
 .vscode/
 .idea/
+
+cmds.txt
