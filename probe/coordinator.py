@@ -94,10 +94,18 @@ def _is_state_changing(method: str) -> bool:
     return method.upper() not in _SAFE_METHODS
 
 
-def _risk_key(job: ProbeJob, index: int) -> tuple[int, int, int]:
+def _is_fast_confirm(job: ProbeJob) -> bool:
+    """A directed job confirmed by a project oracle, skipping ZAP's active scan."""
+    return job.job_pass == "directed" and bool(job.cwes) and set(job.cwes) <= _CONFIRM_ONLY_CWES
+
+
+def _risk_key(job: ProbeJob, index: int) -> tuple[int, int, int, int]:
     seed = job.seed_request
     destructive = 1 if _DESTRUCTIVE_SQL.search(f"{seed.url} {seed.body}") else 0
-    return (_METHOD_RANK.get(job.method.upper(), 1), destructive, index)
+    # Within a state-risk tier, run the cheap fast-confirm jobs first so a route
+    # that confirms in one request is never starved by a slow active-scan job.
+    fast = 0 if _is_fast_confirm(job) else 1
+    return (_METHOD_RANK.get(job.method.upper(), 1), destructive, fast, index)
 _TYPE_REJECTION_STATUSES = {400, 422}
 _TYPE_REJECTABLE = {
     "byte", "short", "int", "integer", "long", "float", "double",
