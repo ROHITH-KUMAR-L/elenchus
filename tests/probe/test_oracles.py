@@ -115,6 +115,12 @@ def test_path_traversal_does_not_fire_when_the_baseline_already_shows_it():
     assert path_traversal(both, both, "../../etc/passwd") is False
 
 
+def test_path_traversal_fires_on_a_leaked_private_key():
+    baseline = Response(200, "", "not found")
+    probe = Response(200, "", "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1r")
+    assert path_traversal(baseline, probe, "..%2f..%2f.ssh/id_rsa") is True
+
+
 def test_registry_maps_the_single_response_classes():
     assert oracle_for(89) is sql_error
     assert oracle_for(79) is xss_reflected

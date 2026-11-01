@@ -117,8 +117,13 @@ def command_output(baseline: Response, probe: Response, payload: str = "") -> bo
 # A traversal sequence in the attack, and the content of a well-known sensitive
 # file in the probe response but not the baseline.
 _TRAVERSAL_PAYLOAD = re.compile(r"\.\.[\\/]|%2e%2e|\.\.%2f|%252e", re.IGNORECASE)
+# Content of well-known sensitive files, kept framework- and app-agnostic: the
+# Unix passwd/shadow layout, Windows boot/system ini files, and a leaked private
+# key. No application file name is listed here (generality rule).
 _TRAVERSAL_EVIDENCE = re.compile(
-    r"root:[^:\n]*:0:0:|\[boot loader\]|\[fonts\]|; for 16-bit app support",
+    r"root:[^:\n]*:0:0:"
+    r"|\[boot loader\]|\[fonts\]|; for 16-bit app support"
+    r"|-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----",
     re.IGNORECASE,
 )
 

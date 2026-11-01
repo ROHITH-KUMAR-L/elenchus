@@ -113,6 +113,7 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 - Command injection and XSS/open-redirect are now probed dynamically by the sweep pass. Static catalogue: command injection added (ProcessBuilder/Runtime.exec). XSS (String.format reflected into ResponseEntity) and open redirect (location added to a header map) have no safe low-level API anchor without dataflow; left to catalogue-growth work, dynamic sweep covers them meanwhile.
 - Header/cookie findings use `ORACLE` evidence with `oracle: header_check` and `header_name` in detail; no schema change. The VulnerableApp grader ignores them.
 - Live run confirmed no CWE 78/79/601, expected not a regression: the command route returns ping output (oracle wants uid/gid), XSS routes reply `text/plain` (oracle wants `text/html`), open-redirect sweep routes not reached in budget. Confirm those oracles live on routes that suit them.
+- CWE-22 is not confirmable on VulnerableApp (investigated 2026-11-01): `PathTraversalVulnerability.readFile` uses `getResourceAsStream`, reading only classpath resources, so `/PathTraversal/LEVEL_1?fileName=../../../../etc/passwd` returns `{"content":null}` and no OS file content ever appears. ZAP's rule 6 and our file-content oracle both inject OS paths, so neither fires; the only "win" is reading a sibling classpath resource (`secret.json`), an app-specific name the generality rule forbids hardcoding. The oracle is unit-tested and correct for real filesystem sinks; it now also detects Windows ini files and leaked private keys.
 - Probe stage ran 216s against a 170s start-deadline: in-flight jobs (scan plus replays, `max_job_seconds` 30) finish past it. Total wall 3:37 under the 5-minute cap; tune budgets in BS8. A single ZAP timeout no longer aborts the run (wrapped in `ZapApi.call`; the job is recorded `errored`).
 - Routes whose handler reads every param have no param name to seed (`XSSWithHtmlTagInjection`). The sweep still probes their declared params. Generated-name seeding not built.
 - The answer key's line on a multi-line call is the argument's, not the call's. `BS3` and the command-injection catalogue follow it. Confirm at kickoff.
@@ -127,7 +128,6 @@ Semgrep yardstick: `[TODO: Semgrep count on VulnerableApp with unfitted rules; r
 
 - Name of the environment variable for the base URL, the alternative to `--target`.
 - Where the context path found by preflight is stored: `ScanTarget` or the preflight output.
-- Path traversal: confirm the passwd line pattern.
 - `oracle_flaky` sits inside the evidence entry. `conflict` is a boolean. Confirm.
 - Header counting and multi-route export counting: confirm `header.count_mode` and `export.count_multi_entry` at kickoff against the answer key.
 - Config values still TODO: `probe.timing_repeats`. Budget, back-guided and band values are proposed, to be tuned on runs.
