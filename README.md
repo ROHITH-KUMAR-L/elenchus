@@ -132,7 +132,7 @@ Its only output is `out/<run>/catalogue_proposals.json`, grouped into `accepted`
 | No twin | On a normal scan no twin is available, so every surviving proposal is `needs_human_review` and nothing is applied. |
 | Scope | Off in judging mode. Validated against a JSON schema, cached, capped by `ai.max_calls`. |
 
-Enable with a config file and the `OPENAI_*` environment (any missing ⇒ AI off):
+Enable with a config file and the `GROQ_*` environment (any missing ⇒ AI off):
 
 ```toml
 [ai]
@@ -203,11 +203,12 @@ discrimination-limited (high recall, high false-positive rate).
 
 ### Verify the AI credentials
 
-The AI features are optional and read `OPENAI_BASE_URL`, `OPENAI_API_KEY` and
-`OPENAI_MODEL` from the environment. Verify them without running a scan:
+The AI features are optional and read `GROQ_BASE_URL`, `GROQ_API_KEY` and
+`GROQ_MODEL` from the environment (or the generic `LLM_*` fallback). Verify them
+without running a scan:
 
 ```bash
-OPENAI_BASE_URL=https://api.openai.com/v1 OPENAI_API_KEY=sk-... OPENAI_MODEL=gpt-4o-mini \
+GROQ_BASE_URL=https://api.groq.com/openai/v1 GROQ_API_KEY=gsk_... GROQ_MODEL=llama-3.3-70b-versatile \
   uv run --locked python scripts/ai_check.py
 ```
 

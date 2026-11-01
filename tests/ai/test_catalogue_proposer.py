@@ -27,7 +27,7 @@ from common.pipeline import CallGraphEdge, CodeIndex
 from producers.sast.sink_finder import find_sinks, load_catalogue
 from producers.sast.spring_routes import _parse_files, build_index
 
-ENV = {"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}
+ENV = {"LLM_API_KEY": "k", "LLM_BASE_URL": "http://127.0.0.1:1/v1", "LLM_MODEL": "m"}
 
 _DAO = """
     class Dao {

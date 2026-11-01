@@ -5,9 +5,8 @@ reports whether the client is configured and the task is enabled, and — only w
 configured — makes one real minimal call to the endpoint and reports success,
 latency and any error. No scan, no target, no ZAP.
 
-Any OpenAI-compatible provider works. The variables are checked in order:
-OPENAI_*, then GROQ_*, then the generic LLM_* (BASE_URL, API_KEY, MODEL). For
-Groq, for example:
+The provider is Groq (an OpenAI-compatible endpoint). The variables are checked in
+order: GROQ_*, then the generic LLM_* (BASE_URL, API_KEY, MODEL):
 
     GROQ_BASE_URL=https://api.groq.com/openai/v1 GROQ_API_KEY=gsk_... \
         GROQ_MODEL=llama-3.3-70b-versatile \
@@ -43,8 +42,8 @@ def main() -> int:
 
     if not client.configured():
         print(
-            "\nAI is not configured. Set the base URL, key and model via OPENAI_*, "
-            "GROQ_* or LLM_* (BASE_URL, API_KEY, MODEL)."
+            "\nAI is not configured. Set the base URL, key and model via GROQ_* "
+            "or LLM_* (BASE_URL, API_KEY, MODEL)."
         )
         print("This is a valid state: the AI features are optional and simply stay off.")
         return 0

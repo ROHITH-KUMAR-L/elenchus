@@ -24,9 +24,10 @@ from common.config import Config
 
 Transport = Callable[[str, list[dict[str, str]]], str]
 _MAX_RESPONSE_BYTES = 1 * 1024 * 1024
-# OpenAI-compatible providers, checked in order. LLM_* is the provider-neutral
-# fallback. Add a prefix here to support another provider's native variable names.
-_ENV_PREFIXES = ("OPENAI", "GROQ", "LLM")
+# Groq (an OpenAI-compatible endpoint) is the provider. LLM_* is the
+# provider-neutral fallback. Add a prefix here to support another provider's
+# native variable names.
+_ENV_PREFIXES = ("GROQ", "LLM")
 
 
 def _env(environ: Mapping[str, str], suffix: str) -> str:
@@ -48,9 +49,9 @@ class AiClient:
         self.config = config
         # The endpoint, key and model come only from the environment (set via .env
         # or docker run -e). Nothing is hardcoded: when any is missing the client is
-        # unavailable and AI is simply off, so the feature is optional. Any
-        # OpenAI-compatible provider works (OpenAI, Groq, Together, a local server);
-        # the names are checked provider-first, then the generic LLM_* fallback.
+        # unavailable and AI is simply off, so the feature is optional. The provider
+        # is Groq (an OpenAI-compatible endpoint); GROQ_* names are checked first,
+        # then the generic LLM_* fallback.
         self.model = _env(environ, "MODEL")
         self.base_url = _env(environ, "BASE_URL").rstrip("/")
         self._api_key = _env(environ, "API_KEY")

@@ -47,27 +47,27 @@ def test_generic_llm_variables_configure_the_client():
     assert client.configured()
 
 
-def test_openai_variables_take_precedence_over_groq():
+def test_groq_variables_take_precedence_over_generic_llm():
     client = AiClient(
         enabled_config(),
         environ={
-            "OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "openai-model",
             "GROQ_API_KEY": "gsk_x", "GROQ_BASE_URL": "https://api.groq.com/openai/v1", "GROQ_MODEL": "groq-model",
+            "LLM_API_KEY": "k", "LLM_BASE_URL": "http://127.0.0.1:1/v1", "LLM_MODEL": "llm-model",
         },
     )
-    assert client.model == "openai-model"
+    assert client.model == "groq-model"
 
 
 def test_disabled_task_makes_no_call():
     transport = Counter()
-    client = AiClient(load_config(environ={}), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
+    client = AiClient(load_config(environ={}), environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"}, transport=transport)
     assert client.complete("fix_text", "prompt", SCHEMA) is None
     assert transport.calls == 0
     assert client.skips["disabled"] == 1
 
 
 def test_enabled_without_configuration_makes_no_call():
-    # No OPENAI_* in the environment: the client is unconfigured and AI is simply
+    # No GROQ_* in the environment: the client is unconfigured and AI is simply
     # off, even with the task switched on. Nothing is hardcoded as a fallback.
     transport = Counter()
     client = AiClient(enabled_config(), environ={}, transport=transport)
@@ -80,7 +80,7 @@ def test_enabled_without_configuration_makes_no_call():
 
 def test_enabled_call_returns_validated_json():
     transport = Counter()
-    client = AiClient(enabled_config(), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
+    client = AiClient(enabled_config(), environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"}, transport=transport)
     assert client.complete("fix_text", "prompt", SCHEMA) == {"text": "advice"}
     assert transport.calls == 1
     assert client.calls == 1
@@ -88,7 +88,7 @@ def test_enabled_call_returns_validated_json():
 
 def test_repeated_prompt_is_cached():
     transport = Counter()
-    client = AiClient(enabled_config(), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
+    client = AiClient(enabled_config(), environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"}, transport=transport)
     client.complete("fix_text", "same", SCHEMA)
     client.complete("fix_text", "same", SCHEMA)
     assert transport.calls == 1
@@ -96,7 +96,7 @@ def test_repeated_prompt_is_cached():
 
 def test_budget_caps_the_number_of_calls():
     transport = Counter()
-    client = AiClient(enabled_config(max_calls=1), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
+    client = AiClient(enabled_config(max_calls=1), environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"}, transport=transport)
     assert client.complete("fix_text", "one", SCHEMA) == {"text": "advice"}
     assert client.complete("fix_text", "two", SCHEMA) is None
     assert transport.calls == 1
@@ -105,14 +105,14 @@ def test_budget_caps_the_number_of_calls():
 
 def test_schema_invalid_response_is_dropped():
     transport = Counter(reply='{"wrong": 1}')
-    client = AiClient(enabled_config(), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
+    client = AiClient(enabled_config(), environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"}, transport=transport)
     assert client.complete("fix_text", "prompt", SCHEMA) is None
     assert client.skips["schema_invalid"] == 1
 
 
 def test_non_json_response_is_dropped():
     transport = Counter(reply="not json")
-    client = AiClient(enabled_config(), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
+    client = AiClient(enabled_config(), environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"}, transport=transport)
     assert client.complete("fix_text", "prompt", SCHEMA) is None
     assert client.skips["call_failed"] == 1
 
@@ -123,6 +123,6 @@ def test_judging_profile_keeps_the_client_disabled():
         environ={},
     )
     transport = Counter()
-    client = AiClient(config, environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
+    client = AiClient(config, environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"}, transport=transport)
     assert client.complete("fix_text", "prompt", SCHEMA) is None
     assert transport.calls == 0

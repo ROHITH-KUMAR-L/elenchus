@@ -38,7 +38,7 @@ def test_annotate_adds_text_without_changing_the_verdict():
                        "ai.tasks.link_explanation.enabled": True},
             environ={},
         ),
-        environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"},
+        environ={"LLM_API_KEY": "k", "LLM_BASE_URL": "http://127.0.0.1:1/v1", "LLM_MODEL": "m"},
         transport=lambda model, messages: (
             '{"fix": "Use a parameterised query."}'
             if "fix" in messages[1]["content"]
@@ -61,7 +61,7 @@ def test_disabled_tasks_leave_issues_untouched_and_make_no_call():
         calls.append(messages)
         return '{"fix": "x"}'
 
-    client = AiClient(load_config(environ={}), environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"}, transport=transport)
+    client = AiClient(load_config(environ={}), environ={"LLM_API_KEY": "k", "LLM_BASE_URL": "http://127.0.0.1:1/v1", "LLM_MODEL": "m"}, transport=transport)
     [annotated] = annotate([issue()], client)
     assert annotated.ai_notes is None
     assert calls == []
@@ -74,7 +74,7 @@ def test_summarise_report_is_none_without_a_client():
 def test_summarise_report_returns_the_ai_text_when_the_task_is_on():
     client = AiClient(
         load_config(overrides={"ai.enabled": True, "ai.tasks.report_summary.enabled": True}, environ={}),
-        environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"},
+        environ={"LLM_API_KEY": "k", "LLM_BASE_URL": "http://127.0.0.1:1/v1", "LLM_MODEL": "m"},
         transport=lambda model, messages: '{"summary": "One Confirmed SQL injection; fix it first."}',
     )
     assert summarise_report([issue()], client) == "One Confirmed SQL injection; fix it first."
@@ -83,7 +83,7 @@ def test_summarise_report_returns_the_ai_text_when_the_task_is_on():
 def test_summarise_report_is_none_when_the_task_is_off():
     client = AiClient(
         load_config(environ={}),  # ai.enabled defaults off
-        environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"},
+        environ={"LLM_API_KEY": "k", "LLM_BASE_URL": "http://127.0.0.1:1/v1", "LLM_MODEL": "m"},
         transport=lambda model, messages: '{"summary": "should not be produced"}',
     )
     assert summarise_report([issue()], client) is None
@@ -92,7 +92,7 @@ def test_summarise_report_is_none_when_the_task_is_off():
 def test_link_explanation_is_skipped_for_unlinked_issues():
     client = AiClient(
         load_config(overrides={"ai.enabled": True, "ai.tasks.link_explanation.enabled": True}, environ={}),
-        environ={"OPENAI_API_KEY": "k", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1", "OPENAI_MODEL": "m"},
+        environ={"LLM_API_KEY": "k", "LLM_BASE_URL": "http://127.0.0.1:1/v1", "LLM_MODEL": "m"},
         transport=lambda model, messages: '{"explanation": "should not appear"}',
     )
     code_only = issue(label="Code-only", link_status=None, link_origin=None, confidence=None)
