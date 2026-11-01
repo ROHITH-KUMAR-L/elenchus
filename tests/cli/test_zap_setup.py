@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from http.client import RemoteDisconnected
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -66,6 +67,46 @@ def test_running_zap_with_a_different_key_is_not_restarted(tmp_path: Path) -> No
     run.assert_not_called()
 
 
+def test_listening_but_unresponsive_zap_is_not_restarted(tmp_path: Path) -> None:
+    api = Mock()
+    api.call.side_effect = RuntimeError("cannot reach the local ZAP API: connection closed")
+    compose = tmp_path / "zap.compose.yaml"
+    compose.write_text("services: {}", encoding="utf-8")
+    run = Mock()
+
+    with pytest.raises(RuntimeError, match="left unchanged"):
+        ensure_zap_api_available(
+            api,
+            "http://127.0.0.1:8090",
+            "secret",
+            compose_file=compose,
+            api_port_accepting=Mock(return_value=True),
+            run=run,
+        )
+
+    run.assert_not_called()
+
+
+def test_remote_disconnect_from_listening_zap_is_not_restarted(tmp_path: Path) -> None:
+    api = Mock()
+    api.call.side_effect = RemoteDisconnected("remote end closed connection")
+    compose = tmp_path / "zap.compose.yaml"
+    compose.write_text("services: {}", encoding="utf-8")
+    run = Mock()
+
+    with pytest.raises(RuntimeError, match="left unchanged"):
+        ensure_zap_api_available(
+            api,
+            "http://127.0.0.1:8090",
+            "secret",
+            compose_file=compose,
+            api_port_accepting=Mock(return_value=True),
+            run=run,
+        )
+
+    run.assert_not_called()
+
+
 def test_unavailable_zap_starts_compose_with_key_in_environment(tmp_path: Path) -> None:
     api = Mock()
     api.call.side_effect = [
@@ -83,6 +124,7 @@ def test_unavailable_zap_starts_compose_with_key_in_environment(tmp_path: Path) 
         "secret",
         compose_file=compose,
         environ={"PATH": "/bin"},
+        api_port_accepting=Mock(return_value=False),
         run=run,
     )
 
@@ -113,6 +155,7 @@ def test_compose_error_redacts_the_api_key(tmp_path: Path) -> None:
             "http://127.0.0.1:8090",
             "secret-value",
             compose_file=compose,
+            api_port_accepting=Mock(return_value=False),
             run=run,
         )
 

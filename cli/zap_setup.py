@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import socket
 import stat
 import subprocess
 import time
@@ -83,6 +84,18 @@ def _read_key_file(path: Path) -> str:
     return key
 
 
+def _api_port_accepting_connections(api_url: str) -> bool:
+    parts = urlsplit(api_url)
+    if parts.hostname is None:
+        raise ValueError("ZAP_API_URL must include a loopback host")
+    port = parts.port or 80
+    try:
+        with socket.create_connection((parts.hostname, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
 def ensure_zap_api_available(
     api: ZapApi,
     api_url: str,
@@ -91,17 +104,31 @@ def ensure_zap_api_available(
     compose_file: Path | None = None,
     environ: Mapping[str, str] | None = None,
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    api_port_accepting: Callable[[str], bool] = _api_port_accepting_connections,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> None:
     try:
         _verify_api(api)
         return
+    except OSError as error:
+        if api_port_accepting(api_url):
+            raise RuntimeError(
+                "a service is listening on the ZAP API port, but its API is not "
+                "responding. It was left unchanged; check the service or stop it "
+                "before retrying."
+            ) from error
     except RuntimeError as error:
         if _is_auth_failure(error):
             raise _credentials_error() from error
         if "cannot reach the local ZAP API" not in str(error):
             raise RuntimeError(f"could not verify the local ZAP API: {error}") from error
+        if api_port_accepting(api_url):
+            raise RuntimeError(
+                "a service is listening on the ZAP API port, but its API is not "
+                "responding. It was left unchanged; check the service or stop it "
+                "before retrying."
+            ) from error
 
     file_path = compose_file or Path(__file__).resolve().parents[1] / "infra" / "zap.compose.yaml"
     _start_compose_zap(file_path, api_url, api_key, environ=environ, run=run)
