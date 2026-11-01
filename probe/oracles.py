@@ -5,11 +5,12 @@ the replayed request carried. ZAP generates its own payloads, so an oracle canno
 rely on a canary we planted: it checks the attack value itself.
 
 ORACLES maps CWE to its oracle. Command injection (78) is confirmed by command
-output reflected in the response (differential, offline-testable). Its timing
-variant (`timing_slower`) is built but not registered: it needs a verified timing
-source (`probe.timing_repeats`), measured live. Blind and union SQL are also not
-built yet; boolean SQL (`sql_boolean`) is a three-response oracle, so it is not in
-ORACLES either.
+output reflected in the response (differential, offline-testable). Boolean SQL
+(`sql_boolean`) is a three-response oracle and the time-based variant
+(`timing_slower`) compares elapsed times, so neither is in ORACLES; both are wired
+into the coordinator through their own confirmation passes. `timing_slower` stays
+gated on `probe.timing_repeats`, off until a repeat count and a live timing
+baseline are measured.
 """
 
 from __future__ import annotations
@@ -162,7 +163,8 @@ def timing_slower(baseline_seconds: float, probe_seconds: float, threshold_secon
     by at least threshold_seconds.
 
     It compares elapsed times, not responses, so it is not an Oracle and is not in
-    ORACLES. Wiring it needs a verified timing source: `probe.timing_repeats`
-    requests with the median taken, measured live before it is trusted.
+    ORACLES. The coordinator's `_confirm_timing` pass uses it, taking the median of
+    `probe.timing_repeats` requests; it stays off until that count and a live
+    baseline are measured.
     """
     return (probe_seconds - baseline_seconds) >= threshold_seconds

@@ -23,7 +23,7 @@ from common.record import Finding, RouteEntry
 from common.vocabulary import type_name
 from probe.attribution import PROBE_HEADER, RULE_HEADER, attribute, request_values
 from probe.headers import HeaderFinding, check_response
-from probe.oracles import Response, oracle_for, sql_boolean
+from probe.oracles import Response, oracle_for, sql_boolean, timing_slower
 from probe.preflight import ContextPath
 from probe.scheduler import run_two_pass
 from probe.seeds import build_seed
@@ -47,6 +47,18 @@ _BOOLEAN_TEMPLATES = (
     ("' AND '1'='1", "' AND '1'='2"),
     (" AND 1=1", " AND 1=2"),
     ("' AND '1'='1' -- ", "' AND '1'='2' -- "),
+)
+# Time-based blind SQL: a payload that makes the database sleep. The project times
+# the replay and compares it against a benign baseline (timing_slower). Wired but
+# gated on probe.timing_repeats: it needs a measured repeat count and a live
+# baseline before it is trusted, so it stays off until that is recorded.
+_TIMING_SLEEP_SECONDS = 5
+_TIMING_THRESHOLD_SECONDS = _TIMING_SLEEP_SECONDS * 0.5
+_TIMING_TEMPLATES = (
+    "' AND SLEEP({s})-- ",
+    " AND SLEEP({s})",
+    "'; WAITFOR DELAY '0:0:{s}'-- ",
+    "' AND (SELECT 1 FROM PG_SLEEP({s}))-- ",
 )
 
 
@@ -491,7 +503,10 @@ class Coordinator:
         # true/false replay pair per SQL param the scan did not already confirm.
         if 89 in job.cwes:
             done = {param for (param, cwe) in candidates if cwe == 89}
-            findings.extend(self._confirm_boolean(run_id, job, seed, baseline, done))
+            boolean_findings = self._confirm_boolean(run_id, job, seed, baseline, done)
+            findings.extend(boolean_findings)
+            done |= {finding.param for finding in boolean_findings if finding.param}
+            findings.extend(self._confirm_timing(run_id, job, seed, baseline, done))
         adequacy_rows = [
             row
             for cwe in job.cwes
@@ -743,6 +758,88 @@ class Coordinator:
                             "hypothesis_ids": list(job.hypothesis_ids),
                             "replays": attempts,
                             "fired": fired,
+                        },
+                    }
+                ],
+                "severity": "high",
+            }
+        )
+
+    def _confirm_timing(
+        self, run_id: str, job: ProbeJob, seed: SeedRequest, baseline: Response, done: set[str]
+    ) -> list[Finding]:
+        """Confirm time-based blind SQL on each query param not already confirmed.
+
+        Off unless probe.timing_repeats is set. The benign baseline time is the
+        median of that many replays; a payload fires when its replay is slower than
+        the baseline by the threshold, reproduced replay.min_hits times."""
+        from urllib.parse import parse_qsl, urlsplit
+
+        repeats = self.config["probe.timing_repeats"]
+        if not repeats or 89 not in job.cwes:
+            return []
+        params = parse_qsl(urlsplit(seed.url).query, keep_blank_values=True)
+        if not params:
+            return []
+        base_median = self._median_elapsed(self._raw(seed), repeats)
+        findings: list[Finding] = []
+        for param, value in params:
+            if param in done:
+                continue
+            for template in _TIMING_TEMPLATES:
+                payload = value + template.format(s=_TIMING_SLEEP_SECONDS)
+                request = self._replay_request(seed, _Candidate(param, 89, payload, "", ""))
+                fired = sum(
+                    timing_slower(
+                        base_median, self._median_elapsed(request, repeats), _TIMING_THRESHOLD_SECONDS
+                    )
+                    for _ in range(self.config["replay.count"])
+                )
+                if fired >= self.config["replay.min_hits"]:
+                    findings.append(
+                        self._timing_finding(run_id, job, param, payload, self.config["replay.count"], fired)
+                    )
+                    break
+        return findings
+
+    def _median_elapsed(self, raw_request: str, repeats: int) -> float:
+        from statistics import median
+
+        samples = []
+        for _ in range(max(1, repeats)):
+            start = self._now()
+            self.api.send_request(raw_request, follow_redirects=False)
+            samples.append(self._now() - start)
+        return median(samples)
+
+    def _timing_finding(
+        self, run_id: str, job: ProbeJob, param: str, payload: str, attempts: int, fired: int
+    ) -> Finding:
+        single = job.hypothesis_ids[0] if len(job.hypothesis_ids) == 1 else None
+        return Finding.from_dict(
+            {
+                "run_id": run_id,
+                "source": "dast",
+                "provenance": "zap",
+                "cwe": 89,
+                "type": type_name(89),
+                "route": job.route,
+                "method": job.method,
+                "param": param,
+                "payload": payload,
+                "hypothesis_id": single,
+                "evidence": [
+                    {
+                        "type": "ORACLE",
+                        "detail": {
+                            "oracle": "timing_slower",
+                            "canary_id": job.canary,
+                            "zap_job_id": job.job_id,
+                            "job_pass": job.job_pass,
+                            "hypothesis_ids": list(job.hypothesis_ids),
+                            "replays": attempts,
+                            "fired": fired,
+                            "threshold_seconds": _TIMING_THRESHOLD_SECONDS,
                         },
                     }
                 ],
