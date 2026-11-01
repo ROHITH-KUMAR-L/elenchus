@@ -218,3 +218,14 @@ GROQ_BASE_URL=https://api.groq.com/openai/v1 GROQ_API_KEY=gsk_... GROQ_MODEL=lla
 It reports whether the client is configured and, when it is, makes one minimal
 live call and prints success and latency. With any variable unset it reports
 `not configured` and AI simply stays off.
+
+**Transport.** By default the client calls the endpoint with the standard library
+and retries transient WAF/rate-limit errors. For the most reliable path — some
+providers (Groq) front their API with Cloudflare, which can block the plain
+client — install the optional OpenAI SDK, which the client then uses automatically
+(HTTP/2, a browser-like signature):
+
+```bash
+uv sync --locked --all-groups --extra ai      # once
+uv run --locked --extra ai elenchus scan ...   # or add --extra ai to any run
+```

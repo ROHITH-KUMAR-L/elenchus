@@ -140,10 +140,14 @@ def _ok_response():
 
 
 def _http_client():
-    return AiClient(
+    # Force the urllib transport so this exercises the retry path whether or not the
+    # optional openai SDK is installed.
+    client = AiClient(
         enabled_config(),
         environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"},
-    )  # no transport override: exercises the real _http retry path
+    )
+    client._transport = client._http
+    return client
 
 
 def test_transient_waf_error_is_retried_then_succeeds():
@@ -179,6 +183,22 @@ def test_retries_are_bounded_then_give_up():
         assert client.complete("fix_text", "prompt", SCHEMA) is None
     assert urlopen.call_count == 3
     assert client.skips["call_failed"] == 1
+
+
+def test_default_transport_falls_back_to_urllib_without_the_sdk():
+    client = AiClient(
+        enabled_config(),
+        environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"},
+    )
+    real_import = __import__
+
+    def no_openai(name, *args, **kwargs):
+        if name == "openai":
+            raise ImportError("not installed")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=no_openai):
+        assert client._default_transport() == client._http
 
 
 def test_judging_profile_keeps_the_client_disabled():

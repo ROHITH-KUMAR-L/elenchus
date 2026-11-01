@@ -20,6 +20,12 @@ dependencies = [
 semgrep = [
     "semgrep>=1.183.0",
 ]
+# Optional AI transport. The OpenAI SDK (httpx, HTTP/2) reaches providers whose
+# WAF blocks the plain-urllib fallback. All AI is still off by default; the
+# pipeline and its tests pass without this installed.
+ai = [
+    "openai>=1.54.0",
+]
 
 [project.scripts]
 elenchus = "cli.main:cli_entry"

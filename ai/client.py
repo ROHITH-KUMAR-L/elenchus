@@ -62,7 +62,7 @@ class AiClient:
         self.base_url = _env(environ, "BASE_URL").rstrip("/")
         self._api_key = _env(environ, "API_KEY")
         self._max_calls = int(config["ai.max_calls"])
-        self._transport = transport or self._http
+        self._transport = transport or self._default_transport()
         self._cache: dict[str, dict[str, Any] | None] = {}
         self.calls = 0
         self.skips: dict[str, int] = {}
@@ -107,6 +107,30 @@ class AiClient:
         if not valid(payload, schema):
             return self._skip("schema_invalid")
         return payload
+
+    def _default_transport(self) -> Transport:
+        """Prefer the OpenAI SDK transport (httpx, HTTP/2) when installed — it reaches
+        providers whose WAF blocks plain urllib — and fall back to urllib otherwise."""
+        try:
+            import openai  # noqa: F401
+        except ImportError:
+            return self._http
+        return self._sdk
+
+    def _sdk(self, model: str, messages: list[dict[str, str]]) -> str:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=self._api_key, base_url=self.base_url, max_retries=_HTTP_ATTEMPTS)
+        completion = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        content = completion.choices[0].message.content
+        if not content:
+            raise RuntimeError("AI response had no content")
+        return content
 
     def _http(self, model: str, messages: list[dict[str, str]]) -> str:
         body = json.dumps(
