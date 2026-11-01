@@ -13,6 +13,7 @@ The HTTP transport is injectable so tests never touch the network.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import time
@@ -108,11 +109,11 @@ class AiClient:
         if self.calls >= self._max_calls:
             return self._skip("budget_exhausted")
         self.calls += 1
-        result = self._call(task, prompt, schema)
+        result = self._call(prompt, schema)
         self._cache[cache_key] = result
         return result
 
-    def _call(self, task: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any] | None:
+    def _call(self, prompt: str, schema: dict[str, Any]) -> dict[str, Any] | None:
         messages = [
             {"role": "system", "content": _SYSTEM},
             {"role": "user", "content": prompt},
@@ -130,9 +131,7 @@ class AiClient:
     def _default_transport(self) -> Transport:
         """Prefer the Groq SDK transport (httpx, HTTP/2) when installed — it reaches
         providers whose WAF blocks plain urllib — and fall back to urllib otherwise."""
-        try:
-            import groq  # noqa: F401
-        except ImportError:
+        if importlib.util.find_spec("groq") is None:
             return self._http
         return self._sdk
 
@@ -142,15 +141,20 @@ class AiClient:
         # The Groq SDK owns its endpoint path; pass base_url only when the configured
         # value is not Groq's own OpenAI-compatible URL (so it is not double-appended).
         kwargs = {"api_key": self._api_key, "max_retries": _HTTP_ATTEMPTS}
-        if self.base_url and not self.base_url.startswith("https://api.groq.com/openai/v1"):
+        if self.base_url and not self.base_url.startswith("https://api.groq.com"):
             kwargs["base_url"] = self.base_url
         client = Groq(**kwargs)
 
-        def create(strict_json: bool):
-            extra = {"response_format": {"type": "json_object"}} if strict_json else {}
-            completion = client.chat.completions.create(
-                model=model, messages=messages, temperature=0, max_tokens=_MAX_TOKENS, **extra
-            )
+        def create(strict_json: bool) -> str:
+            params: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0,
+                "max_tokens": _MAX_TOKENS,
+            }
+            if strict_json:
+                params["response_format"] = {"type": "json_object"}
+            completion = client.chat.completions.create(**params)
             content = completion.choices[0].message.content
             if not content:
                 raise RuntimeError("AI response had no content")

@@ -190,15 +190,17 @@ def test_default_transport_falls_back_to_urllib_without_the_sdk():
         enabled_config(),
         environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"},
     )
-    real_import = __import__
-
-    def no_groq(name, *args, **kwargs):
-        if name == "groq":
-            raise ImportError("not installed")
-        return real_import(name, *args, **kwargs)
-
-    with patch("builtins.__import__", side_effect=no_groq):
+    with patch("ai.client.importlib.util.find_spec", return_value=None):
         assert client._default_transport() == client._http
+
+
+def test_default_transport_uses_the_sdk_when_installed():
+    client = AiClient(
+        enabled_config(),
+        environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"},
+    )
+    with patch("ai.client.importlib.util.find_spec", return_value=object()):
+        assert client._default_transport() == client._sdk
 
 
 def test_loads_lenient_handles_plain_fenced_and_wrapped_json():
