@@ -6,7 +6,7 @@ import io
 import urllib.error
 from unittest.mock import patch
 
-from ai.client import AiClient
+from ai.client import AiClient, _loads_lenient
 from common.config import load_config
 
 SCHEMA = {"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}}}
@@ -199,6 +199,28 @@ def test_default_transport_falls_back_to_urllib_without_the_sdk():
 
     with patch("builtins.__import__", side_effect=no_groq):
         assert client._default_transport() == client._http
+
+
+def test_loads_lenient_handles_plain_fenced_and_wrapped_json():
+    import pytest
+
+    assert _loads_lenient('{"ok": true}') == {"ok": True}
+    assert _loads_lenient('```json\n{"ok": true}\n```') == {"ok": True}
+    assert _loads_lenient('Here is the result: {"summary": "x"} — done') == {"summary": "x"}
+    with pytest.raises(ValueError):
+        _loads_lenient("no json here")
+
+
+def test_free_mode_output_with_prose_is_still_accepted():
+    # A model that ignores strict JSON mode and wraps the object in prose/fences is
+    # still parsed, so the call succeeds instead of failing.
+    transport = Counter(reply='```json\n{"text": "advice"}\n```')
+    client = AiClient(
+        enabled_config(),
+        environ={"GROQ_API_KEY": "k", "GROQ_BASE_URL": "http://127.0.0.1:1/v1", "GROQ_MODEL": "m"},
+        transport=transport,
+    )
+    assert client.complete("fix_text", "prompt", SCHEMA) == {"text": "advice"}
 
 
 def test_judging_profile_keeps_the_client_disabled():

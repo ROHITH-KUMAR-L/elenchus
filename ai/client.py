@@ -30,10 +30,29 @@ _USER_AGENT = "elenchus/0.1 (+https://github.com/ROHITH-KUMAR-L/elenchus)"
 _HTTP_ATTEMPTS = 3
 _HTTP_BACKOFF_SECONDS = 0.5
 _RETRY_STATUS = frozenset({403, 408, 409, 425, 429, 500, 502, 503, 504})
+_MAX_TOKENS = 2048  # headroom so a longer reply (e.g. the summary) is not truncated to invalid JSON
 # Groq (an OpenAI-compatible endpoint) is the provider. LLM_* is the
 # provider-neutral fallback. Add a prefix here to support another provider's
 # native variable names.
 _ENV_PREFIXES = ("GROQ", "LLM")
+
+
+def _loads_lenient(content: str) -> Any:
+    """Parse JSON, tolerating a model that wrapped it in prose or ```json fences.
+    Falls back to the outermost {...} span. Raises ValueError if none parses, which
+    _call treats as a failed call."""
+    try:
+        return json.loads(content)
+    except ValueError:
+        pass
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[text.find("{") :] if "{" in text else text
+    start, end = text.find("{"), text.rfind("}")
+    if 0 <= start < end:
+        return json.loads(text[start : end + 1])
+    raise ValueError("no JSON object in the response")
 
 
 def _env(environ: Mapping[str, str], suffix: str) -> str:
@@ -100,7 +119,7 @@ class AiClient:
         ]
         try:
             content = self._transport(self.model, messages)
-            payload = json.loads(content)
+            payload = _loads_lenient(content)
         except (OSError, ValueError, RuntimeError) as error:
             self.last_error = f"{type(error).__name__}: {error}"
             return self._skip("call_failed")
@@ -123,19 +142,33 @@ class AiClient:
         # The Groq SDK owns its endpoint path; pass base_url only when the configured
         # value is not Groq's own OpenAI-compatible URL (so it is not double-appended).
         kwargs = {"api_key": self._api_key, "max_retries": _HTTP_ATTEMPTS}
-        if self.base_url and not self.base_url.startswith("https://api.groq.com"):
+        if self.base_url and not self.base_url.startswith("https://api.groq.com/openai/v1"):
             kwargs["base_url"] = self.base_url
         client = Groq(**kwargs)
-        completion = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0,
-            response_format={"type": "json_object"},
-        )
-        content = completion.choices[0].message.content
-        if not content:
-            raise RuntimeError("AI response had no content")
-        return content
+
+        def create(strict_json: bool):
+            extra = {"response_format": {"type": "json_object"}} if strict_json else {}
+            completion = client.chat.completions.create(
+                model=model, messages=messages, temperature=0, max_tokens=_MAX_TOKENS, **extra
+            )
+            content = completion.choices[0].message.content
+            if not content:
+                raise RuntimeError("AI response had no content")
+            return content
+
+        # Any SDK error (auth, 400 strict-JSON validation, rate limit) becomes a
+        # RuntimeError so _call handles it gracefully instead of crashing the CLI.
+        # Some models fail strict JSON mode; retry once in free mode, then _call
+        # parses the JSON leniently out of the text.
+        try:
+            return create(strict_json=True)
+        except Exception as strict_error:  # noqa: BLE001 - normalise every SDK error
+            try:
+                return create(strict_json=False)
+            except Exception as error:
+                raise RuntimeError(f"Groq SDK error: {type(error).__name__}: {error}") from error
+            finally:
+                self.last_error = f"strict JSON mode failed: {strict_error}"
 
     def _http(self, model: str, messages: list[dict[str, str]]) -> str:
         body = json.dumps(
