@@ -25,6 +25,7 @@ from common.config import Config
 
 Transport = Callable[[str, list[dict[str, str]]], str]
 _MAX_RESPONSE_BYTES = 1 * 1024 * 1024
+_USER_AGENT = "elenchus/0.1 (+https://github.com/ROHITH-KUMAR-L/elenchus)"
 # Groq (an OpenAI-compatible endpoint) is the provider. LLM_* is the
 # provider-neutral fallback. Add a prefix here to support another provider's
 # native variable names.
@@ -118,6 +119,11 @@ class AiClient:
             headers={
                 "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
+                # Some providers front their API with a WAF (Cloudflare) that blocks
+                # the default Python-urllib agent (HTTP 403, Cloudflare code 1010).
+                # A conventional product agent passes.
+                "User-Agent": _USER_AGENT,
+                "Accept": "application/json",
             },
             method="POST",
         )
