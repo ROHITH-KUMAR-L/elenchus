@@ -23,7 +23,7 @@ from common.record import Finding, RouteEntry
 from common.vocabulary import type_name
 from probe.attribution import PROBE_HEADER, RULE_HEADER, attribute, request_values
 from probe.headers import HeaderFinding, check_response
-from probe.oracles import Response, command_output, oracle_for, sql_boolean, timing_slower
+from probe.oracles import Response, oracle_for, sql_boolean, timing_slower
 from probe.preflight import ContextPath
 from probe.scheduler import run_two_pass
 from probe.seeds import build_seed
@@ -64,6 +64,26 @@ _TIMING_TEMPLATES = (
 # (`id`) whose output the command_output oracle recognises. Project-controlled, so
 # confirmation does not depend on which payload ZAP happened to send.
 _COMMAND_TEMPLATES = (";id", " && id", " | id", "`id`", "$(id)", "& id")
+
+
+def _command_payloads(value: str, canary: str) -> list[str]:
+    return [value + separator for separator in _COMMAND_TEMPLATES]
+
+
+def _xss_payloads(value: str, canary: str) -> list[str]:
+    # A single canary tag with angle brackets: reflected verbatim means unescaped.
+    return [f"<elx-{canary}>"]
+
+
+def _redirect_payloads(value: str, canary: str) -> list[str]:
+    # An external host the open_redirect oracle checks for in the Location header.
+    return [f"http://elx-{canary}.example/"]
+
+
+# Injection classes confirmed by project-controlled payloads (CWE -> payload maker).
+# SQL (89) is confirmed by the error oracle on ZAP's scan plus the boolean/timing
+# passes, so it is not here.
+_CONFIRM_PAYLOADS = {78: _command_payloads, 79: _xss_payloads, 601: _redirect_payloads}
 
 
 def _is_state_changing(method: str) -> bool:
@@ -511,9 +531,19 @@ class Coordinator:
             findings.extend(boolean_findings)
             done |= {finding.param for finding in boolean_findings if finding.param}
             findings.extend(self._confirm_timing(run_id, job, seed, baseline, done))
-        if 78 in job.cwes:
-            done78 = {param for (param, cwe) in candidates if cwe == 78}
-            findings.extend(self._confirm_command(run_id, job, seed, baseline, done78))
+        # Project-controlled confirmation for the injection classes ZAP's active
+        # scan did not already confirm on this route. Each sends our own payloads
+        # (a benign `id`, a canary tag, an external redirect host) and fires the
+        # class oracle, so a reached route is confirmed deterministically rather
+        # than depending on which payload ZAP happened to send.
+        for cwe, payloads_for in _CONFIRM_PAYLOADS.items():
+            if cwe in job.cwes:
+                done_cwe = {param for (param, c) in candidates if c == cwe}
+                findings.extend(
+                    self._confirm_injection(
+                        run_id, job, seed, baseline, cwe, oracle_for(cwe), payloads_for, done_cwe
+                    )
+                )
         adequacy_rows = [
             row
             for cwe in job.cwes
@@ -772,15 +802,23 @@ class Coordinator:
             }
         )
 
-    def _confirm_command(
-        self, run_id: str, job: ProbeJob, seed: SeedRequest, baseline: Response, done: set[str]
+    def _confirm_injection(
+        self,
+        run_id: str,
+        job: ProbeJob,
+        seed: SeedRequest,
+        baseline: Response,
+        cwe: int,
+        oracle: Callable[[Response, Response, str], bool] | None,
+        payloads_for: Callable[[str, str], list[str]],
+        done: set[str],
     ) -> list[Finding]:
-        """Confirm OS command injection on each query param the scan did not confirm,
-        by replaying a project-controlled benign command (`id`) behind a shell
-        separator and firing command_output on the result."""
+        """Confirm an injection class on each query param the scan did not confirm,
+        with project-controlled payloads and the class oracle. Non-vulnerable params
+        cost one request (the oracle is probed once before the confirming replays)."""
         from urllib.parse import parse_qsl, urlsplit
 
-        if 78 not in job.cwes:
+        if oracle is None:
             return []
         params = parse_qsl(urlsplit(seed.url).query, keep_blank_values=True)
         attempts = self.config["replay.count"]
@@ -788,23 +826,28 @@ class Coordinator:
         for param, value in params:
             if param in done:
                 continue
-            for separator in _COMMAND_TEMPLATES:
-                payload = value + separator
-                request = self._replay_request(seed, _Candidate(param, 78, payload, "", ""))
-                fired = 0
-                for _ in range(attempts):
-                    response = _response(self.api.send_request(request, follow_redirects=False))
-                    if command_output(baseline, response, payload):
-                        fired += 1
+            for payload in payloads_for(value, job.canary):
+                request = self._replay_request(seed, _Candidate(param, cwe, payload, "", ""))
+                if not oracle(baseline, self._replay_response(request), payload):
+                    continue
+                fired = 1 + sum(
+                    oracle(baseline, self._replay_response(request), payload)
+                    for _ in range(attempts - 1)
+                )
                 if fired >= self.config["replay.min_hits"]:
                     findings.append(
-                        self._command_finding(run_id, job, param, payload, attempts, fired)
+                        self._injection_finding(run_id, job, cwe, oracle.__name__, param, payload, attempts, fired)
                     )
+                    done.add(param)
                     break
         return findings
 
-    def _command_finding(
-        self, run_id: str, job: ProbeJob, param: str, payload: str, attempts: int, fired: int
+    def _replay_response(self, raw_request: str) -> Response:
+        return _response(self.api.send_request(raw_request, follow_redirects=False))
+
+    def _injection_finding(
+        self, run_id: str, job: ProbeJob, cwe: int, oracle_name: str, param: str,
+        payload: str, attempts: int, fired: int,
     ) -> Finding:
         single = job.hypothesis_ids[0] if len(job.hypothesis_ids) == 1 else None
         return Finding.from_dict(
@@ -812,8 +855,8 @@ class Coordinator:
                 "run_id": run_id,
                 "source": "dast",
                 "provenance": "zap",
-                "cwe": 78,
-                "type": type_name(78),
+                "cwe": cwe,
+                "type": type_name(cwe),
                 "route": job.route,
                 "method": job.method,
                 "param": param,
@@ -823,7 +866,7 @@ class Coordinator:
                     {
                         "type": "ORACLE",
                         "detail": {
-                            "oracle": "command_output",
+                            "oracle": oracle_name,
                             "canary_id": job.canary,
                             "zap_job_id": job.job_id,
                             "job_pass": job.job_pass,
