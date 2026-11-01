@@ -124,3 +124,35 @@ def test_safe_route_is_not_confirmed_and_costs_one_request_per_param():
     )
     assert findings == []
     assert fake.calls == 1  # one probe, no confirming replays on a safe route
+
+
+def test_generic_param_seeds_a_map_handler_with_no_declared_param():
+    # A @RequestParam Map<String,String> handler leaves no param in the seed URL;
+    # the generic-name probe still reaches the reflection and confirms it.
+    j = ProbeJob(
+        job_id="run-j0", route="/PersistentXSS/LEVEL_1", method="GET", job_pass="directed",
+        hypothesis_ids=("h-1",), cwes=(79,),
+        seed_request=SeedRequest(url=f"{BASE}/PersistentXSS/LEVEL_1", method="GET"),
+        canary="elx-run-j0",
+    )
+    findings = coordinator(XssZap())._confirm_injection(
+        "run", j, SeedRequest(url=f"{BASE}/PersistentXSS/LEVEL_1", method="GET"),
+        BASE_200, 79, xss_reflected, _xss_payloads, set(),
+    )
+    assert len(findings) == 1 and findings[0].cwe == 79
+    assert findings[0].param == "q"
+
+
+def test_no_generic_param_for_non_reflection_classes():
+    # Command injection does not get a generic param: a no-param seed yields nothing.
+    j = ProbeJob(
+        job_id="run-j0", route="/Cmd/LEVEL_1", method="GET", job_pass="directed",
+        hypothesis_ids=("h-1",), cwes=(78,),
+        seed_request=SeedRequest(url=f"{BASE}/Cmd/LEVEL_1", method="GET"),
+        canary="elx-run-j0",
+    )
+    findings = coordinator(CommandZap())._confirm_injection(
+        "run", j, SeedRequest(url=f"{BASE}/Cmd/LEVEL_1", method="GET"),
+        BASE_200, 78, command_output, _command_payloads, set(),
+    )
+    assert findings == []

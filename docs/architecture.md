@@ -537,6 +537,7 @@ The single source for config names and default values. Other docs point here and
 | `ai.max_calls` | [30] | Cap on AI calls per run |
 | `ai.tasks.<name>.enabled` | [false] | Per-task AI switch |
 | `probe.max_job_seconds` | [proposed: 15] | The coordinator stops a job at this limit. `BS0` jobs took under 2 seconds; 15 caps the slow tail and the deadline overrun. Raise it only when the time-based oracle (`timing_slower`) is wired and a sleep payload needs the margin. |
+| `probe.sweep_max_job_seconds` | [proposed: 6] | The active-scan cap for a sweep job, tighter than a directed job's. A sweep route's reflection/redirect verdict comes from the project confirm, which runs whatever the active scan found, so a short cap reaches far more routes within the budget. Directed SQL-89 jobs keep the full `probe.max_job_seconds`. |
 | `probe.max_jobs` | [proposed: 60] | Safety limit on jobs per run. The deadline is the real budget. |
 | `probe.drift_routes` | [proposed: 3] | GET routes re-requested after a state-changing job |
 | `probe.timing_repeats` | [TODO] | Repeats for timing oracles |

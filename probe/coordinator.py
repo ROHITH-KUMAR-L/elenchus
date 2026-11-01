@@ -88,6 +88,11 @@ _CONFIRM_PAYLOADS = {78: _command_payloads, 79: _xss_payloads, 601: _redirect_pa
 # directed job covering only these can skip ZAP's active scan (slow, and not the
 # verdict here) and confirm directly. SQL-89 and every sweep job still scan.
 _CONFIRM_ONLY_CWES = frozenset(_CONFIRM_PAYLOADS)
+# Reflection classes where a handler that reads every request parameter (e.g. a
+# Spring `@RequestParam Map<String,String>`) leaves no declared param to seed.
+# For these, probe a generic parameter name so the reflection is still reached.
+_GENERIC_PARAM_CWES = frozenset({79, 601})
+_GENERIC_PARAM_NAMES = ("q",)
 
 
 def _is_state_changing(method: str) -> bool:
@@ -522,7 +527,12 @@ class Coordinator:
             policy = f"elenchus-{job.job_id}"
             self.api.ensure_scan_policy(policy, rule_ids, self.config[strength_key])
             scan_id = self.api.start_scan(seed.url, seed.method, seed.body, context_id, policy)
-            outcome = self._wait_for_scan(scan_id)
+            cap = (
+                self.config["probe.sweep_max_job_seconds"]
+                if job.job_pass == "sweep"
+                else self.config["probe.max_job_seconds"]
+            )
+            outcome = self._wait_for_scan(scan_id, cap)
 
             for message_id in self.api.scan_message_ids(scan_id):
                 stats["messages"] += 1
@@ -678,8 +688,10 @@ class Coordinator:
             }
         )
 
-    def _wait_for_scan(self, scan_id: str) -> str:
-        deadline = self._now() + self.config["probe.max_job_seconds"]
+    def _wait_for_scan(self, scan_id: str, max_seconds: float | None = None) -> str:
+        if max_seconds is None:
+            max_seconds = self.config["probe.max_job_seconds"]
+        deadline = self._now() + max_seconds
         while self.api.active_scan_status(scan_id) < 100:
             if self._now() >= deadline:
                 self.api.stop_scan(scan_id)
@@ -875,6 +887,12 @@ class Coordinator:
         if oracle is None:
             return []
         params = parse_qsl(urlsplit(seed.url).query, keep_blank_values=True)
+        # A handler that binds every request parameter (Map<String,String>) has no
+        # declared param in the seed, so add a generic name the handler still
+        # reflects. Only for reflection classes; a param that does not reflect just
+        # does not fire the oracle, so this cannot add a false positive.
+        if not params and cwe in _GENERIC_PARAM_CWES:
+            params = [(name, "") for name in _GENERIC_PARAM_NAMES]
         attempts = self.config["replay.count"]
         findings: list[Finding] = []
         for param, value in params:
@@ -1022,10 +1040,14 @@ class Coordinator:
         from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
         split = urlsplit(seed.url)
+        existing = parse_qsl(split.query, keep_blank_values=True)
         query = [
             (key, candidate.payload if key == candidate.param else value)
-            for key, value in parse_qsl(split.query, keep_blank_values=True)
+            for key, value in existing
         ]
+        # Inject the target param if the handler declared none (generic-name probe).
+        if candidate.param and all(key != candidate.param for key, _ in existing):
+            query.append((candidate.param, candidate.payload))
         url = urlunsplit(split._replace(query=urlencode(query))) if query else seed.url
         return self._raw(replace(seed, url=url))
 
