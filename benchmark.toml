@@ -1,0 +1,6 @@
+[probe]
+max_job_seconds = 30
+
+[probe.stage_budget_seconds]
+zap_jobs = 7200
+replay = 1800

@@ -169,6 +169,22 @@ One command runs the whole pipeline against the running target and its source:
    to persist; start Postgres and set `DATABASE_URL` (see
    [infra/README.md](infra/README.md)).
 
+   For a longer VulnerableApp benchmarking run, use the repository-root
+   `benchmark.toml` and omit `--judging`:
+
+   ```sh
+   uv run --locked elenchus scan \
+     --source-path .targets/VulnerableApp \
+     --base-url http://127.0.0.1:9090/VulnerableApp \
+     --expected-pairs common/fixtures/expected_pairs/vulnerableapp.yaml \
+     --config benchmark.toml \
+     --no-store
+   ```
+
+   This config allows up to two hours for ZAP jobs and 30 minutes for replay
+   verification. Those are deadlines, not guarantees that every planned job
+   succeeds; check the coverage report for skipped, errored, or untested work.
+
 3. Compare two stored runs (B-5): `uv run --locked elenchus compare --base <run_id> --current <run_id>`.
 
 Coverage: SQL injection (CWE-89, error/union/blind), OS command injection (CWE-78), reflected XSS (CWE-79) and open redirect (CWE-601) are probed dynamically with deterministic oracles; a static secrets/weak-crypto pass adds CWE-798/327/330 as Code-only. Path traversal (CWE-22) has an oracle but is not confirmable on VulnerableApp (its reader is classpath-based; see [docs/STATE.md](docs/STATE.md)). Details: [docs/implementation-plan.md](docs/implementation-plan.md).
