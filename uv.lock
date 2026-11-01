@@ -316,6 +316,7 @@ source = { editable = "." }
 dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyyaml" },
+    { name = "rich" },
     { name = "tree-sitter" },
     { name = "tree-sitter-java" },
 ]
@@ -335,6 +336,7 @@ dev = [
 requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "semgrep", marker = "extra == 'semgrep'", specifier = ">=1.183.0" },
     { name = "tree-sitter", specifier = ">=0.26.0" },
     { name = "tree-sitter-java", specifier = ">=0.23.5" },

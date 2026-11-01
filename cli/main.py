@@ -9,10 +9,20 @@ import os
 import re
 import sys
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 from common.config import load_config
 from common.record import EvidenceEntry, Finding, ScanTarget
@@ -29,6 +39,27 @@ class _PipelineOutput:
     index: Any = None
     advisory_alerts: tuple[dict[str, Any], ...] = ()
     preflight_extras: dict[str, Any] | None = None
+
+
+def _create_progress(no_progress: bool) -> Progress:
+    console = Console(stderr=True, no_color="NO_COLOR" in os.environ)
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=True,
+        disable=no_progress or not console.is_terminal,
+    )
+
+
+def _progress_step(progress: Progress, description: str, operation: Callable[[], Any]) -> Any:
+    task_id = progress.add_task(description, total=None)
+    result = operation()
+    progress.update(task_id, description=f"✓ {description}", total=1, completed=1)
+    return result
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -200,6 +231,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="judging profile: ZAP on, AI and Semgrep off, no target restarts",
     )
+    scan_parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="disable terminal progress feedback",
+    )
     scan_parser.add_argument("--run-id", help="run identifier (default: generated UUID)")
     _add_output_arguments(scan_parser)
     return parser
@@ -306,34 +342,65 @@ def _run_pipeline(args: argparse.Namespace, run_id: str, config: Any) -> _Pipeli
     from producers.sast.response_trace import parse_java_response_trace
     from producers.sast.static_stage import run_static
 
-    check_loopback(args.base_url)
-    target = ScanTarget(args.source_path, args.base_url, run_id, args.framework)
-    index = build_code_index(args.source_path)
-    static_findings = run_static(target, index)
-    directed = build_directed(static_findings, index, narrow=config["flow.enabled"])
-    # Sweep the classes that have both a ZAP rule and a runtime oracle, for bugs
-    # the static stage missed. The two-pass scheduler runs these after directed.
-    sweep_cwes = sorted(set(ORACLES) & set(config.rule_map()))
-    sweep = build_sweep(index, sweep_cwes)
-    skipped = tuple(skipped_by_type(index))
-    jobs = plan_directed_jobs(directed, index.routes, run_id) + plan_sweep_jobs(
-        sweep, index.routes, run_id
-    )
-    context = detect_context_path(args.source_path, args.base_url)
-    api_url = os.environ.get("ZAP_API_URL", config["zap.api_url"])
-    api_key = load_or_create_zap_api_key(config["zap.api_key"])
-    api = ZapApi(api_url, api_key)
-    ensure_zap_api_available(api, api_url, api_key)
-    preflight_extras = probe_extras(api, args.base_url).to_dict()
-    coordinator = Coordinator(
-        api,
-        config,
-        args.base_url,
-        context,
-        enum_types=index.enum_types,
-        trace_parser=lambda body: parse_java_response_trace(body, args.source_path),
-    )
-    result = coordinator.run(run_id, jobs, index.routes)
+    progress = _create_progress(getattr(args, "no_progress", False))
+    with progress:
+        _progress_step(progress, "Preflight checks", lambda: check_loopback(args.base_url))
+        target = ScanTarget(args.source_path, args.base_url, run_id, args.framework)
+        index = _progress_step(
+            progress, "Building route table", lambda: build_code_index(args.source_path)
+        )
+        static_findings = _progress_step(
+            progress, "Running static analysis", lambda: run_static(target, index)
+        )
+
+        def collect_hypotheses() -> tuple[list[Any], tuple[tuple[str, str, str], ...]]:
+            directed = build_directed(static_findings, index, narrow=config["flow.enabled"])
+            # Sweep classes with both a ZAP rule and runtime oracle for bugs the
+            # static stage missed. The scheduler runs these after directed jobs.
+            sweep_cwes = sorted(set(ORACLES) & set(config.rule_map()))
+            sweep = build_sweep(index, sweep_cwes)
+            skipped = tuple(skipped_by_type(index))
+            jobs = plan_directed_jobs(directed, index.routes, run_id) + plan_sweep_jobs(
+                sweep, index.routes, run_id
+            )
+            return jobs, skipped
+
+        jobs, skipped = _progress_step(progress, "Collecting hypotheses", collect_hypotheses)
+        context = _progress_step(
+            progress,
+            "Detecting application context",
+            lambda: detect_context_path(args.source_path, args.base_url),
+        )
+
+        def start_zap() -> ZapApi:
+            api_url = os.environ.get("ZAP_API_URL", config["zap.api_url"])
+            if not isinstance(api_url, str):
+                raise ValueError("zap.api_url must be a string")
+            api_key = load_or_create_zap_api_key(config["zap.api_key"])
+            api = ZapApi(api_url, api_key)
+            ensure_zap_api_available(api, api_url, api_key)
+            return api
+
+        api = _progress_step(progress, "Starting local ZAP API", start_zap)
+        preflight_extras = _progress_step(
+            progress, "Checking target baseline", lambda: probe_extras(api, args.base_url).to_dict()
+        )
+        coordinator = Coordinator(
+            api,
+            config,
+            args.base_url,
+            context,
+            enum_types=index.enum_types,
+            trace_parser=lambda body: parse_java_response_trace(body, args.source_path),
+        )
+        probe_task = progress.add_task("Probing with ZAP", total=None)
+        result = coordinator.run(run_id, jobs, index.routes)
+        progress.update(
+            probe_task,
+            total=1,
+            completed=1,
+            description="ZAP probe stage complete",
+        )
     _report_probe_telemetry(result)
     return _PipelineOutput(
         _apply_adequacy(

@@ -2,7 +2,7 @@
 
 ## 1. Last updated
 
-2026-11-01. M1, M2 cleared; `BS10` Should list done (`a`-`j`). Four vuln classes confirmed live on VulnerableApp: CWE-89, CWE-78, CWE-79, CWE-601 (see §7) + static secrets/crypto (798/327/330). Gaps closed: timing wired (off), Semgrep yardstick recorded, CWE-22 explained. CLI: `--source-image` (scan a Docker image/container), `--config`, colorized report; AI config env-only (optional). 372 tests pass, ruff clean. ZAP+VulnerableApp run from `infra/`.
+2026-11-01. M1, M2 cleared; `BS10` Should list done (`a`-`j`). Four vuln classes confirmed live on VulnerableApp: CWE-89, CWE-78, CWE-79, CWE-601 (see §7) + static secrets/crypto (798/327/330). Gaps closed: timing wired (off), Semgrep yardstick recorded, CWE-22 explained. CLI: `--source-image`, `--config`, colorized report; AI config env-only. `BS11a`-`BS11c` done. `BS11d` Rich stage spinners/progress implemented; CLI tests (18 passed), Ruff, syntax check and help check passed.
 
 ## 2. Architecture
 
@@ -109,7 +109,7 @@ Semgrep yardstick (recorded 2026-11-01): Semgrep 1.183.0, public pack `p/java` a
 
 ## 6. Not done, in dependency order
 
-`BS0`-`BS9` passed (M1, M2). `BS10` complete. Next: close the gaps (section 9), then `BS11` Could list. Other TODO marks: `grep -rn "TODO" docs AGENTS.md`.
+`BS0`-`BS9` passed (M1, M2). `BS10` complete. CLI follow-on `BS11a`-`BS11c` is committed on `main`; `BS11d` is implemented and its targeted validation passed. Next: `BS11e` route/job counts and ETA, then grouped summary, output selection and end-to-end CLI validation. No detection or correlation changes are in scope.
 
 ## 7. Known failures and residual flaws
 
@@ -141,7 +141,7 @@ Semgrep yardstick (recorded 2026-11-01): Semgrep 1.183.0, public pack `p/java` a
 
 ## 9. Next action
 
-`BS10` complete; gaps closed this session (CWE-22 explained, timing wired/off, Semgrep yardstick recorded); four classes confirmed live (§7). Next: (a) improve sweep throughput so a full scan confirms 79/601 within budget (each ZAP active scan ~15s/route), or make 78/79/601 directed; (b) live `compare` via Postgres; (c) session manager against an auth app; (d) an AI with/without run before any task goes default-on. Then `BS11` (Could list).
+`BS10` complete; pipeline follow-ups: improve sweep throughput, live `compare` via Postgres, test session manager against an auth app, and measure AI with/without. CLI output work: `BS11a`-`BS11c` are committed and `BS11d` progress feedback is implemented. Next is `BS11e` job counts/ETA, then deterministic grouped summary, raw/summary/both selection, and end-to-end validation from outside the repository. Preserve noninteractive output behavior and keep AI summary deterministic with no new AI calls.
 
 ## 10. Resume instructions
 

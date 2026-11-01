@@ -271,6 +271,22 @@ class CliTests(unittest.TestCase):
         )
         self.assertFalse(default.judging)
 
+    def test_no_progress_flag_is_parsed(self) -> None:
+        from cli.main import _build_parser
+
+        args = _build_parser().parse_args(
+            [
+                "scan",
+                "--source-path",
+                ".",
+                "--base-url",
+                "http://127.0.0.1:9090",
+                "--no-progress",
+            ]
+        )
+
+        self.assertTrue(args.no_progress)
+
     def test_correlate_reads_records_writes_json_and_sarif(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)
