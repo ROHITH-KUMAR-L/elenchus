@@ -1,0 +1,46 @@
+# Sink catalogue: reflected/persistent cross-site scripting (CWE-79).
+#
+# Anchor: a Spring MVC handler that writes untrusted text into the HTTP response
+# body. The lowest public API is the response carrier itself:
+#   - org.springframework.http.ResponseEntity, constructed with a String body
+#   - jakarta/javax.servlet.http.HttpServletResponse.getWriter().print/write
+#   - java.io.PrintWriter.print/write/append (the writer the servlet hands back)
+#
+# require_taint: unlike a SQL or exec sink, "return a String" is not by itself a
+# vulnerability. This sink is reported only when the own flow engine shows a
+# request parameter reaching the body expression WITHOUT passing an HTML escaper
+# (see sanitisers below). That taint gate is what separates an unescaped handler
+# from one that returns a constant or an escaped value, so a secure escaped
+# variant is never reported.
+cwe: 79
+type: Reflected Cross-Site Scripting
+severity: high
+# (receiver simple name, method) pairs. A value produced by one of these is
+# treated as HTML-safe by the flow engine and by arg_shape.
+sanitisers:
+  - {receiver: StringEscapeUtils, method: escapeHtml4}
+  - {receiver: StringEscapeUtils, method: escapeHtml3}
+  - {receiver: StringEscapeUtils, method: escapeHtml}
+  - {receiver: HtmlUtils, method: htmlEscape}
+  - {receiver: HtmlUtils, method: htmlEscapeHex}
+  - {receiver: HtmlUtils, method: htmlEscapeDecimal}
+  - {receiver: Encode, method: forHtml}
+  - {receiver: Encode, method: forHtmlContent}
+  - {receiver: Encode, method: forHtmlAttribute}
+  - {receiver: ESAPI, method: encodeForHTML}
+  - {receiver: Encoder, method: encodeForHTML}
+entries:
+  - id: spring-responseentity-body
+    api: org.springframework.http.ResponseEntity
+    kind: call
+    receiver_types: [ResponseEntity]
+    methods: ["<init>"]
+    sink_arg: 0
+    require_taint: true
+  - id: servlet-writer-print
+    api: java.io.PrintWriter
+    kind: call
+    receiver_types: [PrintWriter, Writer]
+    methods: [print, println, write, append]
+    sink_arg: 0
+    require_taint: true

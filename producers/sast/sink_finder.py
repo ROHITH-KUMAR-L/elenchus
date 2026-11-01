@@ -36,6 +36,7 @@ class CatalogueEntry:
     type_name: str
     severity: str
     lambda_of: frozenset[str] = frozenset()
+    require_taint: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,11 @@ class Catalogue:
     @property
     def method_names(self) -> frozenset[str]:
         return frozenset(name for entry in self.entries for name in entry.methods)
+
+    @property
+    def sanitiser_methods(self) -> frozenset[str]:
+        """Sanitiser method names, for the flow engine's name-only taint break."""
+        return frozenset(method for _, method in self.sanitisers)
 
     def find(self, receiver_names: set[str], method: str) -> CatalogueEntry | None:
         for entry in self.entries:
@@ -80,6 +86,7 @@ def load_catalogue(directory: Path = CATALOGUE_DIR) -> Catalogue:
                     type_name=document["type"],
                     severity=document["severity"],
                     lambda_of=frozenset(raw.get("lambda_of", ())),
+                    require_taint=bool(raw.get("require_taint", False)),
                 )
             )
         sanitisers.update((s["receiver"], s["method"]) for s in document.get("sanitisers", ()))
@@ -187,6 +194,20 @@ def _is_sanitised(argument, catalogue: Catalogue, scope: MethodScope) -> bool:
     return receiver_type is not None and (receiver_type, name) in catalogue.sanitisers
 
 
+def _contains_sanitiser(node, sanitiser_methods: frozenset[str]) -> bool:
+    """A sanitiser call anywhere in the expression subtree, by method name.
+
+    Covers escaping applied inside a lambda handed to an opaque helper (e.g.
+    `render(input, x -> htmlEscape(x))`), which intraprocedural flow cannot
+    follow. Name-only matching here only ever drops a sink, so it cannot add a
+    false alarm."""
+    if node.type == "method_invocation":
+        name = node.child_by_field_name("name")
+        if name is not None and _text(name) in sanitiser_methods:
+            return True
+    return any(_contains_sanitiser(child, sanitiser_methods) for child in node.named_children)
+
+
 def arg_shape(
     index: SourceIndex, argument, owner: str, literal_locals: set[str], catalogue: Catalogue, scope: MethodScope
 ) -> str:
@@ -262,11 +283,21 @@ def _site(
     argument = arguments[entry.sink_arg]
     if argument.type in _NOT_A_TEXT_ARGUMENT:
         return None
-    if require_text:
+    # A response-body sink (require_taint) returning a typed object, not text, is
+    # not XSS, so the text guard always applies to it.
+    if require_text or entry.require_taint:
         # A typed object, such as a CriteriaQuery, carries no query text.
         argument_type = scope.expression_type(argument)
         if argument_type is not None and argument_type not in _TEXT_TYPES:
             return None
+    reaching = tuple(sorted(reaching_formals(member, argument, catalogue.sanitiser_methods)))
+    # Taint gate: a require_taint sink is reported only when a request parameter
+    # reaches the argument through local flow without passing a sanitiser, and no
+    # sanitiser appears anywhere in the argument expression.
+    if entry.require_taint and (
+        not reaching or _contains_sanitiser(argument, catalogue.sanitiser_methods)
+    ):
+        return None
     return SinkSite(
         sink_id=SinkId(
             info["file"],
@@ -283,7 +314,7 @@ def _site(
         type_name=entry.type_name,
         severity=entry.severity,
         snippet=" ".join(_text(argument).split())[:300],
-        reaching_params=tuple(sorted(reaching_formals(member, argument))),
+        reaching_params=reaching,
     )
 
 

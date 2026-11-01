@@ -15,8 +15,10 @@
     "nio-path-resolve",
     "nio-paths-get",
     "resource-as-stream",
+    "servlet-writer-print",
     "spring-jdbc-template",
-    "spring-named-jdbc-template"
+    "spring-named-jdbc-template",
+    "spring-responseentity-body"
   ],
   "secret_rules": [
     "hardcoded_secret",

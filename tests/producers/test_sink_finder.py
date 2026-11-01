@@ -310,3 +310,76 @@ def test_catalogue_without_an_api_is_rejected(tmp_path):
     )
     with pytest.raises(ValueError, match="must name its source API"):
         load_catalogue(tmp_path)
+
+
+def xss_handler(tmp_path, body, params="@RequestParam String name"):
+    write(tmp_path, "src/X.java", f"""
+        @RestController
+        public class X {{
+            @GetMapping("/x")
+            public ResponseEntity<String> x({params}) {{
+                {dedent(body).strip()}
+            }}
+        }}
+        """)
+    found, _ = findings(tmp_path)
+    return [f for f in found if f.cwe == 79]
+
+
+def test_unescaped_param_in_response_body_is_an_xss_sink(tmp_path):
+    sinks = xss_handler(tmp_path, 'return new ResponseEntity<String>("<div>" + name + "</div>", HttpStatus.OK);')
+    assert len(sinks) == 1
+    assert sinks[0].arg_shape == "dynamic"
+
+
+def test_formatted_param_in_response_body_is_an_xss_sink(tmp_path):
+    sinks = xss_handler(
+        tmp_path,
+        'String p = String.format("<div>%s</div>", name); return new ResponseEntity<>(p, HttpStatus.OK);',
+    )
+    assert len(sinks) == 1
+
+
+def test_builder_appended_param_in_response_body_is_an_xss_sink(tmp_path):
+    sinks = xss_handler(
+        tmp_path,
+        """
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("<div>%s</div>", name));
+        return new ResponseEntity<String>(sb.toString(), HttpStatus.OK);
+        """,
+    )
+    assert len(sinks) == 1
+
+
+def test_html_escaped_param_in_response_body_is_not_a_sink(tmp_path):
+    sinks = xss_handler(
+        tmp_path,
+        """
+        String e = StringEscapeUtils.escapeHtml4(name);
+        return new ResponseEntity<String>("<div>" + e + "</div>", HttpStatus.OK);
+        """,
+    )
+    assert sinks == []
+
+
+def test_escaper_inside_a_lambda_argument_is_not_a_sink(tmp_path):
+    sinks = xss_handler(
+        tmp_path,
+        "return new ResponseEntity<String>(render(name, p -> HtmlUtils.htmlEscapeHex(p)), HttpStatus.OK);",
+    )
+    assert sinks == []
+
+
+def test_constant_response_body_is_not_a_sink(tmp_path):
+    sinks = xss_handler(tmp_path, 'return new ResponseEntity<String>("<div>ok</div>", HttpStatus.OK);')
+    assert sinks == []
+
+
+def test_response_body_without_a_request_param_is_not_a_sink(tmp_path):
+    sinks = xss_handler(
+        tmp_path,
+        "return new ResponseEntity<String>(service.load(), HttpStatus.OK);",
+        params="",
+    )
+    assert sinks == []
