@@ -144,14 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             sarif_issues = issues if config["export.include_suppressed"] else primary_issues
             print(json.dumps(to_sarif(sarif_issues), indent=2, sort_keys=True))
         else:
-            output_mode = _interactive_output_mode(args)
-            if output_mode == "sarif":
-                sarif_issues = issues if config["export.include_suppressed"] else primary_issues
-                print(json.dumps(to_sarif(sarif_issues), indent=2, sort_keys=True))
-            elif output_mode == "ai_summary":
-                _write_ai_summary(primary_issues, config)
-            else:
-                _write_report(primary_issues, args.output_format, output_mode)
+            _run_report_menu(args, config, issues, primary_issues)
         if args.sarif_output and args.sarif_output != "-":
             sarif_issues = issues if config["export.include_suppressed"] else primary_issues
             _write_json(Path(args.sarif_output), to_sarif(sarif_issues))
@@ -780,37 +773,97 @@ def _read_records(path: Path) -> list[dict[str, Any]]:
     return content
 
 
-def _interactive_output_mode(args: argparse.Namespace) -> str:
+_MENU_CHOICES = {"1": "raw", "2": "summary", "3": "sarif", "4": "ai_summary", "": "raw"}
+
+
+def _run_report_menu(
+    args: argparse.Namespace, config: Any, issues: list[Issue], primary_issues: list[Issue]
+) -> None:
+    """Show the run's results. The scan has already run once and been stored; this
+    only renders the stored results. Non-interactive or with an explicit
+    --output-mode it renders once. On a terminal it loops the five options (raw,
+    overview, SARIF, AI summary, exit) until the user exits — the scan never loops."""
     if args.output_format == "json" or args.sarif_output == "-":
-        return "raw"
+        _dispatch_output("raw", args, config, issues, primary_issues)
+        return
     if args.output_mode is not None:
-        return args.output_mode
+        _dispatch_output(args.output_mode, args, config, issues, primary_issues)
+        return
     if args.sarif_output or not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return "raw"
+        _dispatch_output("raw", args, config, issues, primary_issues)
+        return
 
     console = Console(stderr=True, no_color="NO_COLOR" in os.environ)
-    console.print(
-        Panel(
-            "1  Raw report\n"
-            "2  Findings overview\n"
-            "3  SARIF to stdout\n"
-            "4  AI summary (advisory; needs AI enabled)",
-            title="Report output",
-            border_style="cyan",
-            expand=False,
-        )
-    )
-    console.print("[bold]Select[/] [dim](1-4, Enter for raw):[/]")
-    choices = {"": "raw", "1": "raw", "2": "summary", "3": "sarif", "4": "ai_summary"}
+    _check_ai_endpoint(config, console)
     while True:
+        console.print(
+            Panel(
+                "1  Raw report\n"
+                "2  Findings overview\n"
+                "3  SARIF to stdout\n"
+                "4  AI summary (advisory; needs AI enabled)\n"
+                "5  Exit",
+                title="Report output",
+                border_style="cyan",
+                expand=False,
+            )
+        )
+        console.print("[bold]Select[/] [dim](1-5, Enter for raw, 5 to exit):[/]")
         try:
-            selection = input().strip()
+            selection = input().strip().casefold()
         except EOFError:
-            print("No selection received; using raw report.", file=sys.stderr)
-            return "raw"
-        if selection in choices:
-            return choices[selection]
-        print("Choose 1, 2, 3, 4, or press Enter for raw.", file=sys.stderr)
+            return
+        if selection in {"5", "exit", "q", "quit"}:
+            return
+        mode = _MENU_CHOICES.get(selection)
+        if mode is None:
+            print("Choose 1, 2, 3, 4, or 5 to exit.", file=sys.stderr)
+            continue
+        _dispatch_output(mode, args, config, issues, primary_issues)
+
+
+def _dispatch_output(
+    mode: str,
+    args: argparse.Namespace,
+    config: Any,
+    issues: list[Issue],
+    primary_issues: list[Issue],
+) -> None:
+    if mode == "sarif":
+        sarif_issues = issues if config["export.include_suppressed"] else primary_issues
+        print(json.dumps(to_sarif(sarif_issues), indent=2, sort_keys=True))
+    elif mode == "ai_summary":
+        _write_ai_summary(primary_issues, config)
+    else:
+        _write_report(primary_issues, args.output_format, mode)
+
+
+def _check_ai_endpoint(config: Any, console: Console) -> None:
+    """Check once, before the menu, whether the AI summary endpoint is reachable, so
+    the user knows if option 4 is live. Costs one call; makes none when AI is off."""
+    from ai.advisor import SUMMARY_TASK
+    from ai.client import AiClient
+
+    client = AiClient(config)
+    if not client.available(SUMMARY_TASK):
+        console.print(
+            "[dim]AI summary (option 4) is off. Enable ai.enabled + "
+            "ai.tasks.report_summary.enabled and set GROQ_*/LLM_* to use it.[/]"
+        )
+        return
+    ping = client.complete(
+        SUMMARY_TASK,
+        'Reply only with the JSON object {"ok": true}.',
+        {"type": "object", "required": ["ok"], "properties": {"ok": {"type": "boolean"}}},
+    )
+    if ping is not None:
+        console.print("[green]AI endpoint reachable; option 4 (AI summary) is ready.[/]")
+    else:
+        reason = next(iter(client.skips), "no_valid_response")
+        console.print(
+            f"[yellow]AI endpoint not reachable ({reason}); option 4 will fall back "
+            "to the overview.[/]"
+        )
 
 
 def _write_report(

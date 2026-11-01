@@ -151,9 +151,12 @@ An accepted entry derived from a test app is recorded as fitted in
 [docs/STATE.md](docs/STATE.md) and `catalogue/freeze.json` when a reviewer applies
 it.
 
-At the end of an interactive scan the report menu offers four views — **1** raw
-report, **2** findings overview, **3** SARIF, and **4** AI summary (a prose
-executive summary via `ai.tasks.report_summary`). The AI summary describes the
+At the end of an interactive scan the results are stored and the report menu
+loops over five options until you exit — **1** raw report, **2** findings
+overview, **3** SARIF, **4** AI summary (a prose executive summary via
+`ai.tasks.report_summary`), **5** exit. The scan runs once; only the menu loops,
+so you can view the same run several ways. Before the menu, the AI endpoint is
+checked once so you know whether option 4 is live. The AI summary describes the
 deterministic verdicts and never changes them; with AI off it falls back to the
 overview and says so.
 

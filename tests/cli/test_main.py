@@ -14,8 +14,8 @@ from unittest.mock import patch
 from cli.main import (
     _apply_adequacy,
     _apply_conflict_resolution,
-    _interactive_output_mode,
     _PipelineOutput,
+    _run_report_menu,
     _write_report,
     main,
 )
@@ -313,46 +313,80 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(args.output_mode, "both")
 
-    def test_interactive_output_mode_uses_menu_only_for_terminal_text(self) -> None:
+    @staticmethod
+    def _dispatched_modes(inputs, args):
+        """Run the menu with scripted keypresses; return the modes it dispatched."""
+        modes = []
+        with (
+            patch("cli.main.sys.stdin") as stdin,
+            patch("cli.main.sys.stdout") as stdout,
+            patch("cli.main._check_ai_endpoint"),
+            patch(
+                "cli.main._dispatch_output",
+                side_effect=lambda mode, *a, **k: modes.append(mode),
+            ),
+            patch("builtins.input", side_effect=inputs),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            stdin.isatty.return_value = True
+            stdout.isatty.return_value = True
+            _run_report_menu(args, object(), [], [])
+        return modes
+
+    def test_interactive_menu_loops_until_exit(self) -> None:
         args = argparse.Namespace(output_format="text", sarif_output=None, output_mode=None)
         errors = io.StringIO()
         with (
             patch("cli.main.sys.stdin") as stdin,
             patch("cli.main.sys.stdout") as stdout,
-            patch("builtins.input", return_value="2"),
+            patch("cli.main._check_ai_endpoint"),
+            patch("cli.main._dispatch_output") as dispatch,
+            patch("builtins.input", side_effect=["2", "1", "5"]),
             contextlib.redirect_stderr(errors),
         ):
             stdin.isatty.return_value = True
             stdout.isatty.return_value = True
-            self.assertEqual(_interactive_output_mode(args), "summary")
+            _run_report_menu(args, object(), [], [])
+        # Two selections rendered, then exit; the menu is shown each loop.
+        self.assertEqual([call.args[0] for call in dispatch.call_args_list], ["summary", "raw"])
         self.assertIn("Report output", errors.getvalue())
-        self.assertIn("Findings overview", errors.getvalue())
+        self.assertIn("Exit", errors.getvalue())
 
-    def test_interactive_menu_can_select_sarif_for_stdout(self) -> None:
+    def test_interactive_menu_can_select_sarif_then_exit(self) -> None:
         args = argparse.Namespace(output_format="text", sarif_output=None, output_mode=None)
-        with (
-            patch("cli.main.sys.stdin") as stdin,
-            patch("cli.main.sys.stdout") as stdout,
-            patch("builtins.input", return_value="3"),
-            contextlib.redirect_stderr(io.StringIO()),
-        ):
-            stdin.isatty.return_value = True
-            stdout.isatty.return_value = True
-            self.assertEqual(_interactive_output_mode(args), "sarif")
+        self.assertEqual(self._dispatched_modes(["3", "5"], args), ["sarif"])
+
+    def test_interactive_menu_can_select_ai_summary_then_exit(self) -> None:
+        args = argparse.Namespace(output_format="text", sarif_output=None, output_mode=None)
+        self.assertEqual(self._dispatched_modes(["4", "exit"], args), ["ai_summary"])
 
     def test_structured_output_skips_interactive_menu(self) -> None:
         args = argparse.Namespace(output_format="json", sarif_output=None, output_mode=None)
-        with patch("builtins.input", side_effect=AssertionError("menu must be skipped")):
-            self.assertEqual(_interactive_output_mode(args), "raw")
+        with (
+            patch("builtins.input", side_effect=AssertionError("menu must be skipped")),
+            patch("cli.main._dispatch_output") as dispatch,
+        ):
+            _run_report_menu(args, object(), [], [])
+        self.assertEqual(dispatch.call_args.args[0], "raw")
 
     def test_sarif_file_output_skips_interactive_menu(self) -> None:
-        args = argparse.Namespace(
-            output_format="text",
-            sarif_output="report.sarif",
-            output_mode=None,
-        )
-        with patch("builtins.input", side_effect=AssertionError("menu must be skipped")):
-            self.assertEqual(_interactive_output_mode(args), "raw")
+        args = argparse.Namespace(output_format="text", sarif_output="report.sarif", output_mode=None)
+        with (
+            patch("builtins.input", side_effect=AssertionError("menu must be skipped")),
+            patch("cli.main._dispatch_output") as dispatch,
+        ):
+            _run_report_menu(args, object(), [], [])
+        self.assertEqual(dispatch.call_args.args[0], "raw")
+
+    def test_explicit_output_mode_renders_once_without_menu(self) -> None:
+        args = argparse.Namespace(output_format="text", sarif_output=None, output_mode="both")
+        with (
+            patch("builtins.input", side_effect=AssertionError("menu must be skipped")),
+            patch("cli.main._dispatch_output") as dispatch,
+        ):
+            _run_report_menu(args, object(), [], [])
+        self.assertEqual(dispatch.call_args_list[0].args[0], "both")
+        self.assertEqual(len(dispatch.call_args_list), 1)
 
     def test_piped_output_defaults_to_raw_without_prompt(self) -> None:
         args = argparse.Namespace(output_format="text", sarif_output=None, output_mode=None)
@@ -360,10 +394,12 @@ class CliTests(unittest.TestCase):
             patch("cli.main.sys.stdin") as stdin,
             patch("cli.main.sys.stdout") as stdout,
             patch("builtins.input", side_effect=AssertionError("menu must be skipped")),
+            patch("cli.main._dispatch_output") as dispatch,
         ):
             stdin.isatty.return_value = False
             stdout.isatty.return_value = False
-            self.assertEqual(_interactive_output_mode(args), "raw")
+            _run_report_menu(args, object(), [], [])
+        self.assertEqual(dispatch.call_args.args[0], "raw")
 
     def test_report_mode_can_print_summary_or_both(self) -> None:
         issue = correlate([Finding.from_dict(sast_record())])[0]
