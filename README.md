@@ -220,10 +220,10 @@ live call and prints success and latency. With any variable unset it reports
 `not configured` and AI simply stays off.
 
 **Transport.** By default the client calls the endpoint with the standard library
-and retries transient WAF/rate-limit errors. For the most reliable path — some
-providers (Groq) front their API with Cloudflare, which can block the plain
-client — install the optional OpenAI SDK, which the client then uses automatically
-(HTTP/2, a browser-like signature):
+and retries transient WAF/rate-limit errors. For the most reliable path — Groq
+fronts its API with Cloudflare, which can block the plain client — install the
+optional Groq SDK, which the client then uses automatically (HTTP/2, a
+browser-like signature):
 
 ```bash
 uv sync --locked --all-groups --extra ai      # once

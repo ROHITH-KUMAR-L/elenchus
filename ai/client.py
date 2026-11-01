@@ -109,18 +109,23 @@ class AiClient:
         return payload
 
     def _default_transport(self) -> Transport:
-        """Prefer the OpenAI SDK transport (httpx, HTTP/2) when installed — it reaches
+        """Prefer the Groq SDK transport (httpx, HTTP/2) when installed — it reaches
         providers whose WAF blocks plain urllib — and fall back to urllib otherwise."""
         try:
-            import openai  # noqa: F401
+            import groq  # noqa: F401
         except ImportError:
             return self._http
         return self._sdk
 
     def _sdk(self, model: str, messages: list[dict[str, str]]) -> str:
-        from openai import OpenAI
+        from groq import Groq
 
-        client = OpenAI(api_key=self._api_key, base_url=self.base_url, max_retries=_HTTP_ATTEMPTS)
+        # The Groq SDK owns its endpoint path; pass base_url only when the configured
+        # value is not Groq's own OpenAI-compatible URL (so it is not double-appended).
+        kwargs = {"api_key": self._api_key, "max_retries": _HTTP_ATTEMPTS}
+        if self.base_url and not self.base_url.startswith("https://api.groq.com"):
+            kwargs["base_url"] = self.base_url
+        client = Groq(**kwargs)
         completion = client.chat.completions.create(
             model=model,
             messages=messages,

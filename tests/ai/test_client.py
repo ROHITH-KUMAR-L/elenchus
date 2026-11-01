@@ -192,12 +192,12 @@ def test_default_transport_falls_back_to_urllib_without_the_sdk():
     )
     real_import = __import__
 
-    def no_openai(name, *args, **kwargs):
-        if name == "openai":
+    def no_groq(name, *args, **kwargs):
+        if name == "groq":
             raise ImportError("not installed")
         return real_import(name, *args, **kwargs)
 
-    with patch("builtins.__import__", side_effect=no_openai):
+    with patch("builtins.__import__", side_effect=no_groq):
         assert client._default_transport() == client._http
 
 
