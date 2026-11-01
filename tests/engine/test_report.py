@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from common.record import SinkId
 from engine.correlate import Finding, correlate
 from engine.correlate.models import Issue
-from engine.report import build_coverage_report, format_text, to_sarif
+from engine.report import build_coverage_report, format_summary, format_text, to_sarif
 
 
 def dast_record() -> Finding:
@@ -27,6 +28,84 @@ def dast_record() -> Finding:
 
 
 class ReportTests(unittest.TestCase):
+    def test_grouped_summary_uses_records_and_sorts_top_findings_deterministically(self):
+        critical = Issue(
+            issue_key="critical",
+            label="Confirmed",
+            cwe=89,
+            type="SQL Injection",
+            severity="critical",
+            risk_score=95.0,
+            confidence=0.45,
+            route="/lookup",
+            method="POST",
+            param="name",
+            ai_notes={"fix": "Use a parameterized query", "explanation": "Existing advisory text."},
+        )
+        high_confidence = Issue(
+            issue_key="high-confidence",
+            label="Confirmed",
+            cwe=78,
+            type="Command Injection",
+            severity="high",
+            risk_score=76.0,
+            confidence=0.9,
+            route="/execute",
+            method="POST",
+            param="command",
+        )
+        high_risk = Issue(
+            issue_key="high-risk",
+            label="Runtime-only",
+            cwe=601,
+            type="Open Redirect",
+            severity="high",
+            risk_score=95.0,
+            confidence=0.4,
+            route="/redirect",
+            method="GET",
+            param="next",
+        )
+        evidence = correlate([dast_record()])[0]
+        evidence = replace(evidence, risk_score=55.0, confidence=0.6)
+
+        report = format_summary([high_risk, evidence, high_confidence, critical])
+        top_three = report.split("Top 3 findings", maxsplit=1)[1]
+
+        self.assertIn("CWE-79 (1 issue(s))", report)
+        self.assertIn("GET /search", report)
+        self.assertIn("Parameter: q", report)
+        self.assertIn("Risk: 55/100", report)
+        self.assertIn("Evidence: ORACLE (reflected_marker); payload <script>", report)
+        self.assertIn(
+            "Remediation hint (existing AI advisory; not verified): Use a parameterized query",
+            report,
+        )
+        self.assertIn("Existing AI advisory note: Existing advisory text.", report)
+        self.assertIn("no AI calls", report)
+        self.assertLess(top_three.index("CWE-89"), top_three.index("CWE-78"))
+        self.assertLess(top_three.index("CWE-78"), top_three.index("CWE-601"))
+        self.assertNotIn("CWE-79", top_three)
+
+    def test_grouped_summary_reports_missing_remediation_and_omits_suppressed(self):
+        issue = Issue(
+            issue_key="suppressed",
+            label="Code-only",
+            cwe=79,
+            type="Cross-site scripting",
+            severity="medium",
+            risk_score=50.0,
+            suppressed=True,
+        )
+
+        self.assertEqual(format_summary([]), "No issues found.")
+        self.assertEqual(format_summary([issue]), "No issues found.")
+
+        visible = replace(issue, issue_key="visible", suppressed=False)
+        report = format_summary([visible])
+        self.assertIn("Remediation hint: unavailable in the finding data.", report)
+        self.assertIn("no existing advisory fixes are available", report)
+
     def test_text_and_sarif_expose_conflict_and_flaky_hints(self) -> None:
         candidate = SinkId("src/Query.java", "Query.run", 8, 2)
         issue = Issue(

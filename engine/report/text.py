@@ -12,7 +12,7 @@ import sys
 from collections import Counter
 
 from engine.compare import ScanComparison
-from engine.correlate.models import Issue
+from engine.correlate.models import SEVERITY_ORDER, Issue
 
 _RESET = "\033[0m"
 _STYLES = {
@@ -57,6 +57,105 @@ def format_text(issues: list[Issue]) -> str:
     for index, issue in enumerate(issues, start=1):
         lines.extend(_issue_block(index, issue, color))
     return "\n".join(lines)
+
+
+def format_summary(issues: list[Issue]) -> str:
+    """Summarize existing issue records without making an AI request."""
+    visible = [issue for issue in issues if not issue.suppressed]
+    if not visible:
+        return "No issues found."
+
+    by_cwe: dict[int, list[Issue]] = {}
+    for issue in visible:
+        by_cwe.setdefault(issue.cwe, []).append(issue)
+
+    color = _use_color()
+    lines = [
+        _paint("elenchus — grouped summary (deterministic)", "bold", "cyan", color=color),
+        f"{len(visible)} issue(s) across {len(by_cwe)} CWE group(s)",
+    ]
+    for cwe, group in sorted(by_cwe.items()):
+        lines.extend(("", _paint(f"CWE-{cwe} ({len(group)} issue(s))", "blue", "bold", color=color)))
+        for issue in sorted(group, key=_summary_priority):
+            lines.extend(_summary_issue(issue))
+
+    lines.extend(("", "Top 3 findings by severity, confidence, then risk score:"))
+    for index, issue in enumerate(sorted(visible, key=_summary_priority)[:3], start=1):
+        location = f"{issue.method or 'any method'} {issue.route or 'application-wide'}"
+        lines.append(
+            f"{index}. CWE-{issue.cwe} {issue.type} | {issue.severity} | "
+            f"risk {_risk_text(issue)} | {location}"
+        )
+
+    has_advisory_fix = any(
+        isinstance((issue.ai_notes or {}).get("fix"), str) and (issue.ai_notes or {}).get("fix")
+        for issue in visible
+    )
+    advisory_status = (
+        "existing advisory fixes are included above"
+        if has_advisory_fix
+        else "no existing advisory fixes are available"
+    )
+    lines.append(f"AI advisory: {advisory_status}; this summary made no AI calls.")
+    return "\n".join(lines)
+
+
+def _summary_priority(issue: Issue) -> tuple[int, float, float, int, str, str]:
+    severity = SEVERITY_ORDER.get(issue.severity.casefold(), 1)
+    confidence = issue.confidence if issue.confidence is not None else -1.0
+    risk = issue.risk_score if issue.risk_score is not None else -1.0
+    return (-severity, -confidence, -risk, issue.cwe, issue.route or "", issue.issue_key)
+
+
+def _risk_text(issue: Issue) -> str:
+    return f"{issue.risk_score:.0f}/100" if issue.risk_score is not None else "n/a"
+
+
+def _summary_issue(issue: Issue) -> list[str]:
+    confidence = f"{issue.confidence:.2f}" if issue.confidence is not None else "none"
+    location = f"{issue.file}:{issue.line}" if issue.file and issue.line else "no source location"
+    lines = [
+        (
+            f"  - {issue.label} | {issue.type} | {issue.method or 'any method'} "
+            f"{issue.route or 'application-wide'}"
+        ),
+        (
+            f"    Parameter: {issue.param or 'none'} | Severity: {issue.severity} | "
+            f"Risk: {_risk_text(issue)} | Confidence: {confidence}"
+        ),
+        f"    Evidence: {_summary_evidence(issue)}",
+        f"    Source: {location}",
+    ]
+    notes = issue.ai_notes or {}
+    fix = notes.get("fix")
+    if fix:
+        lines.append(f"    Remediation hint (existing AI advisory; not verified): {fix}")
+    else:
+        lines.append("    Remediation hint: unavailable in the finding data.")
+    explanation = notes.get("explanation")
+    if explanation:
+        lines.append(f"    Existing AI advisory note: {explanation}")
+    return lines
+
+
+def _summary_evidence(issue: Issue) -> str:
+    entries: list[str] = []
+    payloads: list[str] = []
+    for finding in issue.sast_findings + issue.dast_findings:
+        if finding.payload:
+            payloads.append(f"payload {finding.payload}")
+        for evidence in finding.evidence:
+            detail = evidence.detail
+            description = evidence.type
+            oracle = detail.get("oracle")
+            if isinstance(oracle, str) and oracle:
+                description += f" ({oracle})"
+            snippet = detail.get("snippet")
+            if isinstance(snippet, str) and snippet:
+                description += f": {snippet}"
+            entries.append(description)
+    evidence = list(dict.fromkeys((*entries, *payloads)))
+    return "; ".join(evidence) if evidence else "no evidence details recorded"
 
 
 def _summary(issues: list[Issue], color: bool) -> list[str]:

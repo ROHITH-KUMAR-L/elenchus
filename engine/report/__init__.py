@@ -2,6 +2,12 @@
 
 from engine.report.coverage import build_coverage_report
 from engine.report.sarif import to_sarif
-from engine.report.text import format_comparison, format_text
+from engine.report.text import format_comparison, format_summary, format_text
 
-__all__ = ["build_coverage_report", "format_comparison", "format_text", "to_sarif"]
+__all__ = [
+    "build_coverage_report",
+    "format_comparison",
+    "format_summary",
+    "format_text",
+    "to_sarif",
+]
