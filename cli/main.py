@@ -148,6 +148,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if output_mode == "sarif":
                 sarif_issues = issues if config["export.include_suppressed"] else primary_issues
                 print(json.dumps(to_sarif(sarif_issues), indent=2, sort_keys=True))
+            elif output_mode == "ai_summary":
+                _write_ai_summary(primary_issues, config)
             else:
                 _write_report(primary_issues, args.output_format, output_mode)
         if args.sarif_output and args.sarif_output != "-":
@@ -276,7 +278,7 @@ def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--output-mode",
-        choices=("raw", "summary", "both"),
+        choices=("raw", "summary", "both", "ai_summary"),
         help="text output mode (default: choose interactively on a terminal, raw otherwise)",
     )
     parser.add_argument(
@@ -623,6 +625,34 @@ def _write_catalogue_proposals(
     )
 
 
+def _write_ai_summary(issues: list[Issue], config: Any) -> None:
+    """Print an advisory AI executive summary of the issues. Falls back to the
+    deterministic overview when AI is off or unreachable, with a note, so the option
+    always produces a report."""
+    from ai.advisor import SUMMARY_TASK, summarise_report
+    from ai.client import AiClient
+
+    client = AiClient(config)
+    if not client.available(SUMMARY_TASK):
+        print(
+            "AI summary unavailable (enable ai.enabled and "
+            "ai.tasks.report_summary.enabled, and set the OPENAI_* environment). "
+            "Showing the deterministic overview instead.",
+            file=sys.stderr,
+        )
+        _write_report(issues, "text", "summary")
+        return
+    summary = summarise_report(issues, client)
+    if summary is None:
+        print(
+            "AI returned no usable summary; showing the deterministic overview instead.",
+            file=sys.stderr,
+        )
+        _write_report(issues, "text", "summary")
+        return
+    print(summary)
+
+
 def _apply_conflict_resolution(
     findings: list[Finding], issues: Sequence[Issue]
 ) -> list[Finding]:
@@ -763,14 +793,15 @@ def _interactive_output_mode(args: argparse.Namespace) -> str:
         Panel(
             "1  Raw report\n"
             "2  Findings overview\n"
-            "3  SARIF to stdout",
+            "3  SARIF to stdout\n"
+            "4  AI summary (advisory; needs AI enabled)",
             title="Report output",
             border_style="cyan",
             expand=False,
         )
     )
-    console.print("[bold]Select[/] [dim](1-3, Enter for raw):[/]")
-    choices = {"": "raw", "1": "raw", "2": "summary", "3": "sarif"}
+    console.print("[bold]Select[/] [dim](1-4, Enter for raw):[/]")
+    choices = {"": "raw", "1": "raw", "2": "summary", "3": "sarif", "4": "ai_summary"}
     while True:
         try:
             selection = input().strip()
@@ -779,7 +810,7 @@ def _interactive_output_mode(args: argparse.Namespace) -> str:
             return "raw"
         if selection in choices:
             return choices[selection]
-        print("Choose 1, 2, 3, or press Enter for raw.", file=sys.stderr)
+        print("Choose 1, 2, 3, 4, or press Enter for raw.", file=sys.stderr)
 
 
 def _write_report(

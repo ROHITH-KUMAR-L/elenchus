@@ -19,6 +19,46 @@ from engine.correlate.models import Issue
 
 FIX_TASK = "fix_text"
 EXPLAIN_TASK = "link_explanation"
+SUMMARY_TASK = "report_summary"
+
+_SUMMARY_SCHEMA = {
+    "type": "object",
+    "required": ["summary"],
+    "properties": {"summary": {"type": "string"}},
+}
+
+
+def summarise_report(issues: Sequence[Issue], client) -> str | None:
+    """A prose executive summary of the correlated issues, or None when the task
+    is off, the client is unavailable or the AI makes no valid reply.
+
+    Advisory only: it reads the deterministic verdicts and describes them. It never
+    changes a label, link, status or confidence, and never creates an issue."""
+    if client is None:
+        return None
+    answer = client.complete(SUMMARY_TASK, _summary_prompt(issues), _SUMMARY_SCHEMA)
+    return answer["summary"] if answer is not None else None
+
+
+def _summary_prompt(issues: Sequence[Issue]) -> str:
+    lines = [
+        f"- {issue.label} CWE-{issue.cwe} ({issue.type}), severity {issue.severity}, "
+        f"route {issue.method or ''} {issue.route or ''}, param {issue.param or 'n/a'}, "
+        f"at {issue.file or '?'}:{issue.line or '?'}, confidence {issue.confidence}"
+        for issue in issues[:60]
+    ]
+    listing = "\n".join(lines) or "(no issues)"
+    return (
+        "You are writing an executive summary of a security scan for an engineering "
+        "team. The deterministic scanner already decided every verdict; describe them, "
+        "do not change them. Below are its issues (Confirmed = proven exploitable at "
+        "runtime, Code-only = static only, Runtime-only = runtime hit with no code "
+        f"link):\n{listing}\n\n"
+        "Reply with JSON {\"summary\": \"<a readable report>\"}. In the summary give: a "
+        "one-paragraph overview with the counts by label; the most urgent issues to fix "
+        "first and why; and a short note per CWE class present. Plain text, no markdown "
+        "headings. Do not invent issues or claim anything the list does not show."
+    )
 
 _FIX_SCHEMA = {"type": "object", "required": ["fix"], "properties": {"fix": {"type": "string"}}}
 _EXPLAIN_SCHEMA = {

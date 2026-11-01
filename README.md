@@ -151,6 +151,12 @@ An accepted entry derived from a test app is recorded as fitted in
 [docs/STATE.md](docs/STATE.md) and `catalogue/freeze.json` when a reviewer applies
 it.
 
+At the end of an interactive scan the report menu offers four views — **1** raw
+report, **2** findings overview, **3** SARIF, and **4** AI summary (a prose
+executive summary via `ai.tasks.report_summary`). The AI summary describes the
+deterministic verdicts and never changes them; with AI off it falls back to the
+overview and says so.
+
 ## Results
 
 Measured locally on **OWASP VulnerableApp** (full scan, live OWASP ZAP). SAST
