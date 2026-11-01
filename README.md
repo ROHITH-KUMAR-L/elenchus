@@ -86,23 +86,29 @@ cross-check only).
 
 ## Results
 
-Measured locally on **OWASP VulnerableApp**. Scores are against VulnerableApp's
-own `expectedIssues` export (a superset spanning 30 CWE types); the organisers'
-answer key will differ. "Supported" = the CWE classes the tool targets.
+Measured locally on **OWASP VulnerableApp** (full scan, live OWASP ZAP). SAST
+scores are against VulnerableApp's own `expectedIssues` export (a superset
+spanning 30 CWE types); the organisers' answer key will differ. "Supported" =
+the CWE classes the tool targets.
 
-| Metric | Result |
-|---|---|
-| **Code detection (SAST), supported CWEs** | **23/35 (66%)** — clears the PRD "Good" bar (>60%) |
-| &nbsp;&nbsp;SQL injection (CWE-89) | 9/9 |
-| &nbsp;&nbsp;Cross-site scripting (CWE-79) | 11/19 |
-| &nbsp;&nbsp;Command injection (CWE-77/78) | 2/2 |
-| **Runtime detection (DAST)** | SQL-89, command-78, XSS-79, open-redirect-601 all confirmed live by project oracles |
-| **Correct links** | 9/9 SQL-injection pairs linked as Confirmed |
-| **Wrong links** | 0 |
-| **Run time** | full judging scan < 4 min (< 5 min cap) |
+One scan: **61 findings across 11 CWE classes — 12 Confirmed, 36 Code-only,
+13 Runtime-only, 0 wrong links.**
+
+| PRD metric | Good / Great | Result |
+|---|---|---|
+| Code detection (SAST, supported CWEs) | >60% / >85% | **23/35 (66%)** — SQL 9/9, XSS 11/19, cmd 2/2 |
+| Runtime detection (DAST) | >50% / >80% | SQL-89, XSS-79, cmd-78, open-redirect-601 all confirmed live |
+| Correct links (planted pairs) | >50% / >80% | **12/20 (60%)** Confirmed: SQL-89 ×9, XSS-79 ×2, cmd-78 ×1 |
+| Wrong links | <20% / <5% | **0** |
+| Run time | <15m / <5m | `--judging` **< 5 min**; full report run ~12.7 min |
+| Second framework (B-7) | bonus | servlet adapter runs on OWASP BenchmarkJava (SAST): 5480 routes, 1806 sinks |
+
+Probe health on that run: attribution 0.952, header propagation 1.000, no state
+drift, no foreign hosts.
 
 Honest gaps (details in [docs/STATE.md](docs/STATE.md)): static XSS catches the
-unescaped sinks but not escaped-yet-bypassable ones; open redirect and path
-traversal are confirmed dynamically but have no safe general static anchor on
-this app; full-sweep runtime coverage is bounded by ZAP active-scan throughput
-within the 5-minute budget.
+unescaped sinks but not escaped-yet-bypassable ones; XSS on handlers that bind
+every parameter (`Map<String,String>`) stays Code-only; open redirect is
+confirmed dynamically but has no safe general static anchor on this app;
+without the flow engine, precision on a hold-out like BenchmarkJava is
+discrimination-limited (high recall, high false-positive rate).
