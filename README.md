@@ -1,11 +1,40 @@
-# elenchus — SAST + DAST Correlation
+<div align="center">
 
-CyberForge hackathon entry. A Python CLI that scans a Java/Spring application's
-**source code** (SAST) and its **running instance** (DAST), then **correlates**
-the two so each real vulnerability appears once — with the code line that causes
-it and the runtime proof that it is exploitable.
+# ἔλεγχος · elenchus
 
-Full spec: [docs/prd.md](docs/prd.md). Design: [docs/architecture.md](docs/architecture.md). Current state: [docs/STATE.md](docs/STATE.md).
+### SAST + DAST correlation for Java/Spring — one list, each real bug once, with the line that causes it and the proof it is exploitable
+
+<p>
+  <a href="https://github.com/ROHITH-KUMAR-L/elenchus/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ROHITH-KUMAR-L/elenchus/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.14%2B-3776AB?logo=python&logoColor=white">
+  <img alt="uv" src="https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=uv&logoColor=white">
+  <img alt="Ruff" src="https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-423%20passing-3DA639?logo=pytest&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
+</p>
+
+<p>
+  <img alt="OWASP ZAP" src="https://img.shields.io/badge/OWASP%20ZAP-active%20scan%20engine-00549E?logo=owasp&logoColor=white">
+  <img alt="Target" src="https://img.shields.io/badge/target-Java%20%2F%20Spring%20Boot-6DB33F?logo=springboot&logoColor=white">
+  <img alt="tree-sitter" src="https://img.shields.io/badge/parser-tree--sitter--java-333333?logo=tree-sitter&logoColor=white">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/run%20store-PostgreSQL%2017-4169E1?logo=postgresql&logoColor=white">
+  <img alt="Semgrep" src="https://img.shields.io/badge/optional-Semgrep-1B2A4A?logo=semgrep&logoColor=white">
+</p>
+
+<sub><b>CyberForge hackathon entry</b> · <a href="docs/prd.md">Spec</a> · <a href="docs/architecture.md">Architecture</a> · <a href="docs/STATE.md">State</a> · <a href="docs/finding-schema.md">Finding schema</a></sub>
+
+</div>
+
+---
+
+A Python CLI that scans a Java/Spring application's **source code** (SAST) and its
+**running instance** (DAST), then **correlates** the two so each real vulnerability
+appears once — with the code line that causes it and the runtime proof that it is
+exploitable.
+
+#### Contents
+
+[Problem](#problem) · [How we solve it](#how-we-solve-it) · [Run](#run) · [Advisory AI](#advisory-ai-catalogue-gap-proposer-optional-off-by-default) · [Results](#results) · [Engineering practices](#engineering-practices)
 
 ## Problem
 
@@ -150,3 +179,32 @@ every parameter (`Map<String,String>`) stays Code-only; open redirect is
 confirmed dynamically but has no safe general static anchor on this app;
 without the flow engine, precision on a hold-out like BenchmarkJava is
 discrimination-limited (high recall, high false-positive rate).
+
+## Engineering practices
+
+| Area | Practice |
+|---|---|
+| **Reproducible builds** | [`uv`](https://docs.astral.sh/uv/) with a committed `uv.lock`; every command runs `--locked`, so the dependency graph is pinned and identical on CI and locally. |
+| **Containerisation** | Multi-stage [`cli/Dockerfile`](cli/Dockerfile); the image runs as a non-root user (`uid 10001`) and ships without Semgrep. Our Postgres runs on its own Docker network and volume, never wired to the target. |
+| **CI/CD** | [GitHub Actions](.github/workflows/ci.yml) runs tests, the CLI entry point, the distribution build and the container build on every push and PR. |
+| **Test discipline** | 423 tests. Decoy *twins* (a vulnerable and a safe variant per rule) catch over-clearing; a generality CI test bans test-app names from tool code; the pipeline passes with AI and Semgrep absent. |
+| **Linting & style** | [Ruff](https://docs.astral.sh/ruff/) gates CI; the codebase is import-sorted and warning-clean. |
+| **Contract-first** | One canonical finding record in `common/`; a schema doc-sync test fails if config defaults drift from the docs. SARIF is boundary-only and never passed internally. |
+| **Safety by construction** | DAST is loopback-only and scoped to the route table; ZAP's API binds to 127.0.0.1; replays never follow redirects; a run-end check fails loudly on any non-loopback host. |
+| **Deterministic core, advisory AI** | Oracles decide every verdict. AI is off by default and in judging mode, schema-validated, content-hash cached and call-budgeted; it never creates a finding, verdict or link. |
+| **Secrets hygiene** | No credentials in the repo; the ZAP key auto-generates to `~/.elenchus/`; `.env.example` documents configuration without values. |
+| **Honest measurement** | Supported-CWE score shown beside the raw score; every miss listed and tagged; nothing is reported as working until it has run live. |
+
+### Verify the AI credentials
+
+The AI features are optional and read `OPENAI_BASE_URL`, `OPENAI_API_KEY` and
+`OPENAI_MODEL` from the environment. Verify them without running a scan:
+
+```bash
+OPENAI_BASE_URL=https://api.openai.com/v1 OPENAI_API_KEY=sk-... OPENAI_MODEL=gpt-4o-mini \
+  uv run --locked python scripts/ai_check.py
+```
+
+It reports whether the client is configured and, when it is, makes one minimal
+live call and prints success and latency. With any variable unset it reports
+`not configured` and AI simply stays off.
