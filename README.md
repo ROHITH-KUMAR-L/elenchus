@@ -84,6 +84,44 @@ Open-source components (correlation logic is our own): **OWASP ZAP** (active
 scanning), **tree-sitter-java** (parsing), optional **Semgrep** (offline
 cross-check only).
 
+### Advisory AI: catalogue-gap proposer (optional, off by default)
+
+Recall and precision are bound by the sink catalogue, which names only low-level
+APIs and cannot name an app's own wrapper utilities. With AI on, an advisory task
+proposes candidate catalogue entries for those wrappers — app methods that forward
+a value to a known sink (`sink`), and app methods that neutralise a class
+(`sanitiser`).
+
+It never changes the live catalogue and never creates a finding, verdict or link.
+Its only output is `out/<run>/catalogue_proposals.json`, grouped into `accepted`,
+`needs_human_review` and `rejected`, for a human or CI to review.
+
+| Guardrail | Rule |
+|---|---|
+| Symbols | Every proposed `receiver_type`/`method` must resolve in the parsed source, or it is rejected. |
+| Acceptance | `accepted` only when a decoy twin shows adding it flags the vulnerable twin and no safe twin. |
+| No twin | On a normal scan no twin is available, so every surviving proposal is `needs_human_review` and nothing is applied. |
+| Scope | Off in judging mode. Validated against a JSON schema, cached, capped by `ai.max_calls`. |
+
+Enable with a config file and the `OPENAI_*` environment (any missing ⇒ AI off):
+
+```toml
+[ai]
+enabled = true
+[ai.tasks.catalogue_proposer]
+enabled = true
+```
+
+```bash
+uv run elenchus scan --config ai.toml \
+  --source-path .targets/VulnerableApp \
+  --base-url http://127.0.0.1:9090/VulnerableApp
+```
+
+An accepted entry derived from a test app is recorded as fitted in
+[docs/STATE.md](docs/STATE.md) and `catalogue/freeze.json` when a reviewer applies
+it.
+
 ## Results
 
 Measured locally on **OWASP VulnerableApp** (full scan, live OWASP ZAP). SAST

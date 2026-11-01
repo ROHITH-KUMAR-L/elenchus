@@ -135,6 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"advisory_alerts={len(pipeline_output.advisory_alerts)}",
             file=sys.stderr,
         )
+        _write_catalogue_proposals(args, config, pipeline_output, output_dir)
         if not args.no_store:
             from engine.store import PostgresStore
 
@@ -588,6 +589,38 @@ def _apply_ai_advice(issues: list[Issue], config: Any) -> list[Issue]:
     from ai.client import AiClient
 
     return annotate(issues, AiClient(config))
+
+
+def _write_catalogue_proposals(
+    args: Any, config: Any, pipeline_output: Any, output_dir: Path
+) -> None:
+    """Advisory AI catalogue-gap proposals, when the task is on. Never a live
+    catalogue change: every proposal lands in catalogue_proposals.json for review.
+
+    Off by default and in judging mode, so this is a no-op on a normal run. With no
+    decoy twin available at scan time, every surviving proposal is tagged
+    needs_human_review and nothing is applied.
+    """
+    if not config.task_enabled("catalogue_proposer"):
+        return
+    source_path = getattr(args, "source_path", None)
+    if source_path is None or pipeline_output.index is None:
+        return
+    from ai.catalogue_proposer import propose, write_proposals
+    from ai.client import AiClient
+    from producers.sast.sink_finder import load_catalogue
+    from producers.sast.spring_routes import _parse_files, build_index
+
+    source_index = build_index(_parse_files(Path(source_path)))
+    reviewed = propose(
+        pipeline_output.index, source_index, load_catalogue(), AiClient(config)
+    )
+    write_proposals(reviewed, output_dir / "catalogue_proposals.json")
+    print(
+        f"catalogue_proposals_file={output_dir / 'catalogue_proposals.json'} "
+        f"proposals={len(reviewed)}",
+        file=sys.stderr,
+    )
 
 
 def _apply_conflict_resolution(
