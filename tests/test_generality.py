@@ -1,9 +1,8 @@
-"""Generality guard: the tool must not be fitted to the practice target.
+"""Generality guard: the tool must not be fitted to a practice target.
 
-The sink catalogue, the secrets rules and all detection logic must name no
-VulnerableApp package, route, module or class. The only place a test-app name may
-appear is the measurement-only expected_pairs fixture, which never feeds scanner
-logic (AGENTS.md, Generality).
+The sink catalogue, secrets rules and detection logic must not name a target
+package, route, module or class. Target names may appear only in measurement-only
+ground-truth fixtures, which never feed scanner logic (AGENTS.md, Generality).
 
 The freeze test locks the catalogue and secrets-rule set to a recorded manifest,
 so a change is a deliberate act and can be recorded as fitted in STATE.md.
@@ -22,14 +21,18 @@ APP_PACKAGE = "sasanlabs"
 DETECTION_YAML_BANNED = ("sasanlabs", "VulnerableApp")
 
 # Measurement-only ground truth: allowed to name the target, never read by scanner.
-ALLOWED = {ROOT / "common" / "fixtures" / "expected_pairs" / "vulnerableapp.yaml"}
+ALLOWED = {
+    ROOT / "common" / "fixtures" / "expected_pairs" / "vulnerableapp.yaml",
+    ROOT / "common" / "fixtures" / "benchmarks" / "vulnerableapp-sast.json",
+    ROOT / "common" / "fixtures" / "benchmarks" / "vulnerableapp-dast.json",
+}
 
 
 def _tool_sources() -> list[Path]:
     files: list[Path] = []
     for name in TOOL_DIRS:
         for path in (ROOT / name).rglob("*"):
-            if path.suffix not in {".py", ".yaml", ".yml"}:
+            if path.suffix not in {".py", ".yaml", ".yml", ".json"}:
                 continue
             if "/test" in path.as_posix() or path in ALLOWED:
                 continue

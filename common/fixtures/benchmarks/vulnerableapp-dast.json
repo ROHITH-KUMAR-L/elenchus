@@ -1,0 +1,1188 @@
+{
+  "benchmark": "VulnerableApp DAST",
+  "expected": [
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/AuthenticationVulnerability/LEVEL_1",
+      "type": "ERROR_BASED_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-256",
+      "method": "GET",
+      "route": "/AuthenticationVulnerability/LEVEL_2",
+      "type": "PLAINTEXT_PASSWORD_STORAGE",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-256",
+      "method": "GET",
+      "route": "/AuthenticationVulnerability/LEVEL_3",
+      "type": "PLAINTEXT_PASSWORD_STORAGE",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-916",
+      "method": "GET",
+      "route": "/AuthenticationVulnerability/LEVEL_4",
+      "type": "WEAK_PASSWORD_HASHING",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-916",
+      "method": "GET",
+      "route": "/AuthenticationVulnerability/LEVEL_5",
+      "type": "WEAK_PASSWORD_HASHING",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-916",
+      "method": "GET",
+      "route": "/AuthenticationVulnerability/LEVEL_6",
+      "type": "WEAK_PASSWORD_HASHING",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-204",
+      "method": "GET",
+      "route": "/AuthenticationVulnerability/LEVEL_7",
+      "type": "USERNAME_ENUMERATION",
+      "wasc_id": 41
+    },
+    {
+      "cwe": "CWE-916",
+      "method": "POST",
+      "route": "/AuthenticationVulnerability/LEVEL_8",
+      "type": "WEAK_PASSWORD_HASHING",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-916",
+      "method": "POST",
+      "route": "/AuthenticationVulnerability/LEVEL_10",
+      "type": "WEAK_PASSWORD_HASHING",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-349",
+      "method": "GET",
+      "route": "/CachePoisoning/LEVEL_1",
+      "type": "WEB_CACHE_POISONING",
+      "wasc_id": 14
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/CachePoisoning/LEVEL_1",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-349",
+      "method": "GET",
+      "route": "/CachePoisoning/LEVEL_2",
+      "type": "WEB_CACHE_POISONING",
+      "wasc_id": 14
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/CachePoisoning/LEVEL_2",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-349",
+      "method": "GET",
+      "route": "/CachePoisoning/LEVEL_3",
+      "type": "WEB_CACHE_POISONING",
+      "wasc_id": 14
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/CachePoisoning/LEVEL_3",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-349",
+      "method": "GET",
+      "route": "/CachePoisoning/LEVEL_4",
+      "type": "WEB_CACHE_POISONING",
+      "wasc_id": 14
+    },
+    {
+      "cwe": "CWE-1021",
+      "method": "GET",
+      "route": "/ClickjackingVulnerability/LEVEL_1",
+      "type": "CLICKJACKING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-1021",
+      "method": "GET",
+      "route": "/ClickjackingVulnerability/LEVEL_2",
+      "type": "CLICKJACKING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-1021",
+      "method": "GET",
+      "route": "/ClickjackingVulnerability/LEVEL_3",
+      "type": "CLICKJACKING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-1021",
+      "method": "GET",
+      "route": "/ClickjackingVulnerability/LEVEL_6",
+      "type": "CLICKJACKING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-1021",
+      "method": "GET",
+      "route": "/ClickjackingVulnerability/LEVEL_7",
+      "type": "CLICKJACKING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-77",
+      "method": "GET",
+      "route": "/CommandInjection/LEVEL_1",
+      "type": "COMMAND_INJECTION",
+      "wasc_id": 31
+    },
+    {
+      "cwe": "CWE-77",
+      "method": "GET",
+      "route": "/CommandInjection/LEVEL_2",
+      "type": "COMMAND_INJECTION",
+      "wasc_id": 31
+    },
+    {
+      "cwe": "CWE-77",
+      "method": "GET",
+      "route": "/CommandInjection/LEVEL_3",
+      "type": "COMMAND_INJECTION",
+      "wasc_id": 31
+    },
+    {
+      "cwe": "CWE-77",
+      "method": "GET",
+      "route": "/CommandInjection/LEVEL_4",
+      "type": "COMMAND_INJECTION",
+      "wasc_id": 31
+    },
+    {
+      "cwe": "CWE-77",
+      "method": "GET",
+      "route": "/CommandInjection/LEVEL_5",
+      "type": "COMMAND_INJECTION",
+      "wasc_id": 31
+    },
+    {
+      "cwe": "CWE-326",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_1",
+      "type": "INSECURE_CRYPTOGRAPHIC_STORAGE",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-326",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_2",
+      "type": "INSECURE_CRYPTOGRAPHIC_STORAGE",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-330",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_3",
+      "type": "USE_OF_BROKEN_CRYPTOGRAPHIC_ALGORITHM",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-330",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_4",
+      "type": "USE_OF_BROKEN_CRYPTOGRAPHIC_ALGORITHM",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-327",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_5",
+      "type": "WEAK_CRYPTOGRAPHIC_HASH",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-327",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_6",
+      "type": "WEAK_CRYPTOGRAPHIC_HASH",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-327",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_7",
+      "type": "WEAK_CRYPTOGRAPHIC_HASH",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-327",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_8",
+      "type": "WEAK_CRYPTOGRAPHIC_HASH",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-327",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_9",
+      "type": "WEAK_CRYPTOGRAPHIC_HASH",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-330",
+      "method": "GET",
+      "route": "/CryptographicFailures/LEVEL_10",
+      "type": "USE_OF_BROKEN_CRYPTOGRAPHIC_ALGORITHM",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-502",
+      "method": "GET",
+      "route": "/InsecureDeserialization/LEVEL_1",
+      "type": "INSECURE_DESERIALIZATION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-502",
+      "method": "GET",
+      "route": "/InsecureDeserialization/LEVEL_2",
+      "type": "INSECURE_DESERIALIZATION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-285",
+      "method": "GET",
+      "route": "/InsecureDeserialization/LEVEL_2",
+      "type": "IMPROPER_AUTHORIZATION",
+      "wasc_id": 2
+    },
+    {
+      "cwe": "CWE-502",
+      "method": "GET",
+      "route": "/InsecureDeserialization/LEVEL_4",
+      "type": "INSECURE_DESERIALIZATION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-94",
+      "method": "GET",
+      "route": "/InsecureDeserialization/LEVEL_4",
+      "type": "REMOTE_CODE_EXECUTION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-434",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_1",
+      "type": "UNRESTRICTED_FILE_UPLOAD",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_1",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_1",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_1",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-434",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_2",
+      "type": "UNRESTRICTED_FILE_UPLOAD",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_2",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_2",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-434",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_3",
+      "type": "UNRESTRICTED_FILE_UPLOAD",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_3",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_3",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-434",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_4",
+      "type": "UNRESTRICTED_FILE_UPLOAD",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_4",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_4",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-434",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_5",
+      "type": "UNRESTRICTED_FILE_UPLOAD",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_5",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_5",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-434",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_6",
+      "type": "UNRESTRICTED_FILE_UPLOAD",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_6",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_6",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-434",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_7",
+      "type": "UNRESTRICTED_FILE_UPLOAD",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_7",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_7",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_8",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-400",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_9",
+      "type": "UNCONTROLLED_RESOURCE_CONSUMPTION",
+      "wasc_id": 10
+    },
+    {
+      "cwe": "CWE-730",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_9",
+      "type": "DENIAL_OF_SERVICE",
+      "wasc_id": 10
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "POST",
+      "route": "/UnrestrictedFileUpload/LEVEL_9",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-639",
+      "method": "GET",
+      "route": "/IDORVulnerability/LEVEL_1",
+      "type": "INSECURE_DIRECT_OBJECT_REFERENCE",
+      "wasc_id": 13
+    },
+    {
+      "cwe": "CWE-639",
+      "method": "GET",
+      "route": "/IDORVulnerability/LEVEL_2",
+      "type": "INSECURE_DIRECT_OBJECT_REFERENCE",
+      "wasc_id": 13
+    },
+    {
+      "cwe": "CWE-639",
+      "method": "GET",
+      "route": "/IDORVulnerability/LEVEL_3",
+      "type": "INSECURE_DIRECT_OBJECT_REFERENCE",
+      "wasc_id": 13
+    },
+    {
+      "cwe": "CWE-639",
+      "method": "GET",
+      "route": "/IDORVulnerability/LEVEL_4",
+      "type": "INSECURE_DIRECT_OBJECT_REFERENCE",
+      "wasc_id": 13
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_1",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_2",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_3",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_4",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-1188",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_4",
+      "type": "INSECURE_CONFIGURATION_JWT",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_5",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-347",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_5",
+      "type": "SERVER_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_6",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-347",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_6",
+      "type": "SERVER_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_7",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_8",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-347",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_8",
+      "type": "SERVER_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_9",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-347",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_9",
+      "type": "SERVER_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-522",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_10",
+      "type": "CLIENT_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-347",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_10",
+      "type": "SERVER_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-113",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_13",
+      "type": "HEADER_INJECTION",
+      "wasc_id": 20
+    },
+    {
+      "cwe": "CWE-1188",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_14",
+      "type": "INSECURE_CONFIGURATION_JWT",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-347",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_15",
+      "type": "SERVER_SIDE_VULNERABLE_JWT",
+      "wasc_id": 1
+    },
+    {
+      "cwe": "CWE-1188",
+      "method": "GET",
+      "route": "/JWTVulnerability/LEVEL_16",
+      "type": "INSECURE_CONFIGURATION_JWT",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-90",
+      "method": "GET",
+      "route": "/LDAPInjectionVulnerability/LEVEL_1",
+      "type": "LDAP_INJECTION",
+      "wasc_id": 29
+    },
+    {
+      "cwe": "CWE-90",
+      "method": "GET",
+      "route": "/LDAPInjectionVulnerability/LEVEL_2",
+      "type": "LDAP_INJECTION",
+      "wasc_id": 29
+    },
+    {
+      "cwe": "CWE-90",
+      "method": "GET",
+      "route": "/LDAPInjectionVulnerability/LEVEL_3",
+      "type": "LDAP_INJECTION",
+      "wasc_id": 29
+    },
+    {
+      "cwe": "CWE-90",
+      "method": "GET",
+      "route": "/LDAPInjectionVulnerability/LEVEL_5",
+      "type": "LDAP_INJECTION",
+      "wasc_id": 29
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_1",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_2",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_3",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_4",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_5",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_6",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_7",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_9",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-601",
+      "method": "GET",
+      "route": "/Http3xxStatusCodeBasedInjection/LEVEL_10",
+      "type": "OPEN_REDIRECT_3XX_STATUS_CODE",
+      "wasc_id": 38
+    },
+    {
+      "cwe": "CWE-338",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_1",
+      "type": "WEAK_RANDOM_NUMBER_GENERATION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-307",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_1",
+      "type": "NO_LOGIN_RATE_LIMITING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-613",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_1",
+      "type": "PASSWORD_RESET_TOKEN_WITHOUT_EXPIRY",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-338",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_2",
+      "type": "WEAK_RANDOM_NUMBER_GENERATION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-307",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_2",
+      "type": "NO_LOGIN_RATE_LIMITING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-613",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_2",
+      "type": "PASSWORD_RESET_TOKEN_WITHOUT_EXPIRY",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-640",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_3",
+      "type": "REUSABLE_PASSWORD_RESET_TOKEN",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-307",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_3",
+      "type": "NO_LOGIN_RATE_LIMITING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-307",
+      "method": "POST",
+      "route": "/OTPVulnerability/LEVEL_4",
+      "type": "NO_LOGIN_RATE_LIMITING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-330",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_1",
+      "type": "PREDICTABLE_PASSWORD_RESET_TOKEN",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-613",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_2",
+      "type": "PASSWORD_RESET_TOKEN_WITHOUT_EXPIRY",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-640",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_3",
+      "type": "REUSABLE_PASSWORD_RESET_TOKEN",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-204",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_4",
+      "type": "USERNAME_ENUMERATION",
+      "wasc_id": 41
+    },
+    {
+      "cwe": "CWE-319",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_5",
+      "type": "INSECURE_PASSWORD_RESET_LINK",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-338",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_6",
+      "type": "WEAK_RANDOM_NUMBER_GENERATION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-200",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_7",
+      "type": "PASSWORD_RESET_TOKEN_EXPOSED_VIA_REFERRER",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-330",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_8",
+      "type": "PREDICTABLE_PASSWORD_RESET_TOKEN",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-307",
+      "method": "GET",
+      "route": "/PasswordResetVulnerability/LEVEL_9",
+      "type": "NO_LOGIN_RATE_LIMITING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_1",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_2",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_3",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_4",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_5",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_6",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_7",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_8",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_9",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_10",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_11",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-22",
+      "method": "GET",
+      "route": "/PathTraversal/LEVEL_12",
+      "type": "PATH_TRAVERSAL",
+      "wasc_id": 33
+    },
+    {
+      "cwe": "CWE-384",
+      "method": "POST",
+      "route": "/SessionManagementVulnerability/LEVEL_1",
+      "type": "SESSION_FIXATION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-330",
+      "method": "POST",
+      "route": "/SessionManagementVulnerability/LEVEL_2",
+      "type": "PREDICTABLE_SESSION_ID",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-330",
+      "method": "POST",
+      "route": "/SessionManagementVulnerability/LEVEL_3",
+      "type": "OBSCURED_PREDICTABLE_SESSION_ID",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-613",
+      "method": "POST",
+      "route": "/SessionManagementVulnerability/LEVEL_4",
+      "type": "MISSING_LOGOUT_INVALIDATION",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-307",
+      "method": "POST",
+      "route": "/SessionManagementVulnerability/LEVEL_5",
+      "type": "NO_LOGIN_RATE_LIMITING",
+      "wasc_id": null
+    },
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/BlindSQLInjectionVulnerability/LEVEL_1",
+      "type": "BLIND_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/BlindSQLInjectionVulnerability/LEVEL_2",
+      "type": "BLIND_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/ErrorBasedSQLInjectionVulnerability/LEVEL_1",
+      "type": "ERROR_BASED_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/ErrorBasedSQLInjectionVulnerability/LEVEL_2",
+      "type": "ERROR_BASED_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/ErrorBasedSQLInjectionVulnerability/LEVEL_3",
+      "type": "ERROR_BASED_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/ErrorBasedSQLInjectionVulnerability/LEVEL_4",
+      "type": "ERROR_BASED_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/UnionBasedSQLInjectionVulnerability/LEVEL_1",
+      "type": "UNION_BASED_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-89",
+      "method": "GET",
+      "route": "/UnionBasedSQLInjectionVulnerability/LEVEL_2",
+      "type": "UNION_BASED_SQL_INJECTION",
+      "wasc_id": 19
+    },
+    {
+      "cwe": "CWE-918",
+      "method": "GET",
+      "route": "/SSRFVulnerability/LEVEL_1",
+      "type": "SIMPLE_SSRF",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-918",
+      "method": "GET",
+      "route": "/SSRFVulnerability/LEVEL_2",
+      "type": "SIMPLE_SSRF",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-918",
+      "method": "GET",
+      "route": "/SSRFVulnerability/LEVEL_3",
+      "type": "SIMPLE_SSRF",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-918",
+      "method": "GET",
+      "route": "/SSRFVulnerability/LEVEL_4",
+      "type": "SIMPLE_SSRF",
+      "wasc_id": 15
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/PersistentXSSInHTMLTagVulnerability/LEVEL_1",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/PersistentXSSInHTMLTagVulnerability/LEVEL_2",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/PersistentXSSInHTMLTagVulnerability/LEVEL_3",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/PersistentXSSInHTMLTagVulnerability/LEVEL_4",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/PersistentXSSInHTMLTagVulnerability/LEVEL_5",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/PersistentXSSInHTMLTagVulnerability/LEVEL_6",
+      "type": "PERSISTENT_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/XSSInImgTagAttribute/LEVEL_1",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/XSSInImgTagAttribute/LEVEL_2",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/XSSInImgTagAttribute/LEVEL_3",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/XSSInImgTagAttribute/LEVEL_4",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/XSSInImgTagAttribute/LEVEL_5",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/XSSWithHtmlTagInjection/LEVEL_1",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/XSSWithHtmlTagInjection/LEVEL_2",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-79",
+      "method": "GET",
+      "route": "/XSSWithHtmlTagInjection/LEVEL_3",
+      "type": "REFLECTED_XSS",
+      "wasc_id": 8
+    },
+    {
+      "cwe": "CWE-611",
+      "method": "POST",
+      "route": "/XXEVulnerability/LEVEL_1",
+      "type": "XXE",
+      "wasc_id": 43
+    },
+    {
+      "cwe": "CWE-611",
+      "method": "POST",
+      "route": "/XXEVulnerability/LEVEL_2",
+      "type": "XXE",
+      "wasc_id": 43
+    },
+    {
+      "cwe": "CWE-611",
+      "method": "POST",
+      "route": "/XXEVulnerability/LEVEL_6",
+      "type": "XXE",
+      "wasc_id": 43
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "captured_at": "2026-11-01T02:28:21.573862+00:00",
+    "dast_endpoint": "http://127.0.0.1:9090/VulnerableApp/scanner/dast",
+    "sast_source": "src/main/resources/scanner/sast/expectedIssues.csv",
+    "source_commit": "9f45cd51f456cd54654565b48c4752e50a57b331"
+  }
+}

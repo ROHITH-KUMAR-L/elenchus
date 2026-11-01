@@ -189,6 +189,50 @@ One command runs the whole pipeline against the running target and its source:
    verification. Those are deadlines, not guarantees that every planned job
    succeeds; check the coverage report for skipped, errored, or untested work.
 
+   To measure full benchmark recall, first capture the target's official ground
+   truth. Supply the source CSV, Java vulnerability-type metadata, and exact
+   loopback DAST endpoint; the snapshot command does not infer or invent
+   vulnerable parameters:
+
+   ```sh
+   uv run --locked python -m producers.benchmark snapshot \
+     --source-root .targets/VulnerableApp \
+     --base-url http://127.0.0.1:9090/VulnerableApp \
+     --sast-ground-truth src/main/resources/scanner/sast/expectedIssues.csv \
+     --type-metadata src/main/java/org/sasanlabs/vulnerability/types/VulnerabilityType.java \
+     --dast-endpoint http://127.0.0.1:9090/VulnerableApp/scanner/dast \
+     --sast-output common/fixtures/benchmarks/vulnerableapp-sast.json \
+     --dast-output common/fixtures/benchmarks/vulnerableapp-dast.json
+   ```
+
+   Score source findings against the full SAST snapshot:
+
+   ```sh
+   uv run --locked python -m producers.benchmark sast .targets/VulnerableApp \
+     --expected common/fixtures/benchmarks/vulnerableapp-sast.json
+   ```
+
+   Save a scan's JSON output and score its runtime findings against the full
+   DAST snapshot:
+
+   ```sh
+   uv run --locked elenchus scan \
+     --source-path .targets/VulnerableApp \
+     --base-url http://127.0.0.1:9090/VulnerableApp \
+     --config benchmark.toml --output-format json --no-store \
+     > /tmp/elenchus-vulnerableapp-scan.json
+   uv run --locked python -m producers.benchmark dast \
+     /tmp/elenchus-vulnerableapp-scan.json \
+     --expected common/fixtures/benchmarks/vulnerableapp-dast.json
+   ```
+
+   These snapshots are measurement-only. DAST cases contain route, method,
+   vulnerability type and target metadata, but no parameter ground truth; they
+   never feed scan planning or correlation. The report shows raw and supported
+   scores side by side and lists misses. A route/CWE match may count for more
+   than one expected type on that route, matching the target comparator's
+   route/method/CWE semantics.
+
 3. Compare two stored runs (B-5): `uv run --locked elenchus compare --base <run_id> --current <run_id>`.
 
 Coverage: SQL injection (CWE-89, error/union/blind), OS command injection (CWE-78), reflected XSS (CWE-79) and open redirect (CWE-601) are probed dynamically with deterministic oracles; a static secrets/weak-crypto pass adds CWE-798/327/330 as Code-only. Path traversal (CWE-22) has an oracle but is not confirmable on VulnerableApp (its reader is classpath-based; see [docs/STATE.md](docs/STATE.md)). Details: [docs/implementation-plan.md](docs/implementation-plan.md).
@@ -214,7 +258,7 @@ Versions: Python dependencies are constrained in `pyproject.toml` and pinned in 
 
 ## 10. Metric targets
 
-From the PRD. Good qualifies. Great stands out. These are targets, not results. Nothing is measured yet. When measured, the supported-CWE score is shown beside the raw score.
+From the PRD. Good qualifies. Great stands out. These are targets, not results. Current measured results and their evidence are in [docs/STATE.md](docs/STATE.md). When measured, the supported-CWE score is shown beside the raw score.
 
 | What we measure | Good | Great |
 |---|---|---|

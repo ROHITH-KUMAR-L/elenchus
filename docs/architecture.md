@@ -429,7 +429,7 @@ Every run writes one. It states this line at the top: "Blocked or untested does 
 
 ## Measurement
 
-Nothing below has been measured yet. Report each on VulnerableApp against `expected_pairs` and its expected-issues file. Record results in [STATE.md](STATE.md).
+Report link measures on VulnerableApp against `expected_pairs`; report full SAST and DAST recall against the measurement-only snapshots of its official ground truth. The DAST snapshot records route, method, vulnerability type and CWE/WASC metadata, not triggering parameters. It never feeds scanner logic. Record results in [STATE.md](STATE.md).
 
 | Measure | Definition | Rule |
 |---|---|---|

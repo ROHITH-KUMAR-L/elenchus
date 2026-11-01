@@ -1,0 +1,747 @@
+{
+  "benchmark": "VulnerableApp SAST",
+  "expected": [
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+      "line": 51,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-256",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+      "line": 66,
+      "number_of_sources": 1,
+      "type": "plaintext password storage"
+    },
+    {
+      "cwe": "CWE-256",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+      "line": 106,
+      "number_of_sources": 1,
+      "type": "plaintext password storage"
+    },
+    {
+      "cwe": "CWE-916",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+      "line": 109,
+      "number_of_sources": 1,
+      "type": "weak password hashing"
+    },
+    {
+      "cwe": "CWE-916",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+      "line": 112,
+      "number_of_sources": 1,
+      "type": "weak password hashing"
+    },
+    {
+      "cwe": "CWE-916",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+      "line": 122,
+      "number_of_sources": 1,
+      "type": "weak password hashing"
+    },
+    {
+      "cwe": "CWE-204",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+      "line": 91,
+      "number_of_sources": 1,
+      "type": "username enumeration"
+    },
+    {
+      "cwe": "CWE-916",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthenticationVulnerability.java",
+      "line": 332,
+      "number_of_sources": 1,
+      "type": "weak password hashing"
+    },
+    {
+      "cwe": "CWE-916",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+      "line": 129,
+      "number_of_sources": 1,
+      "type": "weak password hashing"
+    },
+    {
+      "cwe": "CWE-349",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cachePoisoning/CachePoisoningVulnerability.java",
+      "line": 397,
+      "number_of_sources": 4,
+      "type": "web cache poisoning"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cachePoisoning/CachePoisoningVulnerability.java",
+      "line": 263,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cachePoisoning/CachePoisoningVulnerability.java",
+      "line": 275,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cachePoisoning/CachePoisoningVulnerability.java",
+      "line": 288,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-1021",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/clickjacking/ClickjackingVulnerability.java",
+      "line": 65,
+      "number_of_sources": 1,
+      "type": "clickjacking"
+    },
+    {
+      "cwe": "CWE-1021",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/clickjacking/ClickjackingVulnerability.java",
+      "line": 92,
+      "number_of_sources": 1,
+      "type": "clickjacking"
+    },
+    {
+      "cwe": "CWE-1021",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/clickjacking/ClickjackingVulnerability.java",
+      "line": 122,
+      "number_of_sources": 1,
+      "type": "clickjacking"
+    },
+    {
+      "cwe": "CWE-1021",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/clickjacking/ClickjackingVulnerability.java",
+      "line": 184,
+      "number_of_sources": 1,
+      "type": "clickjacking"
+    },
+    {
+      "cwe": "CWE-1021",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/clickjacking/ClickjackingVulnerability.java",
+      "line": 212,
+      "number_of_sources": 1,
+      "type": "clickjacking"
+    },
+    {
+      "cwe": "CWE-77",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/commandInjection/CommandInjection.java",
+      "line": 48,
+      "number_of_sources": 5,
+      "type": "command injection"
+    },
+    {
+      "cwe": "CWE-77",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/commandInjection/CommandInjection.java",
+      "line": 53,
+      "number_of_sources": 5,
+      "type": "command injection"
+    },
+    {
+      "cwe": "CWE-326",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 82,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-326",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 135,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-330",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 191,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-330",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 247,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-327",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 303,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-327",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 359,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-327",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 415,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-327",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 470,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-327",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 527,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-330",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/cryptographicFailures/CryptographicFailuresVulnerability.java",
+      "line": 590,
+      "number_of_sources": 1,
+      "type": "cryptographic failures"
+    },
+    {
+      "cwe": "CWE-22",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/UnrestrictedFileUpload.java",
+      "line": 130,
+      "number_of_sources": 3,
+      "type": "path traversal"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/UnrestrictedFileUpload.java",
+      "line": 129,
+      "number_of_sources": 7,
+      "type": "persistent xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/UnrestrictedFileUpload.java",
+      "line": 147,
+      "number_of_sources": 7,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-434",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/UnrestrictedFileUpload.java",
+      "line": 129,
+      "number_of_sources": 7,
+      "type": "unrestricted file upload"
+    },
+    {
+      "cwe": "CWE-730",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/UnrestrictedFileUpload.java",
+      "line": 129,
+      "number_of_sources": 1,
+      "type": "denial of service"
+    },
+    {
+      "cwe": "CWE-400",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/UnrestrictedFileUpload.java",
+      "line": 129,
+      "number_of_sources": 1,
+      "type": "uncontrolled resource consumption"
+    },
+    {
+      "cwe": "CWE-639",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/idor/IDORVulnerability.java",
+      "line": 82,
+      "number_of_sources": 1,
+      "type": "idor"
+    },
+    {
+      "cwe": "CWE-639",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/idor/IDORVulnerability.java",
+      "line": 120,
+      "number_of_sources": 1,
+      "type": "idor"
+    },
+    {
+      "cwe": "CWE-639",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/idor/IDORVulnerability.java",
+      "line": 158,
+      "number_of_sources": 1,
+      "type": "idor"
+    },
+    {
+      "cwe": "CWE-639",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/idor/IDORVulnerability.java",
+      "line": 207,
+      "number_of_sources": 1,
+      "type": "idor"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 132,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 205,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 266,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 341,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-1188",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 309,
+      "number_of_sources": 1,
+      "type": "insecure configuration jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 416,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-347",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/impl/JWTValidator.java",
+      "line": 79,
+      "number_of_sources": 1,
+      "type": "server side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 492,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-347",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/impl/JWTValidator.java",
+      "line": 107,
+      "number_of_sources": 1,
+      "type": "server side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 551,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 624,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-347",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/impl/JWTValidator.java",
+      "line": 154,
+      "number_of_sources": 1,
+      "type": "server side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 695,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-347",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/impl/JWTValidator.java",
+      "line": 184,
+      "number_of_sources": 1,
+      "type": "server side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-522",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 770,
+      "number_of_sources": 1,
+      "type": "client side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-347",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/impl/JWTValidator.java",
+      "line": 215,
+      "number_of_sources": 1,
+      "type": "server side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-113",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/impl/JWTValidator.java",
+      "line": 184,
+      "number_of_sources": 1,
+      "type": "header injection"
+    },
+    {
+      "cwe": "CWE-1188",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 939,
+      "number_of_sources": 1,
+      "type": "insecure configuration jwt"
+    },
+    {
+      "cwe": "CWE-347",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 1018,
+      "number_of_sources": 1,
+      "type": "server side vulnerable jwt"
+    },
+    {
+      "cwe": "CWE-1188",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/jwt/JWTVulnerability.java",
+      "line": 1100,
+      "number_of_sources": 1,
+      "type": "insecure configuration jwt"
+    },
+    {
+      "cwe": "CWE-90",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/ldapInjection/LDAPInjectionVulnerability.java",
+      "line": 43,
+      "number_of_sources": 2,
+      "type": "ldap injection"
+    },
+    {
+      "cwe": "CWE-90",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/ldapInjection/LDAPInjectionVulnerability.java",
+      "line": 71,
+      "number_of_sources": 2,
+      "type": "ldap injection"
+    },
+    {
+      "cwe": "CWE-601",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/openRedirect/Http3xxStatusCodeBasedInjection.java",
+      "line": 84,
+      "number_of_sources": 7,
+      "type": "open redirect"
+    },
+    {
+      "cwe": "CWE-601",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/openRedirect/Http3xxStatusCodeBasedInjection.java",
+      "line": 290,
+      "number_of_sources": 1,
+      "type": "open redirect"
+    },
+    {
+      "cwe": "CWE-601",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/openRedirect/Http3xxStatusCodeBasedInjection.java",
+      "line": 328,
+      "number_of_sources": 1,
+      "type": "open redirect"
+    },
+    {
+      "cwe": "CWE-22",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/pathTraversal/PathTraversalVulnerability.java",
+      "line": 66,
+      "number_of_sources": 12,
+      "type": "path traversal"
+    },
+    {
+      "cwe": "CWE-640",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 179,
+      "number_of_sources": 1,
+      "type": "predictable password reset token"
+    },
+    {
+      "cwe": "CWE-640",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 240,
+      "number_of_sources": 1,
+      "type": "password reset token without expiry"
+    },
+    {
+      "cwe": "CWE-640",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 244,
+      "number_of_sources": 1,
+      "type": "reusable password reset token"
+    },
+    {
+      "cwe": "CWE-204",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 236,
+      "number_of_sources": 1,
+      "type": "username enumeration"
+    },
+    {
+      "cwe": "CWE-319",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 229,
+      "number_of_sources": 1,
+      "type": "insecure password reset link"
+    },
+    {
+      "cwe": "CWE-330",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 187,
+      "number_of_sources": 1,
+      "type": "weak random number generation"
+    },
+    {
+      "cwe": "CWE-200",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 222,
+      "number_of_sources": 1,
+      "type": "password reset token exposed via referrer"
+    },
+    {
+      "cwe": "CWE-640",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 201,
+      "number_of_sources": 1,
+      "type": "predictable password reset token"
+    },
+    {
+      "cwe": "CWE-307",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetService.java",
+      "line": 252,
+      "number_of_sources": 1,
+      "type": "no login rate limiting"
+    },
+    {
+      "cwe": "CWE-384",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sessionManagement/SessionManagementService.java",
+      "line": 87,
+      "number_of_sources": 1,
+      "type": "session fixation"
+    },
+    {
+      "cwe": "CWE-330",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sessionManagement/SessionManagementService.java",
+      "line": 107,
+      "number_of_sources": 1,
+      "type": "predictable session id"
+    },
+    {
+      "cwe": "CWE-330",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sessionManagement/SessionManagementService.java",
+      "line": 130,
+      "number_of_sources": 1,
+      "type": "obscured predictable session id"
+    },
+    {
+      "cwe": "CWE-613",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sessionManagement/SessionManagementService.java",
+      "line": 276,
+      "number_of_sources": 1,
+      "type": "missing logout invalidation"
+    },
+    {
+      "cwe": "CWE-307",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sessionManagement/SessionManagementService.java",
+      "line": 177,
+      "number_of_sources": 1,
+      "type": "no login rate limiting"
+    },
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/BlindSQLInjectionVulnerability.java",
+      "line": 93,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/BlindSQLInjectionVulnerability.java",
+      "line": 135,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java",
+      "line": 83,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java",
+      "line": 143,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java",
+      "line": 206,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/ErrorBasedSQLInjectionVulnerability.java",
+      "line": 272,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/UnionBasedSQLInjectionVulnerability.java",
+      "line": 85,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-89",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/sqlInjection/UnionBasedSQLInjectionVulnerability.java",
+      "line": 115,
+      "number_of_sources": 1,
+      "type": "sql injection"
+    },
+    {
+      "cwe": "CWE-918",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/ssrf/SSRFVulnerability.java",
+      "line": 91,
+      "number_of_sources": 4,
+      "type": "ssrf"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/persistent/PersistentXSSInHTMLTagVulnerability.java",
+      "line": 114,
+      "number_of_sources": 1,
+      "type": "persistent xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/persistent/PersistentXSSInHTMLTagVulnerability.java",
+      "line": 138,
+      "number_of_sources": 1,
+      "type": "persistent xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/persistent/PersistentXSSInHTMLTagVulnerability.java",
+      "line": 166,
+      "number_of_sources": 1,
+      "type": "persistent xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/persistent/PersistentXSSInHTMLTagVulnerability.java",
+      "line": 205,
+      "number_of_sources": 1,
+      "type": "persistent xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/persistent/PersistentXSSInHTMLTagVulnerability.java",
+      "line": 238,
+      "number_of_sources": 1,
+      "type": "persistent xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/persistent/PersistentXSSInHTMLTagVulnerability.java",
+      "line": 273,
+      "number_of_sources": 1,
+      "type": "persistent xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/reflected/XSSInImgTagAttribute.java",
+      "line": 68,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/reflected/XSSInImgTagAttribute.java",
+      "line": 94,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/reflected/XSSInImgTagAttribute.java",
+      "line": 123,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/reflected/XSSInImgTagAttribute.java",
+      "line": 157,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/reflected/XSSInImgTagAttribute.java",
+      "line": 199,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/reflected/XSSWithHtmlTagInjection.java",
+      "line": 54,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/reflected/XSSWithHtmlTagInjection.java",
+      "line": 86,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-79",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xss/reflected/XSSWithHtmlTagInjection.java",
+      "line": 120,
+      "number_of_sources": 1,
+      "type": "reflected xss"
+    },
+    {
+      "cwe": "CWE-611",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xxe/XXEVulnerability.java",
+      "line": 113,
+      "number_of_sources": 1,
+      "type": "xxe"
+    },
+    {
+      "cwe": "CWE-611",
+      "file": "src/main/java/org/sasanlabs/service/vulnerability/xxe/XXEVulnerability.java",
+      "line": 151,
+      "number_of_sources": 2,
+      "type": "xxe"
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "captured_at": "2026-11-01T02:28:21.573862+00:00",
+    "dast_endpoint": "http://127.0.0.1:9090/VulnerableApp/scanner/dast",
+    "sast_source": "src/main/resources/scanner/sast/expectedIssues.csv",
+    "source_commit": "9f45cd51f456cd54654565b48c4752e50a57b331"
+  }
+}
